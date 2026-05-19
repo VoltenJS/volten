@@ -1,0 +1,31 @@
+{
+  "name": "volten",
+  "description": "A 0-dependency Node.js HTTP framework that is simple, modern, and fast.",
+  "keywords": [
+    "web",
+    "framework",
+    "fast",
+    "http",
+    "router",
+    "volten",
+    "speed",
+    "performance",
+    "modern",
+    "simple",
+    "fast"
+  ],
+  "version": "0.0.1",
+  "author": "insanerest",
+  "type": "module",
+  "main": "examples/01-hello-world.js",
+  "scripts": {
+    "build": "npx tsc",
+    "start": "node dist/app.js",
+    "dev": "nodemon",
+    "clear": "rm -rf dist/*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "typescript": "^6.0.2"
+  }
+}
