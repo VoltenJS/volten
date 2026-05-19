@@ -1,14 +1,18 @@
 {
   "name": "volten",
-  "description": "A high-velocity, multi-tenant HTTP framework for Node.js with tree-based routing.",
+  "description": "A 0-dependency Node.js HTTP framework that is simple, modern, and fast.",
   "keywords": [
     "web",
     "framework",
     "fast",
     "http",
-    "multi-tenant",
     "router",
-    "volten"
+    "volten",
+    "speed",
+    "performance",
+    "modern",
+    "simple",
+    "fast"
   ],
   "version": "0.0.1",
   "author": "insanerx",
