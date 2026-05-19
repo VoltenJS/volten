@@ -351,10 +351,3 @@ export class RouteTree {
     }
   }
 }
-
-/*
-const tree = new RouteTree();
-tree.addPath("GET", "/api/user/:id/:info/:length/call", [], () => {});
-tree.addPath("GET", "/api/user/list", [], () => {});
-console.log(tree.matchPath("GET", "/api/user/123/details/456/call"));
-*/

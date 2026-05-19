@@ -93,25 +93,9 @@ export function stringifyJSON(sample: any) {
   build(sample);
   return parts.join("");
 }
-/*
-const json = {
-  a: "b",
-  c: "d",
-  e: [
-    1,
-    "f",
-    {
-      g: "h",
-      i: "j",
-    },
-  ],
-  k: 1,
-  l: true,
-};
-*/
 
+// Not used anymore. Only kept for reference
 function handleString(path: string, lines: string[]) {
-  // To-Do: MAKE THIS MORE SAFE. just think of all the vulnerablities
   lines.push(`ctx.responseBuffer[ctx.bufferOffset++] = 34;`);
 
   const sVar = `s${lines.length}`;
@@ -190,7 +174,6 @@ export function createCompiledStringifier(sample: any) {
     }
   }
 
-  // "d" is the data object, "ctx" is the output stream
   build(sample, "d");
 
   const fnBody = lines.join("\n");
@@ -203,10 +186,3 @@ export function createCompiledStringifier(sample: any) {
     return (d: any, ctx: any) => ctx.writeStatic(JSON.stringify(d));
   }
 }
-
-/*
-createCompiledStringifier(json);
-
-console.log(JSON.stringify(json));
-
-*/
