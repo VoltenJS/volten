@@ -3,7 +3,6 @@ import fs from "fs";
 import path from "path";
 import { Buffer } from "node:buffer";
 import {
-  Context,
   Query,
   PathData,
   JSONResponseOptions,
@@ -29,7 +28,7 @@ setInterval(() => {
   DATE_HEADER_BUF = new Date().toUTCString();
 }, 1000);
 
-export class RequestContext implements Context {
+export class RequestContext {
   public _app!: App;
   private _req!: http.IncomingMessage;
   private _res!: http.ServerResponse;
