@@ -34,41 +34,6 @@ export interface FingerPrintData {
   JITcompiler: Function | null;
 }
 
-// Would it be more efficient to not have a Context interface at all?
-export interface Context {
-  _app: App;
-  _bodyPromise?: any;
-
-  req: IncomingMessage;
-  res: ServerResponse;
-  route: PathData;
-
-  readonly method: string;
-  readonly url: string;
-  readonly path: string;
-  readonly host: string;
-  headers: IncomingHttpHeaders;
-  type: string;
-
-  params: Params;
-  readonly query: Query;
-  state: Record<string, any>;
-
-  body: any;
-  statusCode?: number;
-  readonly sent: boolean;
-
-  status: (code: number) => RequestContext;
-  setHeader: (
-    key: string,
-    value: string | number | readonly string[],
-  ) => RequestContext;
-  removeHeader: (name: string) => RequestContext;
-  flushHeaders: () => RequestContext;
-  json: (data: any, statusCode?: number) => RequestContext;
-  text: (data: any, statusCode?: number) => RequestContext;
-}
-
 export type RouteData = [
   path: string,
   method: string,
