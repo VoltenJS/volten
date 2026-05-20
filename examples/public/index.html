@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Volten</title>
+    <link rel="stylesheet" href="style.css" />
+    <!-- <link rel="shortcut icon" href="voltenLogo.png" type="image/x-icon" /> -->
+  </head>
+  <body>
+    <canvas id="bg-canvas"></canvas>
+    <main class="card">
+      <h1 class="main">Welcome to</h1>
+      <div class="brand-container">
+        <img id="logo" src="voltenLogo.png" alt="Volten Logo" />
+        <h1 class="highlight">OLTEN</h1>
+      </div>
+      <h2>
+        A
+        <span id="underline"
+          ><span id="green">simple</span>, <span id="blue">modern</span> &
+          <span id="red">fast</span></span
+        >
+        HTTP framework
+      </h2>
+      <p class="p">
+        This is a simple example of a static file served by Volten.
+      </p>
+      <button class="cta-btn" id="explore-btn">
+        Click to Move the Particles
+      </button>
+      <br />
+      <br />
+      <button
+        class="cta-btn"
+        id="learn-more"
+        onclick="window.open('https:\/\/github.com/VoltenJS/volten', '_blank')"
+      >
+        Go to Repository
+      </button>
+    </main>
+    <script src="script.js"></script>
+  </body>
+</html>
