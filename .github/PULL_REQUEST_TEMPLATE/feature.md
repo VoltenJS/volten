@@ -21,6 +21,7 @@ A quick breakdown of files added or significantly modified:
 
 - [ ] **STRICT:** No external dependencies or packages were added
 - [ ] Code builds successfully with no errors or warnings
+- [ ] I have manually tested and verified that all scripts in the `examples/` folder run successfully with these modifications
 - [ ] I have performed a self-review of my own code
 
 ## Other Notes
