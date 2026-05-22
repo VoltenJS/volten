@@ -5,14 +5,17 @@ import { RequestContext } from "../utils/requestctx.ts";
 export function compose(middleware: VoltenHandler[]): VoltenHandler {
   return function (ctx, next) {
     let i = -1;
-    function dispatch(index: number): any {
+    function dispatch(index: number): void {
       if (index <= i) throw new Error("next() called multiple times");
       i = index;
       const fn = middleware[index];
-      if (!fn) return next ? next() : undefined;
-      return fn(ctx, () => dispatch(index + 1));
+      if (!fn) {
+        if (next) next();
+        return;
+      }
+      fn(ctx, () => dispatch(index + 1));
     }
-    return dispatch(0);
+    dispatch(0);
   };
 }
 
@@ -26,7 +29,7 @@ export function compileMiddlewareChain(
   return function (ctx: RequestContext) {
     let index = -1;
 
-    function dispatch(i: number): any {
+    function dispatch(i: number): Promise<void> {
       if (i <= index)
         return Promise.reject(new Error("next() called multiple times"));
       index = i;
@@ -53,9 +56,9 @@ export function compileMiddlewareChain(
       }
     }
 
-    return dispatch(0).catch((err: any) => {
+    return dispatch(0).catch((err: unknown) => {
       if (ctx._app) {
-        ctx._app.handleError(err, ctx.res, ctx);
+        ctx._app.handleError(err, ctx.res!, ctx);
       }
     });
   };
