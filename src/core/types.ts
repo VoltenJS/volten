@@ -1,6 +1,5 @@
-import { IncomingMessage, ServerResponse, IncomingHttpHeaders } from "http";
-import { PathNode, RouteTree } from "../utils/routetree.ts";
-import { App } from "../core/server.ts";
+import { IncomingMessage, ServerResponse } from "http";
+import { RouteTree } from "../utils/routetree.ts";
 import { RequestContext } from "../utils/requestctx.ts";
 import { MethodStorage } from "../utils/routetree.ts";
 
@@ -26,12 +25,14 @@ export type RawErrorHandler = (
   res: ServerResponse,
 ) => void | Promise<void>;
 
-export type Params = Record<string, any>;
+export type Params = Record<string, unknown>;
 export type Query = Record<string, string | string[]>;
+
+export type JitCompilerFunction = (d: unknown, ctx: RequestContext) => void;
 
 export interface FingerPrintData {
   stableCount: number;
-  JITcompiler: Function | null;
+  JITcompiler: JitCompilerFunction | null;
 }
 
 export type RouteData = [
@@ -64,11 +65,6 @@ export type HostData = {
 };
 
 export type HTTPMethodParams = [path: string, ...handlers: VoltenHandler[]];
-
-export type PathNodeChildren = {
-  static: Record<string, PathNode>;
-  param: PathNode | null;
-};
 
 export type JSONResponseOptions = {
   static?: boolean;

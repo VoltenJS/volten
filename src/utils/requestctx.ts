@@ -29,23 +29,23 @@ setInterval(() => {
 }, 1000);
 
 export class RequestContext {
-  public _app!: App;
-  private _req!: http.IncomingMessage;
-  private _res!: http.ServerResponse;
+  public _app: App | null = null;
+  private _req: http.IncomingMessage | null = null;
+  private _res: http.ServerResponse | null = null;
   private _cookiesCache: Record<string, string> | null = null;
-  public route!: PathData;
+  public route: PathData | null = null;
   public method!: string;
   public url!: string;
   public path!: string;
   public host!: string;
-  public headers!: http.IncomingHttpHeaders;
-  public state: Record<string, any> = {};
+  public headers: http.IncomingHttpHeaders | null = null;
+  public state: Record<string, unknown> = {};
   public params: Params = {};
   public inited: boolean = false;
 
   private queryString!: string;
   private queryValue: Query | null = null;
-  public _bodyPromise?: Promise<any>;
+  public _bodyPromise?: Promise<unknown>;
   public JSONOptions?: JSONResponseOptions;
 
   private isFlushing = false;
@@ -85,8 +85,8 @@ export class RequestContext {
           return;
         }
       }
-      this.res.writeHead(404, NOT_FOUND_HEADERS);
-      this.res.end(NOT_FOUND_BUF);
+      this.res!.writeHead(404, NOT_FOUND_HEADERS);
+      this.res!.end(NOT_FOUND_BUF);
       return;
     }
     this.route = route;
@@ -95,18 +95,18 @@ export class RequestContext {
     this.bufferOffset = 0;
 
     // To-Do: make this conditionally cork instead of corking at all times
-    // this.res.cork();
+    // this.res!.cork();
     this.inited = true;
   }
 
   public reset() {
     // To-Do: Chek if init function could replace this instead of having 2 call Per Request
     this.inited = false;
-    this._app = null as any;
-    this._req = null as any;
-    this._res = null as any;
-    this.route = null as any;
-    this.headers = null as any;
+    this._app = null;
+    this._req = null;
+    this._res = null;
+    this.route = null;
+    this.headers = null;
     for (const key in this.state) delete this.state[key];
     this.queryValue = null;
     this._bodyPromise = undefined;
@@ -133,9 +133,9 @@ export class RequestContext {
     this.bufferOffset = 0;
 
     try {
-      const ready = this.res.write(chunk);
+      const ready = this.res!.write(chunk);
       if (!ready) {
-        await new Promise((resolve) => this.res.once("drain", resolve));
+        await new Promise((resolve) => this.res!.once("drain", resolve));
       }
     } finally {
       this.isFlushing = false;
@@ -173,9 +173,9 @@ export class RequestContext {
     this.bufferOffset += this.responseBuffer.write(str, this.bufferOffset);
   }
 
-  public json(data: any, statusCode: number = 200) {
+  public json(data: unknown, statusCode: number = 200) {
     // To-Do: Improve JIT
-    const res = this.res;
+    const res = this.res!;
     res.statusCode = statusCode;
 
     if (this.sent) {
@@ -187,35 +187,35 @@ export class RequestContext {
     res.setHeader("Connection", "keep-alive");
     res.setHeader("Date", DATE_HEADER_BUF);
     // Disable JIT for every request, until JIT gets fixed
-    this.route.disableOpt = true;
-    if (this.route.disableOpt) {
+    this.route!.disableOpt = true;
+    if (this.route!.disableOpt) {
       const body = JSON.stringify(data);
-      this.res.setHeader("Content-Length", Buffer.byteLength(body));
+      this.res!.setHeader("Content-Length", Buffer.byteLength(body));
       res.end(body);
       res.uncork();
       return this;
     }
 
     try {
-      if (this.route.lastFingerprint === 0) {
+      if (this.route!.lastFingerprint === 0) {
         const stringified = JSON.stringify(data);
         if (stringified.length > RequestContext.BUFFER_SIZE) {
-          this.route.setDeOpt();
+          this.route!.setDeOpt();
         }
       }
-    } catch (e) {
-      this.route.setDeOpt();
+    } catch {
+      this.route!.setDeOpt();
     }
 
     const finger = getShapeFingerprint(data);
-    let routeCount = 0;
+    let routeCount;
     try {
-      routeCount = this._app.JITCache.getCount(finger);
+      routeCount = this._app!.JITCache.getCount(finger);
     } catch {
-      this._app.JITCache.create(finger);
-      routeCount = this._app.JITCache.getCount(finger);
+      this._app!.JITCache.create(finger);
+      routeCount = this._app!.JITCache.getCount(finger);
     }
-    const compiler = this._app.JITCache.getCompiler(finger);
+    const compiler = this._app!.JITCache.getCompiler(finger);
     if (compiler) {
       try {
         this.bufferOffset = 0;
@@ -223,33 +223,33 @@ export class RequestContext {
           compiler(data, this);
           res.end(this.responseBuffer.subarray(0, this.bufferOffset));
           res.uncork();
-        } catch (e: any) {
-          if (e.message === "Buffer Overflow") {
+        } catch (e: unknown) {
+          if (e instanceof Error && e.message === "Buffer Overflow") {
             const body = JSON.stringify(data);
-            this.res.setHeader("Content-Length", Buffer.byteLength(body));
+            this.res!.setHeader("Content-Length", Buffer.byteLength(body));
             res.end(body);
             res.uncork();
           }
         }
         return this;
-      } catch (e) {
-        this._app.JITCache.delete(finger);
+      } catch {
+        this._app!.JITCache.delete(finger);
       }
     }
-    if (this.route.lastFingerprint == finger) {
-      this._app.JITCache.addCount(finger);
+    if (this.route!.lastFingerprint == finger) {
+      this._app!.JITCache.addCount(finger);
 
       if (routeCount >= 10) {
         const newCompiler = createCompiledStringifier(data);
-        this._app.JITCache.setCompiler(finger, newCompiler);
+        this._app!.JITCache.setCompiler(finger, newCompiler);
       }
     } else {
-      this.route.setFingerprint(finger);
-      this._app.JITCache.resetCount(finger);
+      this.route!.setFingerprint(finger);
+      this._app!.JITCache.resetCount(finger);
     }
 
     const body = JSON.stringify(data);
-    this.res.setHeader("Content-Length", Buffer.byteLength(body));
+    this.res!.setHeader("Content-Length", Buffer.byteLength(body));
     res.end(body);
     res.uncork();
     return this;
@@ -260,23 +260,23 @@ export class RequestContext {
     statusCode = 200,
     options?: SendFileOptions,
   ) {
-    this.res.cork();
+    this.res!.cork();
     fs.stat(filePath, (err, stats) => {
       if (err || !stats.isFile()) {
-        this.res.writeHead(404, NOT_FOUND_HEADERS);
-        this.res.end(NOT_FOUND_BUF);
+        this.res!.writeHead(404, NOT_FOUND_HEADERS);
+        this.res!.end(NOT_FOUND_BUF);
         return;
       }
 
       const ext = path.extname(filePath).toLowerCase().slice(1);
       const contentType = this.getMimeType(ext);
 
-      this.res.statusCode = statusCode;
-      this.res.setHeader("Content-Type", contentType);
-      this.res.setHeader("Content-Length", stats.size);
-      this.res.setHeader("Last-Modified", stats.mtime.toUTCString());
+      this.res!.statusCode = statusCode;
+      this.res!.setHeader("Content-Type", contentType);
+      this.res!.setHeader("Content-Length", stats.size);
+      this.res!.setHeader("Last-Modified", stats.mtime.toUTCString());
       if (options?.download) {
-        this.res.setHeader(
+        this.res!.setHeader(
           "Content-Disposition",
           "attachment; filename=" + encodeURIComponent(options?.download),
         );
@@ -284,11 +284,11 @@ export class RequestContext {
 
       const stream = fs.createReadStream(filePath);
 
-      this.res.uncork();
+      this.res!.uncork();
 
-      stream.pipe(this.res);
+      stream.pipe(this.res!);
 
-      this.res.on("close", () => {
+      this.res!.on("close", () => {
         stream.destroy();
       });
 
@@ -297,11 +297,11 @@ export class RequestContext {
         if (options?.errCallback) {
           return options.errCallback(streamErr, this);
         }
-        if (!this.res.headersSent) {
-          this.res.writeHead(404, INTERNAL_SERVER_ERROR_HEADERS);
-          this.res.end(INTERNAL_SERVER_ERROR_BUF);
+        if (!this.res!.headersSent) {
+          this.res!.writeHead(404, INTERNAL_SERVER_ERROR_HEADERS);
+          this.res!.end(INTERNAL_SERVER_ERROR_BUF);
         } else {
-          this.res.destroy();
+          this.res!.destroy();
         }
       });
     });
@@ -392,13 +392,13 @@ export class RequestContext {
   }
 
   public buffer(data: Buffer, statusCode: number) {
-    this.res.statusCode = statusCode;
-    this.res.setHeader(
+    this.res!.statusCode = statusCode;
+    this.res!.setHeader(
       "Content-Type",
       "application/octet-stream; charset=utf-8",
     );
-    this.res.setHeader("Content-Length", data.length);
-    this.res.end(data);
+    this.res!.setHeader("Content-Length", data.length);
+    this.res!.end(data);
   }
 
   get query() {
@@ -412,7 +412,7 @@ export class RequestContext {
     if (this._cookiesCache !== null) {
       return this._cookiesCache;
     }
-    const rawCookieHeader = this.req.headers["cookie"];
+    const rawCookieHeader = this.req!.headers["cookie"];
     if (rawCookieHeader === undefined || rawCookieHeader.length === 0) {
       this._cookiesCache = Object.freeze({});
       return this._cookiesCache;
@@ -425,7 +425,7 @@ export class RequestContext {
         start++;
       }
       if (start >= len) break;
-      let equalsIdx = rawCookieHeader.indexOf("=", start);
+      const equalsIdx = rawCookieHeader.indexOf("=", start);
       if (equalsIdx === -1) break;
       let semiIdx = rawCookieHeader.indexOf(";", equalsIdx);
       if (semiIdx === -1) {
@@ -448,11 +448,11 @@ export class RequestContext {
    * Resolves the incoming request payload stream.
    * @param type - "json" (attempts JSON with string fallback) or "text" (forces raw text string)
    */
-  public body(type: "json" | "text" = "json"): Promise<any> {
+  public body(type: "json" | "text" = "json"): Promise<unknown> {
     if (this._bodyPromise) return this._bodyPromise;
 
     if (["POST", "PUT", "PATCH"].includes(this.method)) {
-      this._bodyPromise = this._app.parseBody(this, type === "text");
+      this._bodyPromise = this._app!.parseBody(this, type === "text");
     } else {
       console.warn(
         `Attempted to access body on a ${this.method} request; returning empty fallback.`,
@@ -464,14 +464,14 @@ export class RequestContext {
   }
 
   get statusCode() {
-    return this.res.statusCode || 200;
+    return this.res!.statusCode || 200;
   }
   set statusCode(code: number) {
-    this.res.statusCode = code;
+    this.res!.statusCode = code;
   }
 
   get type() {
-    const type = this.res.getHeader("Content-Type");
+    const type = this.res!.getHeader("Content-Type");
     return typeof type === "string" ? type.split(";")[0] : "";
   }
   set type(value: string) {
@@ -479,7 +479,7 @@ export class RequestContext {
   }
 
   get sent() {
-    return this.res.headersSent;
+    return this.res!.headersSent;
   }
 
   // --- HELPER METHODS ---
@@ -488,27 +488,27 @@ export class RequestContext {
     key: string,
     value: string | number | readonly string[],
   ): this {
-    if (!this.res.headersSent) this.res.setHeader(key, value);
+    if (!this.res!.headersSent) this.res!.setHeader(key, value);
     return this;
   }
 
   public status(code: number): this {
-    this.res.statusCode = code;
+    this.res!.statusCode = code;
     return this;
   }
 
   public text(data: string, statusCode = 200) {
     const body = String(data);
-    this.res.statusCode = statusCode;
-    this.res.setHeader("Content-Type", "text/plain; charset=utf-8");
-    this.res.setHeader("Content-Length", Buffer.byteLength(body));
-    this.res.end(body);
-    this.res.uncork();
+    this.res!.statusCode = statusCode;
+    this.res!.setHeader("Content-Type", "text/plain; charset=utf-8");
+    this.res!.setHeader("Content-Length", Buffer.byteLength(body));
+    this.res!.end(body);
+    this.res!.uncork();
     return this;
   }
 
-  public send(data: any, statusCode = 200) {
-    this.res.cork();
+  public send(data: unknown, statusCode = 200) {
+    this.res!.cork();
     if (typeof data === "string") {
       this.text(data, statusCode);
     } else if (Buffer.isBuffer(data)) {
@@ -520,20 +520,20 @@ export class RequestContext {
   }
 
   removeHeader(key: string) {
-    if (this.res.headersSent) {
+    if (this.res!.headersSent) {
       console.warn("Attempted to remove a header after headers were sent");
       return this;
     }
-    this.res.removeHeader(key);
+    this.res!.removeHeader(key);
     return this;
   }
 
   flushHeaders() {
-    if (this.res.headersSent) {
+    if (this.res!.headersSent) {
       console.warn("Attempted to flush headers after headers were sent");
       return this;
     }
-    this.res.flushHeaders();
+    this.res!.flushHeaders();
     return this;
   }
 
@@ -575,15 +575,15 @@ export class RequestContext {
     if (options.httpOnly === true) {
       str += "; HttpOnly";
     }
-    const existing = this.res.getHeader("Set-Cookie");
+    const existing = this.res!.getHeader("Set-Cookie");
 
     if (existing === undefined) {
-      this.res.setHeader("Set-Cookie", str);
+      this.res!.setHeader("Set-Cookie", str);
     } else if (typeof existing === "string") {
-      this.res.setHeader("Set-Cookie", [existing, str]);
+      this.res!.setHeader("Set-Cookie", [existing, str]);
     } else if (Array.isArray(existing)) {
       existing.push(str);
-      this.res.setHeader("Set-Cookie", existing);
+      this.res!.setHeader("Set-Cookie", existing);
     }
   }
 }

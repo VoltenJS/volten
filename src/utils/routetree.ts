@@ -77,7 +77,7 @@ export class RouteTree {
       composeChain,
       lastFingerprint: 0,
       disableOpt: false,
-      setFingerprint: (fingerprint: number) => {},
+      setFingerprint: (_fingerprint: number) => {},
       setDeOpt: () => {},
       methodStroage: new MethodStorage(),
     };
@@ -118,7 +118,7 @@ export class RouteTree {
       }
 
       // Handle Static Text Segments
-      let child = this.findStaticChild(currentNode, charCode);
+      const child = this.findStaticChild(currentNode, charCode);
 
       if (!child) {
         let j = i;
@@ -298,6 +298,7 @@ export class RouteTree {
             const extractedValue = path.slice(i);
             paramMatches.push({ name: "*", value: extractedValue });
             hasParams = true;
+            // eslint-disable-next-line no-useless-assignment
             i = len;
             break;
           }

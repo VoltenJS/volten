@@ -1,4 +1,4 @@
-import { FingerPrintData } from "../core/types.ts";
+import { FingerPrintData, JitCompilerFunction } from "../core/types.ts";
 // To-Do: make an addData & getData function
 export class JitCache {
   private cache = new Map<number, FingerPrintData>();
@@ -39,7 +39,7 @@ export class JitCache {
 
   getCount(fingerprint: number) {
     const fingerprintData = this.cache.get(fingerprint);
-    let count = null;
+    let count;
     if (fingerprintData) {
       const { stableCount } = fingerprintData;
       count = stableCount;
@@ -49,7 +49,7 @@ export class JitCache {
     return count;
   }
 
-  setCompiler(fingerprint: number, fn: Function) {
+  setCompiler(fingerprint: number, fn: JitCompilerFunction) {
     const existingFingerprint: FingerPrintData | null =
       this.cache.get(fingerprint) || null;
 

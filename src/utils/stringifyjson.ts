@@ -1,6 +1,7 @@
+import { RequestContext } from "./requestctx.ts";
 const OBJ_STACK = new Array(32);
 
-export function getShapeFingerprint(obj: any): number {
+export function getShapeFingerprint(obj: unknown): number {
   let hash = 2166136261;
   let sp = 0;
   OBJ_STACK[sp++] = obj;
@@ -60,15 +61,17 @@ export function getShapeFingerprint(obj: any): number {
   return result === 0 ? 1 : result;
 }
 
-export function stringifyJSON(sample: any) {
-  // for refernce only (also wont be efficeint sicne i switched the way i JIT compile)
+// for refernce only (also wont be efficeint sicne i switched the way i JIT compile)
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function stringifyJSON(sample: unknown) {
   const parts: string[] = [];
 
-  function build(obj: any) {
-    if (obj === null) {
+  function build(obj: unknown) {
+    if (obj === null || obj === undefined) {
       parts.push("null");
       return;
     }
+
     const type = typeof obj;
     if (type === "string") {
       parts.push(`${JSON.stringify(obj)}`);
@@ -80,10 +83,13 @@ export function stringifyJSON(sample: any) {
       parts.push("]");
     } else if (type === "object") {
       parts.push("{");
-      const keys = Object.keys(obj);
+
+      const currentObj = obj as Record<string, unknown>;
+      const keys = Object.keys(currentObj);
+
       keys.forEach((key, i) => {
         parts.push(`"${key}":`);
-        build(obj[key]);
+        build(currentObj[key]);
         if (i < keys.length - 1) parts.push(",");
       });
       parts.push("}");
@@ -95,6 +101,7 @@ export function stringifyJSON(sample: any) {
 }
 
 // Not used anymore. Only kept for reference
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function handleString(path: string, lines: string[]) {
   lines.push(`ctx.responseBuffer[ctx.bufferOffset++] = 34;`);
 
@@ -125,13 +132,13 @@ function handleString(path: string, lines: string[]) {
   lines.push(`ctx.responseBuffer[ctx.bufferOffset++] = 34;`);
 }
 
-export function createCompiledStringifier(sample: any) {
+export function createCompiledStringifier(sample: unknown) {
   const lines: string[] = [];
 
   // Helper to escape strings for the generated code
   const esc = (s: string) => JSON.stringify(s);
 
-  function build(obj: any, path: string) {
+  function build(obj: unknown, path: string) {
     if (obj === null) {
       lines.push(`ctx.writeStatic('null');`);
       return;
@@ -163,11 +170,12 @@ export function createCompiledStringifier(sample: any) {
       lines.push(`ctx.writeStatic(']');`);
     } else if (type === "object") {
       lines.push(`ctx.writeStatic('{');`);
-      const keys = Object.keys(obj);
+      const currentObj = obj as Record<string, unknown>;
+      const keys = Object.keys(currentObj);
       keys.forEach((key, index) => {
         // JSON keys MUST be quoted
         lines.push(`ctx.writeStatic(${esc(esc(key) + ":")});`);
-        build(obj[key], `${path}[${esc(key)}]`);
+        build(currentObj[key], `${path}[${esc(key)}]`);
         if (index < keys.length - 1) lines.push(`ctx.writeStatic(',');`);
       });
       lines.push(`ctx.writeStatic('}');`);
@@ -180,9 +188,13 @@ export function createCompiledStringifier(sample: any) {
 
   try {
     // Generate the optimized function
-    return new Function("d", "ctx", fnBody) as (d: any, ctx: any) => void;
-  } catch (e) {
+    return new Function("d", "ctx", fnBody) as (
+      d: unknown,
+      ctx: RequestContext,
+    ) => void;
+  } catch {
     // Fallback to standard stringify if the JIT fails
-    return (d: any, ctx: any) => ctx.writeStatic(JSON.stringify(d));
+    return (d: unknown, ctx: RequestContext) =>
+      ctx.writeStatic(JSON.stringify(d));
   }
 }
