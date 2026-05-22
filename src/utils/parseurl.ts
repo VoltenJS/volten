@@ -12,7 +12,7 @@ export function parseUrl(url: string) {
     start = 2;
   }
 
-  let pathStart = start === 0 ? 0 : url.indexOf("/", start);
+  const pathStart = start === 0 ? 0 : url.indexOf("/", start);
 
   if (pathStart === -1 && start !== 0) {
     return { pathname: "/", queryStr: "" };

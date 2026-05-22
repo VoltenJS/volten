@@ -153,7 +153,6 @@ export class App {
   private availableContexts: RequestContext[];
   private poolIndex: number = 0;
   private poolSize: number = 2048;
-  public compiledStorage: Map<string, Function> = new Map();
   // To-Do: Make this customizable by dev
   public JITCache: JitCache = new JitCache(500);
   protected middleware: VoltenHandler[] = [];
@@ -292,9 +291,9 @@ export class App {
     text: boolean = false,
     limit = this.getSafeHost(ctx.host)?.hostOptions.bodyLimit ||
       this.AppOptions.bodyLimit,
-  ): Promise<any> {
-    const { req, res } = ctx;
-
+  ): Promise<unknown> {
+    const req = ctx.req!;
+    const res = ctx.res!;
     // 1. Fast-path: Check Content-Length before allocating promise/heap space
     const contentLengthHeader = req.headers["content-length"];
     if (contentLengthHeader !== undefined) {
@@ -386,7 +385,7 @@ export class App {
 
   private errorMiddleware: GenericErrorHandler = (err, ctx) => {
     console.error("Volten Route Error:", err);
-    const res = ctx.res;
+    const res = ctx.res!;
     if (!ctx.inited) return;
     if (!res.headersSent) {
       res.writeHead(500, INTERNAL_SERVER_ERROR_HEADERS);
@@ -398,12 +397,17 @@ export class App {
 
   private preflightHandler: PreflightHandler | null = null;
 
-  public handleError(err: any, res: http.ServerResponse, ctx: RequestContext) {
+  public handleError(
+    err: unknown,
+    res: http.ServerResponse,
+    ctx: RequestContext,
+  ) {
+    const error = err instanceof Error ? err : new Error("Unknown error");
     const errorHandler =
       this.hostErrorHandlers[ctx.host] || this.hostErrorHandlers["**"];
     return errorHandler
-      ? errorHandler(err, ctx)
-      : this.errorMiddleware(err, ctx);
+      ? errorHandler(error, ctx)
+      : this.errorMiddleware(error, ctx);
   }
 
   private getPreflightHandler(host: string) {
@@ -441,14 +445,14 @@ export class App {
     if (!ctx.inited) {
       return;
     }
-    const route = ctx.route;
+    const route = ctx.route!;
 
     // Use a pre-bound 404 handler to avoid creating a new function every time
     const handlerChain = route.composeChain;
     try {
-      const result = handlerChain(ctx, undefined as any);
+      const result = handlerChain(ctx, () => {});
       if (result && typeof result.then === "function") {
-        result.catch((err: any) => this.handleError(err, res, ctx));
+        result.catch((err: unknown) => this.handleError(err, res, ctx));
       }
     } catch (err) {
       this.handleError(err, res, ctx);
@@ -482,8 +486,9 @@ export class App {
         if (result && typeof result.then === "function") {
           result.catch((err: Error) => this.defaultErrorHandler(err, res));
         }
-      } catch (err: any) {
-        this.defaultErrorHandler(err, res);
+      } catch (err: unknown) {
+        const error = err instanceof Error ? err : new Error("Unknown error");
+        this.defaultErrorHandler(error, res);
         return;
       }
       if (res.headersSent) {
