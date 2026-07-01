@@ -7,6 +7,7 @@ const API_OPTIONS = {
 
 const volten = new App(API_OPTIONS);
 const app = volten.host("**");
+const PORT = process.env.PORT || 3000;
 
 // =========================================================================
 // 7. INBOUND DATA HANDLING & STREAM PAYLOAD THRESHOLD GUARDS
@@ -82,23 +83,23 @@ app.post("/api/v1/logs/raw", async (ctx) => {
   });
 });
 
-volten.listen(3000, () => {
+volten.listen(PORT, () => {
   console.log(
-    "Inbound Data Handling & Body Parsing demo running on http://localhost:3000",
+    `Inbound Data Handling & Body Parsing demo running on http://localhost:${PORT}`,
   );
   console.log(
-    "Test Endpoint A (JSON): POST -> http://localhost:3000/api/v1/users",
+    `Test Endpoint A (JSON): POST -> http://localhost:${PORT}/api/v1/users`,
   );
   console.log(
-    "Test Endpoint B (TEXT): POST -> http://localhost:3000/api/v1/logs/raw",
+    `Test Endpoint B (TEXT): POST -> http://localhost:${PORT}/api/v1/logs/raw`,
   );
   console.log(
-    "\nTEST COMMANDS (Run from your terminal to verify payload extraction):",
+    `\nTEST COMMANDS (Run from your terminal to verify payload extraction):`,
   );
   console.log(
-    `  A [JSON Parsing]:\n  curl -X POST http://localhost:3000/api/v1/users -H "Content-Type: application/json" -d '{"username":"insanerest","email":"insanerest@volten.io","role":"lead"}'\n`,
+    `  A [JSON Parsing]:\n  curl -X POST http://localhost:${PORT}/api/v1/users -H "Content-Type: application/json" -d '{"username":"insanerest","email":"insanerest@volten.io","role":"lead"}'\n`,
   );
   console.log(
-    `  B [Raw Text Parsing]:\n  curl -X POST http://localhost:3000/api/v1/logs/raw -H "Content-Type: text/plain" -d "SYS_ERR_404: Database connection pool lost stability at internal offset index reference sequence."\n`,
+    `  B [Raw Text Parsing]:\n  curl -X POST http://localhost:${PORT}/api/v1/logs/raw -H "Content-Type: text/plain" -d "SYS_ERR_404: Database connection pool lost stability at internal offset index reference sequence."\n`,
   );
 });

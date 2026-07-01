@@ -3,7 +3,7 @@ import { App } from "../dist/core/server.js";
 const volten = new App();
 // Using "**" as the host matcher allows the application to respond to any incoming hostname
 const app = volten.host("**");
-
+const PORT = process.env.PORT || 3000;
 // =========================================================================
 // 4. ROUTING SYSTEM, DYNAMIC PARAMETERS, AND WILDCARDS
 // =========================================================================
@@ -75,15 +75,15 @@ app.get("/api/v1/search", (ctx) => {
   });
 });
 
-volten.listen(3000, () => {
-  console.log("Routing & Wildcards demo running on http://localhost:3000");
+volten.listen(PORT, () => {
+  console.log("Routing & Wildcards demo running on http://localhost:" + PORT);
   console.log(
-    "Test Parameter Routing: http://localhost:3000/shop/electronics/mac-studio",
+    `Test Parameter Routing: http://localhost:${PORT}/shop/electronics/mac-studio`,
   );
   console.log(
-    "Test Wildcard Routing:  http://localhost:3000/static/images/logos/voltenLogo.png",
+    `Test Wildcard Routing:  http://localhost:${PORT}/static/images/logos/voltenLogo.png`,
   );
   console.log(
-    "Test Query Parsing:     http://localhost:3000/api/v1/search?q=high-performance&limit=25",
+    `Test Query Parsing:     http://localhost:${PORT}/api/v1/search?q=high-performance&limit=25`,
   );
 });
