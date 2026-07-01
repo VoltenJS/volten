@@ -2,7 +2,7 @@ import { App } from "../dist/core/server.js";
 
 const volten = new App();
 const app = volten.host("**");
-
+const PORT = process.env.PORT || 3000;
 // =========================================================================
 // 5. GLOBAL ERROR HANDLING & PROCESS RESILIENCE
 // =========================================================================
@@ -57,12 +57,14 @@ app.get("/api/v1/explode", (ctx) => {
   databaseConnection.query("SELECT * FROM users");
 });
 
-volten.listen(3000, () => {
-  console.log("Resilient Error Handling demo running on http://localhost:3000");
+volten.listen(PORT, () => {
   console.log(
-    "Test Healthy Route (Baseline): http://localhost:3000/api/v1/healthy",
+    "Resilient Error Handling demo running on http://localhost:" + PORT,
   );
   console.log(
-    "Test Exploded Route (Protection): http://localhost:3000/api/v1/explode",
+    `Test Healthy Route (Baseline): http://localhost:${PORT}/api/v1/healthy`,
+  );
+  console.log(
+    `Test Exploded Route (Protection): http://localhost:${PORT}/api/v1/explode`,
   );
 });

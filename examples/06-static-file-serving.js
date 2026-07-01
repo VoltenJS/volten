@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const volten = new App();
 const app = volten.host("**");
+const PORT = process.env.PORT || 3000;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,6 +15,6 @@ app.get("/", (ctx) => {
   ctx.sendFile(path.join(__dirname, "public/index.html"));
 });
 
-volten.listen(3000, () => {
-  console.log("Static File Serving demo running on http://localhost:3000");
+volten.listen(PORT, () => {
+  console.log(`Static File Serving demo running on http://localhost:${PORT}`);
 });

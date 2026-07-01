@@ -2,6 +2,7 @@ import { App } from "../dist/core/server.js";
 
 const volten = new App();
 const app = volten.host("**");
+const PORT = process.env.PORT || 3000;
 
 // =========================================================================
 // 9. HIGH-PERFORMANCE BUFFERED STREAMING & BACKPRESSURE RESILIENCE
@@ -101,17 +102,17 @@ app.get("/api/v1/stream/events", async (ctx) => {
   });
 });
 
-volten.listen(3000, () => {
+volten.listen(PORT, () => {
   console.log(
-    "High-Performance Buffered Streams demo running on http://localhost:3000",
+    `High-Performance Buffered Streams demo running on http://localhost:${PORT}`,
   );
   console.log(
-    "Test Endpoint A (Buffered Data Array): http://localhost:3000/api/v1/stream/dataset",
+    `Test Endpoint A (Buffered Data Array): http://localhost:${PORT}/api/v1/stream/dataset`,
   );
   console.log(
-    "Test Endpoint B (Buffered Live SSE):   http://localhost:3000/api/v1/stream/events",
+    `Test Endpoint B (Buffered Live SSE):   http://localhost:${PORT}/api/v1/stream/events`,
   );
   console.log("\nTEST COMMANDS:");
-  console.log(`  curl http://localhost:3000/api/v1/stream/dataset\n`);
-  console.log(`  curl http://localhost:3000/api/v1/stream/events -N\n`);
+  console.log(`  curl http://localhost:${PORT}/api/v1/stream/dataset\n`);
+  console.log(`  curl http://localhost:${PORT}/api/v1/stream/events -N\n`);
 });

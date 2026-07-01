@@ -2,6 +2,7 @@ import { App } from "../dist/core/server.js";
 
 const volten = new App();
 const app = volten.host("**");
+const PORT = process.env.PORT || 3000;
 
 // =========================================================================
 // 8. STATE MANAGEMENT, COOKIE ABSTRACTIONS & SESSIONS
@@ -119,27 +120,27 @@ app.post("/api/v1/auth/logout", (ctx) => {
   });
 });
 
-volten.listen(3000, () => {
+volten.listen(PORT, () => {
   console.log(
-    "State Management & Cookie Parsing demo running on http://localhost:3000",
+    `State Management & Cookie Parsing demo running on http://localhost:${PORT}`,
   );
   console.log(
-    "Step 1 [Try Dashboard First - Blocks]: http://localhost:3000/api/v1/dashboard",
+    `Step 1 [Try Dashboard First - Blocks]: http://localhost:${PORT}/api/v1/dashboard`,
   );
   console.log(
-    "Step 2 [Authenticate User - Login]:  POST -> http://localhost:3000/api/v1/auth/login",
+    `Step 2 [Authenticate User - Login]:  POST -> http://localhost:${PORT}/api/v1/auth/login`,
   );
   console.log(
-    "Step 3 [Access Dashboard - Success]: http://localhost:3000/api/v1/dashboard",
+    `Step 3 [Access Dashboard - Success]: http://localhost:${PORT}/api/v1/dashboard`,
   );
   console.log(
-    "Step 4 [Clear Authentication - Logout]: POST -> http://localhost:3000/api/v1/auth/logout",
+    `Step 4 [Clear Authentication - Logout]: POST -> http://localhost:${PORT}/api/v1/auth/logout`,
   );
   console.log("\nQUICK TERMINAL VERIFICATION COMMANDS:");
   console.log(
-    `  Login Request:\n  curl -X POST http://localhost:3000/api/v1/auth/login -c cookie_jar.txt\n`,
+    `  Login Request:\n  curl -X POST http://localhost:${PORT}/api/v1/auth/login -c cookie_jar.txt\n`,
   );
   console.log(
-    `  Dashboard Read (Using Cookie Jar):\n  curl http://localhost:3000/api/v1/dashboard -b cookie_jar.txt\n`,
+    `  Dashboard Read (Using Cookie Jar):\n  curl http://localhost:${PORT}/api/v1/dashboard -b cookie_jar.txt\n`,
   );
 });
