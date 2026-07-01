@@ -21,11 +21,16 @@ export function parseUrl(url: string) {
   const queryIndex = remaining.indexOf("?");
 
   if (queryIndex === -1) {
-    return { pathname: remaining || "/", queryStr: "" };
+    return {
+      pathname:
+        remaining.endsWith("/") && remaining.length > 1
+          ? remaining.slice(0, -1)
+          : remaining || "/",
+      queryStr: "",
+    };
   }
 
   let pathname = remaining.substring(0, queryIndex) || "/";
-
   if (pathname.endsWith("/") && pathname.length > 1) {
     pathname = pathname.slice(0, -1);
   }
@@ -39,7 +44,7 @@ export function parseQuery(queryStr: string): Query {
   const query: Query = {};
   if (!queryStr) return query;
 
-  const pairs = queryStr.split("&");
+  const pairs = queryStr.split("&").filter(Boolean);
   for (let i = 0; i < pairs.length; i++) {
     const pair = pairs[i].split("=");
     const key = decodeURIComponent(pair[0]);
