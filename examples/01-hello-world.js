@@ -4,4 +4,4 @@ import { App } from "../dist/core/server.js";
 const volten = new App();
 const app = volten.host("**");
 app.get("/", (ctx) => ctx.text("Hello world!"));
-volten.listen(3000);
+volten.listen(process.env.PORT || 3000);
