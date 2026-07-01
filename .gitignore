@@ -7,9 +7,11 @@ dist/
 
 # Temporary files
 test.txt
+test.ts
 
 # Other files
 .wakatime-project
+CLAUDE.md
 
 # System files
 .DS_Store
