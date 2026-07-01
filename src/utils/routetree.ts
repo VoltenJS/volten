@@ -7,8 +7,14 @@ export class MethodStorage {
   public PUT: PathData | null = null;
   public PATCH: PathData | null = null;
   public DELETE: PathData | null = null;
+  private static readonly METHOD_MAP = {
+    GET: "GET",
+    POST: "POST",
+    PUT: "PUT",
+    PATCH: "PATCH",
+    DELETE: "DELETE",
+  } as const;
 
-  // Could these ".toUpperCase" be removed. (Probably wont matter since it only called on server start)
   set(method: string, data: PathData) {
     const m = method.toUpperCase();
     if (m === "GET") this.GET = data;
@@ -19,13 +25,9 @@ export class MethodStorage {
   }
 
   get(method: string) {
-    const m = method.toUpperCase();
-    if (m === "GET") return this.GET;
-    if (m === "POST") return this.POST;
-    if (m === "PUT") return this.PUT;
-    if (m === "PATCH") return this.PATCH;
-    if (m === "DELETE") return this.DELETE;
-    return null;
+    return method in this
+      ? (this as unknown as Record<string, PathData>)[method]
+      : null;
   }
 }
 
@@ -79,7 +81,7 @@ export class RouteTree {
       disableOpt: false,
       setFingerprint: (_fingerprint: number) => {},
       setDeOpt: () => {},
-      methodStroage: new MethodStorage(),
+      methodStorage: new MethodStorage(),
     };
 
     let currentNode = this.root;
@@ -172,14 +174,14 @@ export class RouteTree {
       i += common;
     }
 
-    routeData.methodStroage = currentNode.methods;
+    routeData.methodStorage = currentNode.methods;
     routeData.setFingerprint = (fingerprint: number) => {
       routeData.lastFingerprint = fingerprint;
-      routeData.methodStroage.set(method, routeData);
+      routeData.methodStorage.set(method, routeData);
     };
     routeData.setDeOpt = () => {
       routeData.disableOpt = true;
-      routeData.methodStroage.set(method, routeData);
+      routeData.methodStorage.set(method, routeData);
     };
     currentNode.methods.set(method, routeData);
   }

@@ -10,10 +10,11 @@ import {
   Params,
   NOT_FOUND_BUF,
   NOT_FOUND_HEADERS,
-  GenericErrorHandler,
+  ErrorHandler,
   INTERNAL_SERVER_ERROR_BUF,
   INTERNAL_SERVER_ERROR_HEADERS,
   CookieOptions,
+  MultipartPart,
 } from "../core/types.ts";
 import { App } from "../core/server.ts";
 import { parseUrl, parseQuery } from "./parseurl.ts";
@@ -22,6 +23,11 @@ import {
   getShapeFingerprint,
 } from "./stringifyjson.ts";
 import { isFileInFolder } from "./security.ts";
+import {
+  HeadersSentError,
+  NotFoundError,
+  VoltenError,
+} from "../core/errors.ts";
 
 let DATE_HEADER_BUF = new Date().toUTCString();
 setInterval(() => {
@@ -33,6 +39,7 @@ export class RequestContext {
   private _req: http.IncomingMessage | null = null;
   private _res: http.ServerResponse | null = null;
   private _cookiesCache: Record<string, string> | null = null;
+  public _multipartPromises: Array<Promise<void>> = [];
   public route: PathData | null = null;
   public method!: string;
   public url!: string;
@@ -40,7 +47,7 @@ export class RequestContext {
   public host!: string;
   public headers: http.IncomingHttpHeaders | null = null;
   public state: Record<string, unknown> = {};
-  public params: Params = {};
+  public params: Params = Object.create(null);
   public inited: boolean = false;
 
   private queryString!: string;
@@ -54,7 +61,11 @@ export class RequestContext {
   public responseBuffer = Buffer.allocUnsafe(RequestContext.BUFFER_SIZE);
   public bufferOffset = 0;
 
-  public init(app: App, req: http.IncomingMessage, res: http.ServerResponse) {
+  public async init(
+    app: App,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+  ) {
     // Read on later: Could this be improved more?
     const urlStr = req.url || "/";
     const { pathname, queryStr } = parseUrl(urlStr);
@@ -62,6 +73,10 @@ export class RequestContext {
     this._app = app;
     this._req = req;
     this._res = res;
+    this._res.on("finish", () => {
+      this._app?.resetCtx(this);
+    });
+
     this.url = urlStr;
     this.path = pathname;
     this.queryString = queryStr;
@@ -72,24 +87,6 @@ export class RequestContext {
     this.host = headers.host || "";
     this.headers = headers;
     this.method = req.method || "GET";
-    const route =
-      app.getRoute(this.method, this.host, pathname, this) ||
-      app.getRoute(this.method, "**", pathname, this);
-    if (!route) {
-      const staticPath =
-        app.serverStaticMap.get(this.host) || app.serverStaticMap.get("**");
-      if (staticPath) {
-        const filePath = path.join(staticPath, pathname);
-        if (isFileInFolder(staticPath, filePath)) {
-          this.sendFile(filePath, 200, {});
-          return;
-        }
-      }
-      this.res!.writeHead(404, NOT_FOUND_HEADERS);
-      this.res!.end(NOT_FOUND_BUF);
-      return;
-    }
-    this.route = route;
 
     this._bodyPromise = undefined;
     this.bufferOffset = 0;
@@ -97,6 +94,33 @@ export class RequestContext {
     // To-Do: make this conditionally cork instead of corking at all times
     // this.res!.cork();
     this.inited = true;
+  }
+
+  public async routePath() {
+    if (!this.inited) return;
+    const app = this._app!;
+    const pathname = this.path;
+    const route =
+      app.getRoute(this.method, this.host, pathname, this) ||
+      app.getRoute(this.method, "**", pathname, this);
+    if (!route) {
+      try {
+        const staticPath =
+          app.serverStaticMap.get(this.host) || app.serverStaticMap.get("**");
+        if (!staticPath) {
+          throw new Error("No static path configured for host");
+        }
+        const filePath = path.join(staticPath, pathname);
+        if (!(await isFileInFolder(staticPath, filePath))) {
+          throw new Error("Attempted directory traversal attack");
+        }
+        this.sendFile(filePath, 200, {});
+        return;
+      } catch {
+        throw new NotFoundError("Route Not Found");
+      }
+    }
+    this.route = route;
   }
 
   public reset() {
@@ -107,6 +131,7 @@ export class RequestContext {
     this._res = null;
     this.route = null;
     this.headers = null;
+    this.params = Object.create(null);
     for (const key in this.state) delete this.state[key];
     this.queryValue = null;
     this._bodyPromise = undefined;
@@ -122,6 +147,28 @@ export class RequestContext {
 
   get res() {
     return this._res;
+  }
+
+  /**
+   * Returns true if the HTTP response headers have been sent to the client.
+   * At this point, status codes and headers can no longer be modified.
+   */
+  get headersSent(): boolean {
+    return this.res!.headersSent;
+  }
+
+  /**
+   * Returns true if the response is completely finished (res.end() was called).
+   * No more data can be written to the body.
+   */
+  get sent(): boolean {
+    // FIX: Check BOTH writableEnded and finished for maximum compatibility
+    return this.res!.writableEnded || this.res!.finished;
+  }
+
+  public get isMultipart(): boolean {
+    const contentType = this.req?.headers["content-type"];
+    return !!contentType && contentType.includes("multipart/form-data");
   }
 
   public async flush(): Promise<void> {
@@ -173,12 +220,15 @@ export class RequestContext {
     this.bufferOffset += this.responseBuffer.write(str, this.bufferOffset);
   }
 
-  public json(data: unknown, statusCode: number = 200) {
+  public json(data: unknown, statusCode = this.res!.statusCode) {
     // To-Do: Improve JIT
     const res = this.res!;
     res.statusCode = statusCode;
 
     if (this.sent) {
+      if (this._app && !this._app.AppOptions.noLogs) {
+        console.warn("Attempted to send JSON response after response was sent");
+      }
       return this;
     }
 
@@ -190,7 +240,7 @@ export class RequestContext {
     this.route!.disableOpt = true;
     if (this.route!.disableOpt) {
       const body = JSON.stringify(data);
-      this.res!.setHeader("Content-Length", Buffer.byteLength(body));
+      this.setHeader("Content-Length", Buffer.byteLength(body));
       res.end(body);
       res.uncork();
       return this;
@@ -226,7 +276,7 @@ export class RequestContext {
         } catch (e: unknown) {
           if (e instanceof Error && e.message === "Buffer Overflow") {
             const body = JSON.stringify(data);
-            this.res!.setHeader("Content-Length", Buffer.byteLength(body));
+            this.setHeader("Content-Length", Buffer.byteLength(body));
             res.end(body);
             res.uncork();
           }
@@ -249,7 +299,7 @@ export class RequestContext {
     }
 
     const body = JSON.stringify(data);
-    this.res!.setHeader("Content-Length", Buffer.byteLength(body));
+    this.setHeader("Content-Length", Buffer.byteLength(body));
     res.end(body);
     res.uncork();
     return this;
@@ -257,50 +307,85 @@ export class RequestContext {
 
   public sendFile(
     filePath: string,
-    statusCode = 200,
+    statusCode = this.res!.statusCode,
     options?: SendFileOptions,
   ) {
-    this.res!.cork();
+    if (this.sent) {
+      if (!this._app?.AppOptions.noLogs) {
+        console.warn("Attempted to send file after response was sent");
+      }
+      return this;
+    }
+
     fs.stat(filePath, (err, stats) => {
+      const regApp = this._app!;
+
+      // 1. File Not Found Handling
       if (err || !stats.isFile()) {
         this.res!.writeHead(404, NOT_FOUND_HEADERS);
         this.res!.end(NOT_FOUND_BUF);
+
+        if (options?.errCallback) {
+          options.errCallback(new NotFoundError(err?.message), this);
+        }
+
+        regApp.resetCtx(this);
         return;
       }
 
       const ext = path.extname(filePath).toLowerCase().slice(1);
       const contentType = this.getMimeType(ext);
 
-      this.res!.statusCode = statusCode;
-      this.res!.setHeader("Content-Type", contentType);
-      this.res!.setHeader("Content-Length", stats.size);
-      this.res!.setHeader("Last-Modified", stats.mtime.toUTCString());
-      if (options?.download) {
-        this.res!.setHeader(
-          "Content-Disposition",
-          "attachment; filename=" + encodeURIComponent(options?.download),
-        );
+      this.res!.cork();
+      try {
+        this.res!.statusCode = statusCode;
+        this.setHeader("Content-Type", contentType);
+        this.setHeader("Content-Length", stats.size);
+        this.setHeader("Last-Modified", stats.mtime.toUTCString());
+
+        // 2. Fixed Content-Disposition Header Syntax
+        if (options?.download) {
+          const encodedName = encodeURIComponent(options.download);
+          this.setHeader(
+            "Content-Disposition",
+            `attachment; filename*=UTF-8''${encodedName}`,
+          );
+        } else {
+          this.setHeader("Content-Type", contentType);
+        }
+      } finally {
+        this.res!.uncork();
       }
 
+      // 3. Stream Pipeline Execution
       const stream = fs.createReadStream(filePath);
-
-      this.res!.uncork();
-
       stream.pipe(this.res!);
 
       this.res!.on("close", () => {
         stream.destroy();
+        regApp.resetCtx(this);
       });
 
       stream.on("error", (streamErr) => {
-        console.error("Stream error:", streamErr);
-        if (options?.errCallback) {
-          return options.errCallback(streamErr, this);
+        if (!regApp.AppOptions.noLogs) {
+          console.error("Stream error:", streamErr);
         }
+        stream.destroy();
+
+        const normalizedErr = VoltenError.from(streamErr);
         if (!this.res!.headersSent) {
-          this.res!.writeHead(404, INTERNAL_SERVER_ERROR_HEADERS);
+          this.res!.writeHead(500, INTERNAL_SERVER_ERROR_HEADERS);
           this.res!.end(INTERNAL_SERVER_ERROR_BUF);
+
+          if (options?.errCallback) {
+            options.errCallback(normalizedErr, this);
+          }
+
+          regApp.resetCtx(this);
         } else {
+          if (options?.errCallback) {
+            options.errCallback(normalizedErr, this);
+          }
           this.res!.destroy();
         }
       });
@@ -312,10 +397,10 @@ export class RequestContext {
   public download(
     filePath: string,
     fileName: string,
-    statusCode = 200,
-    errCallback?: GenericErrorHandler,
+    statusCode = this.res!.statusCode,
+    errCallback?: ErrorHandler,
   ) {
-    this.sendFile(filePath, statusCode, {
+    return this.sendFile(filePath, statusCode, {
       download: fileName,
       errCallback,
     });
@@ -324,12 +409,12 @@ export class RequestContext {
     // This was generated by Gemini
     const MIMES: Record<string, string> = {
       // Text & Logic
-      html: "text/html; charset=utf-8",
-      htm: "text/html; charset=utf-8",
-      js: "text/javascript; charset=utf-8",
-      mjs: "text/javascript; charset=utf-8",
-      css: "text/css; charset=utf-8",
-      json: "application/json; charset=utf-8",
+      html: "text/html",
+      htm: "text/html",
+      js: "text/javascript",
+      mjs: "text/javascript",
+      css: "text/css",
+      json: "application/json",
       jsonld: "application/ld+json",
       txt: "text/plain; charset=utf-8",
       xml: "application/xml",
@@ -392,13 +477,17 @@ export class RequestContext {
   }
 
   public buffer(data: Buffer, statusCode: number) {
+    if (this.sent) {
+      if (this._app!.AppOptions.noLogs) {
+        console.warn("Attempted to send buffer after response was sent");
+      }
+      return this;
+    }
     this.res!.statusCode = statusCode;
-    this.res!.setHeader(
-      "Content-Type",
-      "application/octet-stream; charset=utf-8",
-    );
-    this.res!.setHeader("Content-Length", data.length);
+    this.setHeader("Content-Type", "application/octet-stream; charset=utf-8");
+    this.setHeader("Content-Length", data.length);
     this.res!.end(data);
+    return this;
   }
 
   get query() {
@@ -444,27 +533,57 @@ export class RequestContext {
     return this._cookiesCache;
   }
 
-  /**
-   * Resolves the incoming request payload stream.
-   * @param type - "json" (attempts JSON with string fallback) or "text" (forces raw text string)
-   */
   public body(type: "json" | "text" = "json"): Promise<unknown> {
     if (this._bodyPromise) return this._bodyPromise;
 
-    if (["POST", "PUT", "PATCH"].includes(this.method)) {
-      this._bodyPromise = this._app!.parseBody(this, type === "text");
-    } else {
-      console.warn(
-        `Attempted to access body on a ${this.method} request; returning empty fallback.`,
+    // Strict Separation Guard: Fast-reject if calling .body() on a multipart stream
+    if (this.isMultipart) {
+      this._bodyPromise = Promise.reject(
+        new Error(
+          "Volten: Cannot parse multipart/form-data via ctx.body(). Use ctx.multipart() instead to stream binary components safely.",
+        ),
       );
+      return this._bodyPromise;
+    }
+
+    if (["POST", "PUT", "PATCH"].includes(this.method)) {
+      // Execute the parser directly passing 'this' as the context instance
+      this._bodyPromise = this._app!.parseBody.call(
+        this._app!,
+        this,
+        type === "text",
+      );
+    } else {
+      if (!this._app?.AppOptions.noLogs) {
+        console.warn(
+          `Attempted to access body on a ${this.method} request; returning empty fallback.`,
+        );
+      }
       this._bodyPromise = Promise.resolve(type === "text" ? "" : {});
     }
 
     return this._bodyPromise;
   }
 
+  /**
+   * Streams incoming multipart data fields and files sequentially straight from the socket connection.
+   */
+  public async *multipart(): AsyncGenerator<MultipartPart, void, unknown> {
+    if (!this.isMultipart) {
+      if (!this._app?.AppOptions.noLogs) {
+        console.warn(
+          "Attempted to call ctx.multipart() on a non-multipart request header.",
+        );
+      }
+      return;
+    }
+
+    // Delegate the generator execution cleanly to the bodyparser utility
+    yield* this._app!.parseMultipartStream.call(this._app!, this);
+  }
+
   get statusCode() {
-    return this.res!.statusCode || 200;
+    return this.res!.statusCode;
   }
   set statusCode(code: number) {
     this.res!.statusCode = code;
@@ -478,36 +597,36 @@ export class RequestContext {
     this.setHeader("Content-Type", value);
   }
 
-  get sent() {
-    return this.res!.headersSent;
-  }
-
   // --- HELPER METHODS ---
-
-  public setHeader(
-    key: string,
-    value: string | number | readonly string[],
-  ): this {
-    if (!this.res!.headersSent) this.res!.setHeader(key, value);
-    return this;
-  }
 
   public status(code: number): this {
     this.res!.statusCode = code;
     return this;
   }
 
-  public text(data: string, statusCode = 200) {
+  public text(data: string, statusCode = this.res!.statusCode) {
     const body = String(data);
+    if (this.sent) {
+      if (!this._app?.AppOptions.noLogs) {
+        console.warn("Attempted to send text response after response was sent");
+      }
+      return this;
+    }
     this.res!.statusCode = statusCode;
-    this.res!.setHeader("Content-Type", "text/plain; charset=utf-8");
-    this.res!.setHeader("Content-Length", Buffer.byteLength(body));
+    if (!this.headersSent) {
+      this.setHeader("Content-Type", "text/plain; charset=utf-8");
+      this.setHeader("Content-Length", Buffer.byteLength(body));
+    } else {
+      if (!this._app?.AppOptions.noLogs) {
+        console.warn("Headers Already Sent, Sending Only Body");
+      }
+    }
     this.res!.end(body);
     this.res!.uncork();
     return this;
   }
 
-  public send(data: unknown, statusCode = 200) {
+  public send(data: unknown, statusCode = this.res!.statusCode) {
     this.res!.cork();
     if (typeof data === "string") {
       this.text(data, statusCode);
@@ -519,10 +638,20 @@ export class RequestContext {
     return this;
   }
 
+  public setHeader(
+    key: string,
+    value: string | number | readonly string[],
+  ): this {
+    if (this.res!.headersSent) {
+      throw new HeadersSentError();
+    }
+    this.res!.setHeader(key, value);
+    return this;
+  }
+
   removeHeader(key: string) {
     if (this.res!.headersSent) {
-      console.warn("Attempted to remove a header after headers were sent");
-      return this;
+      throw new HeadersSentError();
     }
     this.res!.removeHeader(key);
     return this;
@@ -530,18 +659,13 @@ export class RequestContext {
 
   flushHeaders() {
     if (this.res!.headersSent) {
-      console.warn("Attempted to flush headers after headers were sent");
-      return this;
+      throw new HeadersSentError();
     }
     this.res!.flushHeaders();
     return this;
   }
 
-  public setCookie(
-    name: string,
-    value: string,
-    options: CookieOptions = {},
-  ): void {
+  public setCookie(name: string, value: string, options: CookieOptions = {}) {
     let str = encodeURIComponent(name) + "=" + encodeURIComponent(value);
     if (options.path !== undefined) {
       str += "; Path=" + options.path;
@@ -578,12 +702,12 @@ export class RequestContext {
     const existing = this.res!.getHeader("Set-Cookie");
 
     if (existing === undefined) {
-      this.res!.setHeader("Set-Cookie", str);
+      this.setHeader("Set-Cookie", str);
     } else if (typeof existing === "string") {
-      this.res!.setHeader("Set-Cookie", [existing, str]);
+      this.setHeader("Set-Cookie", [existing, str]);
     } else if (Array.isArray(existing)) {
-      existing.push(str);
-      this.res!.setHeader("Set-Cookie", existing);
+      this.setHeader("Set-Cookie", [...existing, str]);
     }
+    return this;
   }
 }

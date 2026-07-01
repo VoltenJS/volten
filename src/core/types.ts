@@ -2,28 +2,30 @@ import { IncomingMessage, ServerResponse } from "http";
 import { RouteTree } from "../utils/routetree.ts";
 import { RequestContext } from "../utils/requestctx.ts";
 import { MethodStorage } from "../utils/routetree.ts";
+import { VoltenError } from "./errors.ts";
+import { Readable } from "stream";
 
-export type Next = () => Promise<void> | void;
+export type Next = () => Promise<unknown> | unknown;
 
 export type VoltenHandler = (
   ctx: RequestContext,
   next: Next,
-) => Promise<void> | void;
+) => Promise<unknown> | unknown;
 
 export type PreflightHandler = (
+  ctx: RequestContext,
+) => Promise<unknown> | unknown;
+
+export type ErrorHandler = (
+  err: VoltenError,
+  ctx: RequestContext,
+) => Promise<unknown> | unknown;
+
+export type NativeErrorHandler = (
+  err: VoltenError,
   req: IncomingMessage,
   res: ServerResponse,
-) => Promise<void> | void;
-
-export type GenericErrorHandler = (
-  err: Error,
-  ctx: RequestContext,
-) => void | Promise<void>;
-
-export type RawErrorHandler = (
-  err: Error,
-  res: ServerResponse,
-) => void | Promise<void>;
+) => Promise<unknown> | unknown;
 
 export type Params = Record<string, unknown>;
 export type Query = Record<string, string | string[]>;
@@ -46,7 +48,7 @@ export type RouteData = [
 
 export type PathData = {
   method: string;
-  bodyLimit: number;
+  bodyLimit: number | null;
   middleware: VoltenHandler[];
   handler: VoltenHandler;
   composeChain: VoltenHandler;
@@ -54,7 +56,7 @@ export type PathData = {
   setFingerprint: (fingerprint: number) => void;
   setDeOpt: () => void;
   disableOpt: boolean;
-  methodStroage: MethodStorage;
+  methodStorage: MethodStorage;
 };
 
 export type HostData = {
@@ -73,25 +75,25 @@ export type JSONResponseOptions = {
 
 export type SendFileOptions = {
   download?: string;
-  errCallback?: GenericErrorHandler;
+  errCallback?: ErrorHandler;
 };
 
 export type VoltenAppOptions = {
-  express?: boolean;
   bodyLimit?: number;
   caseInsensitive?: boolean;
   RequestPoolSize?: number;
+  noLogs?: boolean;
 };
 
 export type RouteOptions = {
-  bodyLimit?: number;
+  bodyLimit?: number | null;
 };
 
 export const DeafultVoltenOptions: Required<VoltenAppOptions> = {
-  express: false,
   bodyLimit: 1024 * 1024,
   caseInsensitive: true,
   RequestPoolSize: 2048,
+  noLogs: false,
 };
 
 export type CookieOptions = {
@@ -103,6 +105,28 @@ export type CookieOptions = {
   path?: string;
   domain?: string;
 };
+
+export interface MultipartFile {
+  isFile: true;
+  name: string;
+  filename: string;
+  contentType?: string;
+  stream: Readable;
+  /** Saves the file to disk. Automatically creates missing directories. */
+  save: (targetPath: string) => Promise<void>;
+  /** Materializes the stream completely into a Buffer */
+  buffer: () => Promise<Buffer>;
+  /** Materializes the stream completely into a UTF-8 String */
+  text: () => Promise<string>;
+}
+
+export interface MultipartField {
+  isFile: false;
+  name: string;
+  value: string;
+}
+
+export type MultipartPart = MultipartFile | MultipartField;
 
 export const NOT_FOUND_BUF = Buffer.from("Not Found");
 export const NOT_FOUND_HEADERS = {

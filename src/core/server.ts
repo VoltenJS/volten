@@ -3,7 +3,7 @@ import fs from "fs";
 import {
   VoltenHandler,
   PreflightHandler,
-  GenericErrorHandler,
+  ErrorHandler,
   HostData,
   RouteData,
   PathData,
@@ -16,19 +16,22 @@ import {
   INTERNAL_SERVER_ERROR_HEADERS,
   PAYLOAD_TOO_LARGE_BUF,
   PAYLOAD_TOO_LARGE_HEADERS,
-  RawErrorHandler,
 } from "./types.ts";
 import { compileMiddlewareChain } from "./compose.ts";
 import { RouteTree } from "../utils/routetree.ts";
 import { RequestContext } from "../utils/requestctx.ts";
 import { JitCache } from "../utils/jitcache.ts";
+import { VoltenError } from "./errors.ts";
+import { parseBody, parseMultipartStream } from "../utils/bodyparser.ts";
 
 class HostScope {
   constructor(
     private app: App,
     private host: string,
-    private HostOptions: Required<VoltenAppOptions>,
-  ) {}
+    private hostOptions: Required<VoltenAppOptions>,
+  ) {
+    this.app.createHost(host, hostOptions);
+  }
 
   static(folderPath: string) {
     this.app.static(folderPath, this.host);
@@ -36,7 +39,7 @@ class HostScope {
 
   use(...fns: VoltenHandler[]): this {
     for (const fn of fns) {
-      this.app.use(fn, this.host, this.HostOptions);
+      this.app.use(fn, this.host, this.hostOptions);
     }
     return this;
   }
@@ -47,7 +50,7 @@ class HostScope {
   ): { options: Required<RouteOptions>; routeHandlers: VoltenHandler[] } {
     const isOptions = typeof arg2 === "object" && arg2 !== null;
     const options = (isOptions ? { ...arg2 } : {}) as Required<RouteOptions>;
-    options.bodyLimit = options.bodyLimit || this.app.AppOptions.bodyLimit;
+    options.bodyLimit = options.bodyLimit || null;
 
     const routeHandlers = isOptions
       ? handlers
@@ -140,7 +143,7 @@ class HostScope {
     );
   }
 
-  onError(handler: GenericErrorHandler) {
+  onError(handler: ErrorHandler) {
     this.app.onError(handler, this.host);
   }
 
@@ -159,13 +162,16 @@ export class App {
   protected currentHost: string | null = null;
   // Check if it would be more efficient to seperate by method here instead of in RouteTree
   protected routes: Map<string, HostData> = new Map();
-  private hostErrorHandlers: Record<string, GenericErrorHandler> =
-    Object.create(null);
+  private hostErrorHandlers: Record<string, ErrorHandler> = Object.create(null);
   private hostPreflightHandlers: Record<string, PreflightHandler> =
     Object.create(null);
+  customErrorHandler: ErrorHandler | null = null;
   public serverStaticMap: Map<string, string> = new Map();
   public AppOptions: Required<VoltenAppOptions> = DeafultVoltenOptions;
-  private static readonly EMPTY_OBJECT = Object.freeze({});
+  public static readonly EMPTY_OBJECT = Object.freeze({});
+
+  public parseBody = parseBody.bind(this);
+  public parseMultipartStream = parseMultipartStream.bind(this);
 
   static(folderPath: string, host: string) {
     const absolutePath = fs.existsSync(folderPath)
@@ -177,6 +183,11 @@ export class App {
       throw new Error(`Directory not found: ${folderPath}`);
     }
     this.serverStaticMap.set(host, absolutePath);
+  }
+
+  resetCtx(ctx: RequestContext) {
+    ctx.reset();
+    this.availableContexts.push(ctx);
   }
 
   constructor(options: VoltenAppOptions = {}) {
@@ -205,6 +216,16 @@ export class App {
     return this.routes.get(host) as HostData;
   }
 
+  createHost(host: string, options: Required<VoltenAppOptions>): void {
+    if (this.routes.get(host)) return;
+    this.routes.set(host, {
+      tree: new RouteTree(options.caseInsensitive),
+      middleware: [],
+      immediate: new Map(),
+      hostOptions: options,
+    });
+  }
+
   getSafeHost(host: string): HostData | null {
     const hostData = this.routes.get(host);
     if (hostData) {
@@ -220,7 +241,6 @@ export class App {
     options: Required<RouteOptions>,
     ...handlers: VoltenHandler[]
   ) {
-    options.bodyLimit = options.bodyLimit || 0;
     const hostData = this.getHost(host);
     const methodUpper = method.toUpperCase();
 
@@ -286,110 +306,66 @@ export class App {
     this.middleware.push(fn);
   }
 
-  public async parseBody(
-    ctx: RequestContext,
-    text: boolean = false,
-    limit = this.getSafeHost(ctx.host)?.hostOptions.bodyLimit ||
-      this.AppOptions.bodyLimit,
-  ): Promise<unknown> {
-    const req = ctx.req!;
+  private errorHandler: ErrorHandler = (err, ctx) => {
+    // 1. Establish structural defaults based on the Volten Error Code
+    let status = 500;
+    let headers: Record<string, string | number> = {
+      ...INTERNAL_SERVER_ERROR_HEADERS,
+    };
+    let body: string | Buffer = INTERNAL_SERVER_ERROR_BUF;
     const res = ctx.res!;
-    // 1. Fast-path: Check Content-Length before allocating promise/heap space
-    const contentLengthHeader = req.headers["content-length"];
-    if (contentLengthHeader !== undefined) {
-      const contentLength = parseInt(contentLengthHeader, 10);
-      if (contentLength > limit) {
-        res
-          .writeHead(413, PAYLOAD_TOO_LARGE_HEADERS)
-          .end(PAYLOAD_TOO_LARGE_BUF);
-        req.socket.destroy();
-        throw new Error("Payload Too Large");
-      }
-      if (contentLength === 0) {
-        return App.EMPTY_OBJECT;
-      }
+    switch (err.code) {
+      case "ERR_PAYLOAD_TOO_LARGE":
+        status = 413;
+        headers = { ...PAYLOAD_TOO_LARGE_HEADERS };
+        body = PAYLOAD_TOO_LARGE_BUF;
+        break;
+      case "ERR_METHOD_NOT_ALLOWED":
+        status = 405;
+        body = err.message || "Method Not Allowed";
+        headers = {
+          "content-type": "text/plain; charset=utf-8",
+          "content-length": Buffer.byteLength(body),
+        };
+        break;
+      case "ERR_NOT_FOUND":
+        status = 404;
+        body = err.message || "Not Found";
+        headers = {
+          "content-type": "text/plain; charset=utf-8",
+          "content-length": Buffer.byteLength(body),
+        };
+        break;
+      case "SERVICE_UNAVAILABLE":
+        status = 503;
+        body = err.message || "Service Unavailable";
+        headers = {
+          "content-type": "text/plain; charset=utf-8",
+          "content-length": Buffer.byteLength(body),
+        };
+        break;
+      case "ERR_HEADERS_SENT":
+        ctx.res!.destroy();
+        ctx.req!.destroy();
+        ctx.req!.socket.destroy();
+        break;
+      default:
+        if (!this.AppOptions.noLogs) {
+          console.error("Volten Framework Error:", err);
+        }
+        status = 500;
+        body = err.message || "Internal Server Error";
+        headers = {
+          "content-type": "text/plain; charset=utf-8",
+          "content-length": Buffer.byteLength(body),
+        };
+        break;
     }
 
-    return new Promise((resolve, reject) => {
-      let receivedSize = 0;
-      const chunks: Buffer[] = [];
-
-      // 2. Stream Chunk Collector Loop
-      const onData = (chunk: Buffer) => {
-        receivedSize += chunk.length;
-
-        if (receivedSize > limit) {
-          cleanup();
-          req.destroy();
-          res
-            .writeHead(413, PAYLOAD_TOO_LARGE_HEADERS)
-            .end(PAYLOAD_TOO_LARGE_BUF);
-          reject(new Error("Payload Too Large"));
-          return;
-        }
-
-        chunks.push(chunk);
-      };
-
-      // 3. Complete Processing Payload Boundary
-      const onEnd = () => {
-        cleanup();
-
-        if (chunks.length === 0) {
-          return resolve(App.EMPTY_OBJECT);
-        }
-
-        const rawBody = Buffer.concat(chunks, receivedSize).toString("utf8");
-        const contentType = req.headers["content-type"] || "";
-        if (
-          (contentType.includes("application/json") || chunks.length > 0) &&
-          !text
-        ) {
-          try {
-            return resolve(JSON.parse(rawBody));
-          } catch {
-            return resolve(rawBody);
-          }
-        }
-
-        resolve(rawBody);
-      };
-
-      const onError = (err: Error) => {
-        cleanup();
-        reject(err);
-      };
-
-      // Clean up event listeners explicitly to prevent heap memory line leaks
-      const cleanup = () => {
-        req.off("data", onData);
-        req.off("end", onEnd);
-        req.off("error", onError);
-      };
-
-      req.on("data", onData);
-      req.on("end", onEnd);
-      req.on("error", onError);
-    });
-  }
-
-  private defaultErrorHandler: RawErrorHandler = (err, res) => {
-    console.error("Volten Route Error:", err);
-    if (!res.headersSent) {
-      res.writeHead(500, INTERNAL_SERVER_ERROR_HEADERS);
-      res.end(INTERNAL_SERVER_ERROR_BUF);
-    } else {
-      res.destroy();
-    }
-  };
-
-  private errorMiddleware: GenericErrorHandler = (err, ctx) => {
-    console.error("Volten Route Error:", err);
-    const res = ctx.res!;
-    if (!ctx.inited) return;
-    if (!res.headersSent) {
-      res.writeHead(500, INTERNAL_SERVER_ERROR_HEADERS);
-      res.end(INTERNAL_SERVER_ERROR_BUF);
+    // 3. Centralized Node.js Stream termination
+    if (!ctx.headersSent) {
+      res.writeHead(status, headers);
+      res.end(body);
     } else {
       res.destroy();
     }
@@ -397,17 +373,49 @@ export class App {
 
   private preflightHandler: PreflightHandler | null = null;
 
-  public handleError(
-    err: unknown,
-    res: http.ServerResponse,
-    ctx: RequestContext,
-  ) {
-    const error = err instanceof Error ? err : new Error("Unknown error");
-    const errorHandler =
-      this.hostErrorHandlers[ctx.host] || this.hostErrorHandlers["**"];
-    return errorHandler
-      ? errorHandler(error, ctx)
-      : this.errorMiddleware(error, ctx);
+  public async handleError(err: unknown, ctx: RequestContext): Promise<void> {
+    const error = err instanceof VoltenError ? err : VoltenError.from(err);
+    const res = ctx.res!;
+
+    const customHandler =
+      this.hostErrorHandlers[ctx.host] ||
+      this.hostErrorHandlers["**"] ||
+      this.customErrorHandler;
+
+    if (customHandler) {
+      try {
+        await customHandler(error, ctx);
+        if (!res.writableEnded && !res.destroyed) {
+          if (!this.AppOptions.noLogs) {
+            console.warn(
+              `[Volten Framework Warning]: Custom error handler for host "${ctx.host}" ` +
+                `returned without terminating the response. Falling back to default handler.`,
+            );
+          }
+          this.executeFallback(error, ctx);
+        }
+      } catch (customHandlerError) {
+        if (!this.AppOptions.noLogs) {
+          console.error("Custom error handler crashed:", customHandlerError);
+        }
+        this.executeFallback(error, ctx);
+      }
+    } else {
+      this.executeFallback(error, ctx);
+    }
+  }
+
+  private executeFallback(error: VoltenError, ctx: RequestContext): void {
+    try {
+      this.errorHandler(error, ctx);
+    } catch (finalError) {
+      if (!this.AppOptions.noLogs) {
+        console.error("Critical failure in core errorHandler:", finalError);
+      }
+      if (ctx.res && !ctx.res.destroyed) {
+        ctx.res.destroy();
+      }
+    }
   }
 
   private getPreflightHandler(host: string) {
@@ -416,12 +424,20 @@ export class App {
     return preflightHandler || this.preflightHandler || null;
   }
 
-  public onError(fn: GenericErrorHandler, host?: string) {
+  public onError(fn: ErrorHandler, host?: string) {
     if (host) {
       this.hostErrorHandlers[host] = fn;
       return;
     }
-    this.errorMiddleware = fn;
+    this.customErrorHandler = fn;
+  }
+
+  public clearErrorHandler(host?: string) {
+    if (host) {
+      delete this.hostErrorHandlers[host];
+      return;
+    }
+    this.customErrorHandler = null;
   }
 
   public preflight(fn: PreflightHandler, host?: string) {
@@ -432,71 +448,68 @@ export class App {
     this.preflightHandler = fn;
   }
 
-  private handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
+  private createCtx(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+  ): RequestContext | null {
     const ctx = this.availableContexts.pop();
     if (!ctx) {
+      res.setHeader("Connection", "close");
       res.writeHead(503, SERVICE_UNAVAILABLE_HEADERS);
       res.end(SERVICE_UNAVAILABLE_BUF);
-      return;
+      return null;
     }
     this.poolIndex = (this.poolIndex + 1) % this.poolSize;
 
     ctx.init(this, req, res);
     if (!ctx.inited) {
-      return;
+      return null;
     }
-    const route = ctx.route!;
+    return ctx;
+  }
+
+  private async handleRequest(ctx: RequestContext) {
+    const preflightHandler = this.getPreflightHandler(ctx.host || "");
+    if (preflightHandler) {
+      const result = preflightHandler(ctx);
+      if (result instanceof Promise) {
+        await result.catch((err: VoltenError) => this.handleError(err, ctx));
+      }
+      if (ctx.sent) {
+        return;
+      }
+    }
+
+    await ctx.routePath().catch((err) => {
+      //console.log("Route Path Error:", err);
+      this.handleError(err, ctx);
+      return;
+    });
+    const route = ctx.route;
+    if (!route) return;
 
     // Use a pre-bound 404 handler to avoid creating a new function every time
     const handlerChain = route.composeChain;
-    try {
-      const result = handlerChain(ctx, () => {});
-      if (result && typeof result.then === "function") {
-        result.catch((err: unknown) => this.handleError(err, res, ctx));
-      }
-    } catch (err) {
-      this.handleError(err, res, ctx);
-      return;
+    const result = handlerChain(ctx, () => {});
+    if (result instanceof Promise) {
+      result.catch((err: unknown) => this.handleError(err, ctx));
     }
-    //ctx.reset();
-    res.on("finish", () => {
-      ctx.reset();
-      this.availableContexts.push(ctx);
-    });
-
-    // Only handle as promise if it actually returns one (Internal V8 optimization)
   }
 
   listen(port: number, cb?: () => void): http.Server {
     const server = http.createServer(this.onRequest);
 
-    server.on("connection", (socket) => {
+    /*server.on("connection", (socket) => {
       socket.setNoDelay(true);
-    });
+    });*/
 
     server.listen(port, "0.0.0.0", 16384, cb);
     return server;
   }
 
   private onRequest(req: http.IncomingMessage, res: http.ServerResponse) {
-    const preflightHandler = this.getPreflightHandler(req.headers.host || "");
-    if (preflightHandler) {
-      try {
-        const result = preflightHandler(req, res);
-        if (result && typeof result.then === "function") {
-          result.catch((err: Error) => this.defaultErrorHandler(err, res));
-        }
-      } catch (err: unknown) {
-        const error = err instanceof Error ? err : new Error("Unknown error");
-        this.defaultErrorHandler(error, res);
-        return;
-      }
-      if (res.headersSent) {
-        return;
-      }
-    }
     const host = req.headers.host || "";
-    const hostConfig = this.getSafeHost(host);
+    const hostConfig = this.getSafeHost(host) || this.getSafeHost("**");
     const limit =
       hostConfig?.hostOptions.bodyLimit || this.AppOptions.bodyLimit;
 
@@ -514,6 +527,12 @@ export class App {
         return;
       }
     }
-    this.handleRequest(req, res);
+    const ctx = this.createCtx(req, res);
+    if (!ctx) {
+      return;
+    }
+    this.handleRequest(ctx).catch(async (err) => {
+      await this.handleError(err, ctx);
+    });
   }
 }
