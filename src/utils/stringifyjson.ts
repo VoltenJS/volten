@@ -61,6 +61,8 @@ export function getShapeFingerprint(obj: unknown): number {
   return result === 0 ? 1 : result;
 }
 
+/* -- Commented-out reference code (not used, kept for documentation) --
+
 // for refernce only (also wont be efficeint sicne i switched the way i JIT compile)
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function stringifyJSON(sample: unknown) {
@@ -111,7 +113,7 @@ function handleString(path: string, lines: string[]) {
   lines.push(`
     const ${sVar} = ${path};
     let ${needsEscapeVar} = false;
-    
+
     // Scan for chars that MUST be escaped
     for (let j = 0; j < ${sVar}.length; j++) {
       const c = ${sVar}.charCodeAt(j);
@@ -131,6 +133,8 @@ function handleString(path: string, lines: string[]) {
 
   lines.push(`ctx.responseBuffer[ctx.bufferOffset++] = 34;`);
 }
+
+*/
 
 export function createCompiledStringifier(sample: unknown) {
   const lines: string[] = [];
