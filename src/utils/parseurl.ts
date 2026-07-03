@@ -48,6 +48,9 @@ export function parseQuery(queryStr: string): Query {
   for (let i = 0; i < pairs.length; i++) {
     const pair = pairs[i].split("=");
     const key = decodeURIComponent(pair[0]);
+    if (key === "__proto__" || key === "constructor" || key === "prototype") {
+      continue;
+    }
     const value = pair[1]
       ? decodeURIComponent(pair[1].replace(/\+/g, " "))
       : "";
