@@ -15,8 +15,6 @@ after(() => {
   });
 });
 
-let line = 1;
-
 test("RequestContext: default field values are uninitialized", () => {
   const ctx = new RequestContext();
   assert.equal(ctx._app, null);

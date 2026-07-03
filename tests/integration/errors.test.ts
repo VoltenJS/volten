@@ -23,7 +23,6 @@ after(() => {
 });
 
 test("Volten Server Core Error Pipeline & Boundary Constraints Matrix", async (t) => {
-  // Use a slightly larger pool size to protect the entire suite runtime against temporary leaks
   let volten: App;
 
   let customGlobalErrorHit = false;
@@ -31,6 +30,9 @@ test("Volten Server Core Error Pipeline & Boundary Constraints Matrix", async (t
   let customErrorObject: any = null;
 
   const resetErrorMetrics = () => {
+    if (volten) {
+      volten.close();
+    }
     customGlobalErrorHit = false;
     tenantErrorHit = false;
     customErrorObject = null;
