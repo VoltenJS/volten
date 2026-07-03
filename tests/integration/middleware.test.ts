@@ -355,6 +355,7 @@ test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
       assert.ok(globalExecutionCount > 0);
     },
   );
+  volten.close();
 });
 
 after(() => {

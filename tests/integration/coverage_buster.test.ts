@@ -99,6 +99,7 @@ test("Volten Other Tests", async (t) => {
         // Intentionally passing a totally fabricated folder location to trip Error branch
         dummyApp.static("./completely_imaginary_directory_path_xyz_999", "**");
       }, /Directory not found/);
+      dummyApp.close();
     },
   );
   await t.test(
@@ -108,6 +109,7 @@ test("Volten Other Tests", async (t) => {
       // Attempt retrieving host data from an entirely unconfigured host scope string
       const result = dummyApp.getSafeHost("unregistered.domain.local");
       assert.equal(result, null);
+      dummyApp.close();
     },
   );
 
@@ -140,6 +142,7 @@ test("Volten Other Tests", async (t) => {
 
       assert.equal(res.status, 200);
       assert.deepEqual(res.json(), { bodyType: "object", keys: 0 });
+      busterApp.close();
     },
   );
 
@@ -207,6 +210,7 @@ test("Volten Other Tests", async (t) => {
         assert.equal(error.code, "ERR_NOT_FOUND");
         assert.equal(error.statusCode, 404);
       }
+      testApp.close();
     },
   );
 
@@ -248,6 +252,7 @@ test("Volten Other Tests", async (t) => {
       // Artificially trigger execution bounds to complete immediate micro-ticks smoothly
       await new Promise((resolve) => setTimeout(resolve, 10));
       assert.equal(customCallbackHit, true);
+      testApp.close();
     },
   );
 
@@ -260,6 +265,7 @@ test("Volten Other Tests", async (t) => {
       // Accessing path metrics
       ctx.text(ctx.path);
     });
+    busterApp.close();
   });
 
   await t.test(
@@ -298,6 +304,7 @@ test("Volten Other Tests", async (t) => {
         ctx,
       );
       assert.equal(missingMatch, null);
+      busterApp.close();
     },
   );
 });

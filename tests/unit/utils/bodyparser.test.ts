@@ -88,6 +88,7 @@ test("parseBody: rejects multipart/form-data explicitly", async () => {
     () => parseBody.call(app, ctx, false),
     /multipart\/form-data/,
   );
+  app.close();
 });
 
 test("parseBody: returns empty object for Content-Length: 0", async () => {
@@ -99,6 +100,7 @@ test("parseBody: returns empty object for Content-Length: 0", async () => {
   ctx._app = app;
   const body = await parseBody.call(app, ctx, false);
   assert.deepEqual(body, {});
+  app.close();
 });
 
 test("parseBody: rejects Content-Length above limit with 413", async () => {
@@ -127,6 +129,7 @@ test("parseBody: rejects Content-Length above limit with 413", async () => {
     (err: unknown) => err instanceof PayloadTooLargeError,
   );
   assert.equal(writeHeadStatus, 413);
+  app.close();
 });
 
 test("parseBody: parses JSON body when content-type is application/json", async () => {
@@ -140,6 +143,7 @@ test("parseBody: parses JSON body when content-type is application/json", async 
   ctx._app = app;
   const body = await parseBody.call(app, ctx, false);
   assert.deepEqual(body, { hello: "world" });
+  app.close();
 });
 
 test("parseBody: parses raw text body when text=true", async () => {
@@ -153,6 +157,7 @@ test("parseBody: parses raw text body when text=true", async () => {
   ctx._app = app;
   const body = await parseBody.call(app, ctx, true);
   assert.equal(body, "plain text payload");
+  app.close();
 });
 
 test("parseBody: parses urlencoded text body (falls through JSON parse)", async () => {
@@ -168,6 +173,7 @@ test("parseBody: parses urlencoded text body (falls through JSON parse)", async 
   const body = await parseBody.call(app, ctx, false);
   // No JSON parse succeeds so raw text is returned
   assert.equal(body, "a=1&b=2");
+  app.close();
 });
 
 test("parseBody: rejects with PayloadTooLargeError when streaming exceeds limit", async () => {
@@ -220,6 +226,7 @@ test("parseBody: rejects with PayloadTooLargeError when streaming exceeds limit"
     () => parseBody.call(app, ctx, false, 100),
     (err: unknown) => err instanceof PayloadTooLargeError,
   );
+  app.close();
 });
 
 test("parseBody: returns empty object when stream ends with zero chunks", async () => {
@@ -231,6 +238,7 @@ test("parseBody: returns empty object when stream ends with zero chunks", async 
   ctx._app = app;
   const body = await parseBody.call(app, ctx, false);
   assert.deepEqual(body, {});
+  app.close();
 });
 
 test("parseBody: end handler runs cleanup and resolves empty object", async () => {
@@ -242,6 +250,7 @@ test("parseBody: end handler runs cleanup and resolves empty object", async () =
   ctx._app = app;
   const body = await parseBody.call(app, ctx, false);
   assert.deepEqual(body, {});
+  app.close();
 });
 
 test("parseBody: uses route.bodyLimit when present", async () => {
@@ -282,6 +291,7 @@ test("parseBody: uses route.bodyLimit when present", async () => {
     (err: unknown) => err instanceof PayloadTooLargeError,
   );
   assert.equal(writeHeadStatus, 413);
+  app.close();
 });
 
 // =========================================================================
@@ -311,6 +321,7 @@ test("parseMultipartStream: throws when boundary is missing", async () => {
     () => parseMultipartStream.call(app, ctx).next(),
     /No boundary/,
   );
+  app.close();
 });
 
 test("parseMultipartStream: yields a text field and finishes", async () => {
@@ -338,6 +349,7 @@ test("parseMultipartStream: yields a text field and finishes", async () => {
   assert.equal(parts.length, 1);
   assert.equal(parts[0].name, "greeting");
   assert.equal(parts[0].value, "hello world");
+  app.close();
 });
 
 test("parseMultipartStream: yields multiple text fields in order", async () => {
@@ -369,6 +381,7 @@ test("parseMultipartStream: yields multiple text fields in order", async () => {
   assert.equal(parts[0].value, "first");
   assert.equal(parts[1].name, "b");
   assert.equal(parts[1].value, "second");
+  app.close();
 });
 
 test("parseMultipartStream: yields a file part with content-type header", async () => {
@@ -405,6 +418,7 @@ test("parseMultipartStream: yields a file part with content-type header", async 
     chunks.push(c as Buffer);
   }
   assert.equal(Buffer.concat(chunks).toString("utf8"), fileContent);
+  app.close();
 });
 
 test("parseMultipartStream: file part save() writes the streamed content to disk", async () => {
@@ -440,6 +454,7 @@ test("parseMultipartStream: file part save() writes the streamed content to disk
   savedContent = readFileSync(savedPath, "utf8");
   unlinkSync(savedPath);
   assert.equal(savedContent, fileContent);
+  app.close();
 });
 
 test("parseMultipartStream: supports quoted boundary parameter", async () => {
@@ -464,6 +479,7 @@ test("parseMultipartStream: supports quoted boundary parameter", async () => {
     parts.push(part);
   }
   assert.equal(parts[0].value, "val");
+  app.close();
 });
 
 test("parseMultipartStream: handles split chunks (data spans multiple buffers)", async () => {
@@ -494,6 +510,7 @@ test("parseMultipartStream: handles split chunks (data spans multiple buffers)",
   }
   assert.equal(parts.length, 1);
   assert.equal(parts[0].value, "value123");
+  app.close();
 });
 
 // =========================================================================
@@ -545,4 +562,5 @@ test("parseBody: real HTTP request with body but no Content-Length header", asyn
     server.close(() => resolve());
   });
   assert.equal(status, 200);
+  app.close();
 });

@@ -111,8 +111,6 @@ test("isFileInFolder: same prefix but different folder is blocked", async (t) =>
 test("isFileInFolder: non-existent file returns false (realpath throws)", async (t) => {
   const { root, cleanup } = await makeTree();
   t.after(cleanup);
-  // Folder exists, file does not — realpath will throw and the
-  // implementation must surface `false` rather than crash.
   assert.equal(
     await isFileInFolder(
       path.join(root, "public"),
