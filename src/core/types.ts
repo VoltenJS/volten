@@ -12,6 +12,10 @@ export type VoltenHandler = (
   next: Next,
 ) => Promise<unknown> | unknown;
 
+export type VoltenChainHandler = (
+  ctx: RequestContext,
+) => Promise<unknown> | unknown;
+
 export type PreflightHandler = (
   ctx: RequestContext,
 ) => Promise<unknown> | unknown;
@@ -40,18 +44,14 @@ export interface FingerPrintData {
 export type RouteData = [
   path: string,
   method: string,
-  middleware: VoltenHandler[],
-  handler: VoltenHandler,
-  composeChain: VoltenHandler,
+  routeHandlers: VoltenHandler[],
   options: Required<RouteOptions>,
 ];
 
 export type PathData = {
   method: string;
   bodyLimit: number | null;
-  middleware: VoltenHandler[];
-  handler: VoltenHandler;
-  composeChain: VoltenHandler;
+  composeChain: VoltenChainHandler;
   lastFingerprint: number;
   setFingerprint: (fingerprint: number) => void;
   setDeOpt: () => void;

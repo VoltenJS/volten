@@ -1,4 +1,4 @@
-import { VoltenHandler } from "./types.ts";
+import { VoltenChainHandler, VoltenHandler } from "./types.ts";
 import { RequestContext } from "../utils/requestctx.ts";
 import { InvalidNextCallError } from "./errors.ts";
 
@@ -23,22 +23,15 @@ export function compose(middleware: VoltenHandler[]): VoltenHandler {
 */
 
 export function compileMiddlewareChain(
-  middleware: VoltenHandler[],
-  finalHandler: VoltenHandler,
-): VoltenHandler {
-  const chain = [...middleware, finalHandler];
+  chain: VoltenHandler[],
+): VoltenChainHandler {
   const len = chain.length;
 
-  return function (ctx: RequestContext) {
+  return function (ctx: RequestContext): Promise<unknown> {
     let index = -1;
 
-    function dispatch(i: number): Promise<void> {
+    function dispatch(i: number): Promise<unknown> {
       if (i <= index) {
-        /*
-        const err = new Error("next() called multiple times");
-        ctx._app?.handleError(err, ctx);
-        return Promise.resolve();
-        */
         throw new InvalidNextCallError();
       }
       index = i;
@@ -47,29 +40,17 @@ export function compileMiddlewareChain(
 
       const fn = chain[i];
       try {
-        const result = fn(ctx, () => {
-          if (ctx.sent) {
-            /*return Promise.reject(
-              new Error("Detected next() call after response sent"),
-            );
-            return Promise.resolve();
-            */
-            throw new InvalidNextCallError();
-          }
-          return dispatch(i + 1);
+        // Return directly to preserve promise chains (whether sync or async)
+        return Promise.resolve(
+          fn(ctx, () => {
+            if (ctx.sent) {
+              throw new InvalidNextCallError();
+            }
+            return dispatch(i + 1);
+          }),
+        ).catch((err) => {
+          ctx._app?.handleError(err, ctx);
         });
-
-        if (result instanceof Promise) {
-          return Promise.resolve(result)
-            .then(() => {})
-            .catch((err) => {
-              if (ctx._app) {
-                ctx._app.handleError(err, ctx);
-              }
-            });
-        }
-
-        return Promise.resolve().then(() => {});
       } catch (err) {
         ctx._app?.handleError(err, ctx);
         return Promise.resolve();
