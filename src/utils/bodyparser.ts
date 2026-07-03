@@ -161,17 +161,21 @@ export async function* parseMultipartStream(
         residue = residue.subarray(headerEndIndex + 4);
         inHeaderSection = false;
 
-        const dispositionMatch = headersString.match(
-          /Content-Disposition:\s*form-data;\s*name="([^"]+)"(?:;\s*filename="([^"]+)")?/i,
-        );
+        if (
+          headersString.toLowerCase().includes("content-disposition: form-data")
+        ) {
+          const nameMatch = headersString.match(/name="([^"]+)"/i);
+          const filenameMatch = headersString.match(/filename="([^"]+)"/i);
+          const contentTypeMatch = headersString.match(
+            /Content-Type:\s*([^\r\n;]+)/i,
+          );
 
-        if (dispositionMatch) {
           activePartMeta = {
-            name: dispositionMatch[1],
-            filename: dispositionMatch[2],
-            contentType: headersString.match(
-              /Content-Type:\s*([^\r\n]+)/i,
-            )?.[1],
+            name: nameMatch ? nameMatch[1] : "",
+            filename: filenameMatch ? filenameMatch[1] : undefined,
+            contentType: contentTypeMatch
+              ? contentTypeMatch[1].trim()
+              : undefined,
           };
 
           if (activePartMeta.filename) {
