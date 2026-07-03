@@ -1,5 +1,5 @@
 import { VoltenChainHandler, VoltenHandler } from "./types.ts";
-import { RequestContext } from "../utils/requestctx.ts";
+import { RequestContext } from "../utils/requestCtx.ts";
 import { InvalidNextCallError } from "./errors.ts";
 
 /*

@@ -1,5 +1,5 @@
 import { VoltenHandler, PathData, RouteOptions } from "../core/types.ts";
-import { RequestContext } from "./requestctx.ts";
+import { RequestContext } from "./requestCtx.ts";
 import { compileMiddlewareChain } from "../core/compose.ts";
 
 export class MethodStorage {

@@ -17,11 +17,11 @@ import {
   MultipartPart,
 } from "../core/types.ts";
 import { App } from "../core/server.ts";
-import { parseUrl, parseQuery } from "./parseurl.ts";
+import { parseUrl, parseQuery } from "./parseUrl.ts";
 import {
   createCompiledStringifier,
   getShapeFingerprint,
-} from "./stringifyjson.ts";
+} from "./stringifyJson.ts";
 import { isFileInFolder } from "./security.ts";
 import {
   MethodNotAllowedError,
