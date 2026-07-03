@@ -1,7 +1,6 @@
 import { App } from "../dist/core/server.js";
 
-const volten = new App();
-const app = volten.host("**");
+const app = new App();
 const PORT = process.env.PORT || 3000;
 // =========================================================================
 // 5. GLOBAL ERROR HANDLING & PROCESS RESILIENCE
@@ -57,7 +56,7 @@ app.get("/api/v1/explode", (ctx) => {
   databaseConnection.query("SELECT * FROM users");
 });
 
-volten.listen(PORT, () => {
+app.listen(PORT, () => {
   console.log(
     "Resilient Error Handling demo running on http://localhost:" + PORT,
   );

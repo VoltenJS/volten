@@ -1,7 +1,6 @@
 import { App } from "../dist/core/server.js";
 
-const volten = new App();
-const app = volten.host("**");
+const app = new App();
 const PORT = process.env.PORT || 3000;
 
 // =========================================================================
@@ -61,7 +60,7 @@ app.get("/api/v1/secure-data", (ctx) => {
   });
 });
 
-volten.listen(PORT, () => {
+app.listen(PORT, () => {
   console.log(
     "Multi-Origin Configuration & Security Guard demo running on http://localhost:" +
       PORT,

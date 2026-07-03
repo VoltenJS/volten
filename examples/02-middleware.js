@@ -1,6 +1,5 @@
 import { App } from "../dist/core/server.js";
-const volten = new App();
-const app = volten.host("**");
+const app = new App();
 const PORT = process.env.PORT || 3000;
 // =========================================================================
 // 1. GLOBAL MIDDLEWARE (The Onion Model)
@@ -55,6 +54,6 @@ app.get("/dashboard", isAdmin, (ctx) => {
   });
 });
 
-volten.listen(process.env.PORT || 3000, () => {
+app.listen(process.env.PORT || 3000, () => {
   console.log("Middleware demo running on http://localhost:" + PORT);
 });
