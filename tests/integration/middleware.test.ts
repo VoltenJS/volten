@@ -1,7 +1,7 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { App } from "../../src/core/server.ts";
-import { RequestContext } from "../../src/utils/requestctx.ts";
+import { RequestContext } from "../../src/utils/requestCtx.ts";
 import { Next } from "../../src/core/types.ts";
 import { request } from "../helpers.ts";
 

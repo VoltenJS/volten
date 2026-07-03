@@ -4,11 +4,11 @@ import http from "node:http";
 import { Readable, PassThrough } from "node:stream";
 import { AddressInfo } from "node:net";
 import { App } from "../../../src/core/server.ts";
-import { RequestContext } from "../../../src/utils/requestctx.ts";
+import { RequestContext } from "../../../src/utils/requestCtx.ts";
 import {
   parseBody,
   parseMultipartStream,
-} from "../../../src/utils/bodyparser.ts";
+} from "../../../src/utils/bodyParser.ts";
 import { PayloadTooLargeError } from "../../../src/core/errors.ts";
 
 after(() => {

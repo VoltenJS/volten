@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { JitCache } from "../../../src/utils/jitcache.ts";
+import { JitCache } from "../../../src/utils/jitCache.ts";
 
 // =====================================================================
 // Unit tests for JitCache (src/utils/jitcache.ts)
@@ -9,10 +9,7 @@ import { JitCache } from "../../../src/utils/jitcache.ts";
 
 test("JitCache: getCount throws when the fingerprint does not exist", () => {
   const cache = new JitCache();
-  assert.throws(
-    () => cache.getCount(42),
-    /Fingerprint does not exist/,
-  );
+  assert.throws(() => cache.getCount(42), /Fingerprint does not exist/);
 });
 
 test("JitCache: setCompiler throws when the fingerprint is missing", () => {
