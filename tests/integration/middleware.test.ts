@@ -13,9 +13,6 @@ test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
     noLogs: true,
   });
 
-  const rootApp = volten.host("**");
-  const tenantApp = volten.host("tenant.volten.local");
-
   // Isolated matrix trace collectors to guarantee zero cross-test state pollution
   let onionTrace: string[] = [];
   let tenantTrace: string[] = [];
@@ -31,7 +28,7 @@ test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
   // =========================================================================
 
   // 1. Classical Onion Model Layering (Differentiated safely via path matching)
-  rootApp.use(async (ctx, next) => {
+  volten.use(async (ctx, next) => {
     globalExecutionCount++;
 
     if (ctx.url.includes("/pipeline/onion")) {
@@ -48,7 +45,7 @@ test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
     }
   });
 
-  rootApp.use(async (ctx, next) => {
+  volten.use(async (ctx, next) => {
     if (ctx.url.includes("/pipeline/onion")) {
       onionTrace.push("onion_2_in");
       await next();
@@ -59,7 +56,7 @@ test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
   });
 
   // 2. Multi-tenant/VHost Scoped Isolated Middleware
-  tenantApp.use(async (ctx, next) => {
+  volten.use(async (ctx, next) => {
     if (ctx.url.includes("/pipeline/onion")) {
       tenantTrace.push("tenant_layer_in");
       ctx.setHeader("X-Tenant-Processed", "true");
@@ -71,7 +68,7 @@ test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
   });
 
   // 3. State Mutation Pipeline Interceptor
-  rootApp.use(async (ctx, next) => {
+  volten.use(async (ctx, next) => {
     if (ctx.url.includes("/state/")) {
       ctx.state.internalTimestamp = 1716584400;
       ctx.state.securityClearance = "Level-4";
@@ -81,7 +78,7 @@ test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
   });
 
   // 8. Runtime Error Bubbling Upstream Middleware Boundary
-  rootApp.use(async (ctx, next) => {
+  volten.use(async (ctx, next) => {
     if (ctx.url.includes("/pipeline/error-bubbling")) {
       errorTrace.push("bubble_outer_in");
       try {
@@ -100,7 +97,7 @@ test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
   });
 
   // 9. Post-Execution Stream Resiliency Guardrail
-  rootApp.use(async (ctx, next) => {
+  volten.use(async (ctx, next) => {
     await next();
     if (ctx.url.includes("/pipeline/post-mutate")) {
       ctx.state.postExecutionMarker = "cleaned-up";
@@ -115,7 +112,7 @@ test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
   });
 
   // 10. High-Frequency Payload Stress Interception Middleware
-  rootApp.use(async (ctx, next) => {
+  volten.use(async (ctx, next) => {
     if (ctx.url.includes("/pipeline/stress-payload")) {
       const parsedBody = await ctx.body();
       if (parsedBody && typeof parsedBody === "object") {
@@ -129,17 +126,12 @@ test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
   // TERMINAL SINGLE-HANDLER ROUTE MOUNTINGS
   // =========================================================================
 
-  rootApp.get("/pipeline/onion", (ctx) => {
+  volten.get("/pipeline/onion", (ctx) => {
     onionTrace.push("handler_onion_hit");
     ctx.text("onion_resolved");
   });
 
-  tenantApp.get("/pipeline/onion", (ctx) => {
-    tenantTrace.push("handler_tenant_hit");
-    ctx.text("tenant_resolved");
-  });
-
-  rootApp.get("/state/mutation-pass", (ctx) => {
+  volten.get("/state/mutation-pass", (ctx) => {
     if (ctx.state.mutatedTree) {
       (ctx.state.mutatedTree as any).downstream = "appended";
     }
@@ -151,7 +143,7 @@ test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
   });
 
   // Short-Circuiting via inline route middleware execution bypass
-  rootApp.get(
+  volten.get(
     "/pipeline/short-circuit",
     async (ctx, next) => {
       ctx.status(403).text("Forbidden Outright");
@@ -162,7 +154,7 @@ test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
     },
   );
 
-  rootApp.get("/pipeline/concurrent-race", async (ctx) => {
+  volten.get("/pipeline/concurrent-race", async (ctx) => {
     const delay = parseInt((ctx.query.delay as string) || "5", 10);
     await new Promise((resolve) => setTimeout(resolve, delay));
     ctx.text("race_condition_resolved");
@@ -181,28 +173,28 @@ test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
     inlineTrace.push("beta_out");
   };
 
-  rootApp.get("/pipeline/inline-guards", guardAlpha, guardBeta, (ctx) => {
+  volten.get("/pipeline/inline-guards", guardAlpha, guardBeta, (ctx) => {
     inlineTrace.push("inline_handler");
     ctx.text("guards_passed");
   });
 
-  rootApp.get("/pipeline/double-next", async (ctx, next) => {
+  volten.get("/pipeline/double-next", async (ctx, next) => {
     doubleNextTrace.push("double_next_trigger");
     await next();
     await next();
   });
 
-  rootApp.get("/pipeline/error-bubbling", async () => {
+  volten.get("/pipeline/error-bubbling", async () => {
     errorTrace.push("bubble_inner_handler");
     throw new Error("unhandled_downstream_fault");
   });
 
-  rootApp.get("/pipeline/post-mutate", (ctx) => {
+  volten.get("/pipeline/post-mutate", (ctx) => {
     ctx.text("payload_intact");
   });
 
   // Single-Handler Stress Target (Consuming cached body)
-  rootApp.post("/pipeline/stress-payload", async (ctx) => {
+  volten.post("/pipeline/stress-payload", async (ctx) => {
     const body = await ctx.body();
     ctx.json(body);
   });
@@ -229,24 +221,7 @@ test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
   );
 
   await t.test(
-    "Matrix 2: Isolated Virtual Host Scope Contaminations Separation",
-    async () => {
-      onionTrace = [];
-      tenantTrace = [];
-      const res = await request(volten, "/pipeline/onion", {
-        headers: { host: "tenant.volten.local" },
-      });
-      assert.equal(res.status, 200);
-      assert.equal(res.body, "tenant_resolved");
-      assert.equal(res.headers["x-tenant-processed"], "true");
-      assert.ok(tenantTrace.includes("tenant_layer_in"));
-      assert.ok(tenantTrace.includes("handler_tenant_hit"));
-      assert.ok(tenantTrace.includes("tenant_layer_out"));
-    },
-  );
-
-  await t.test(
-    "Matrix 3: Deep Request Context Pipeline State Mutation Propagation",
+    "Matrix 2: Deep Request Context Pipeline State Mutation Propagation",
     async () => {
       const res = await request(volten, "/state/mutation-pass");
       assert.equal(res.status, 200);
@@ -261,7 +236,7 @@ test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
   );
 
   await t.test(
-    "Matrix 4: Non-Awaited Immediate Short-Circuit Pipeline Interceptions",
+    "Matrix 3: Non-Awaited Immediate Short-Circuit Pipeline Interceptions",
     async () => {
       const res = await request(volten, "/pipeline/short-circuit");
       assert.equal(res.status, 403);
@@ -270,7 +245,7 @@ test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
   );
 
   await t.test(
-    "Matrix 5: Dynamic Asynchronous Concurrency Race Controls & Context Desynchronization",
+    "Matrix 4: Dynamic Asynchronous Concurrency Race Controls & Context Desynchronization",
     async () => {
       raceTrace = [];
       const flowA = request(volten, "/pipeline/concurrent-race?delay=30");
@@ -287,7 +262,7 @@ test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
   );
 
   await t.test(
-    "Matrix 6: Composite Inline Multiplex Route Guard Arrays Processing Order",
+    "Matrix 5: Composite Inline Multiplex Route Guard Arrays Processing Order",
     async () => {
       inlineTrace = [];
       const res = await request(volten, "/pipeline/inline-guards");
@@ -303,7 +278,7 @@ test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
   );
 
   await t.test(
-    "Matrix 7: Loop Defection Guardrails vs Malicious Double Next-Call Implementations",
+    "Matrix 6: Loop Defection Guardrails vs Malicious Double Next-Call Implementations",
     async () => {
       doubleNextTrace = [];
       const res = await request(volten, "/pipeline/double-next");
@@ -313,7 +288,7 @@ test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
   );
 
   await t.test(
-    "Matrix 8: Two-Way Asynchronous Error Bubbling Upstream & Recovery Controls",
+    "Matrix 7: Two-Way Asynchronous Error Bubbling Upstream & Recovery Controls",
     async () => {
       errorTrace = [];
       const res = await request(volten, "/pipeline/error-bubbling");
@@ -323,7 +298,7 @@ test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
   );
 
   await t.test(
-    "Matrix 9: Outbound Boundary Response Protection & Post-Execution Cleanup State",
+    "Matrix 8: Outbound Boundary Response Protection & Post-Execution Cleanup State",
     async () => {
       postMutateState = null;
       const res = await request(volten, "/pipeline/post-mutate");
@@ -336,7 +311,7 @@ test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
   );
 
   await t.test(
-    "Matrix 10: Memory Leak Prevention & High Frequency Payload Buffer Mutations Stress",
+    "Matrix 9: Memory Leak Prevention & High Frequency Payload Buffer Mutations Stress",
     async () => {
       for (let i = 0; i < 10; i++) {
         const payloadData = { iteration: i };

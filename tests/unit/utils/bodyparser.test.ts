@@ -519,7 +519,7 @@ test("parseMultipartStream: handles split chunks (data spans multiple buffers)",
 // =========================================================================
 test("parseBody: real HTTP request with body but no Content-Length header", async () => {
   const app = new App({ noLogs: true, RequestPoolSize: 4 });
-  app.host("**").post("/body", async (ctx) => {
+  app.post("/body", async (ctx) => {
     const body = await ctx.body("text");
     ctx.text(String(body));
   });
