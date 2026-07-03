@@ -44,34 +44,31 @@ test("Volten Server Core Error Pipeline & Boundary Constraints Matrix", async (t
       noLogs: true,
     });
 
-    const rootApp = volten.host("**");
-    const fallbackTenant = volten.host("isolated.volten.local");
-
     // Re-mount the common paths required across the matrix suites
-    rootApp.get("/error/sync-crash", () => {
+    volten.get("/error/sync-crash", () => {
       throw new Error("fatal_sync_execution_node");
     });
 
-    rootApp.get("/error/async-crash", async () => {
+    volten.get("/error/async-crash", async () => {
       throw new Error("fatal_async_promise_node");
     });
 
-    rootApp.post("/error/body-limit", async (ctx) => {
+    volten.post("/error/body-limit", async (ctx) => {
       const data = await ctx.body();
       ctx.json({ received: true, data });
     });
 
-    rootApp.get("/error/read-body-on-get", async (ctx) => {
+    volten.get("/error/read-body-on-get", async (ctx) => {
       const data = await ctx.body("text");
       ctx.text(`body_was:${data}`);
     });
 
-    rootApp.post("/error/empty-body", async (ctx) => {
+    volten.post("/error/empty-body", async (ctx) => {
       const data = await ctx.body();
       ctx.json(data);
     });
 
-    rootApp.get("/error/pipeline-breach", async (ctx, next) => {
+    volten.get("/error/pipeline-breach", async (ctx, next) => {
       await next();
       await next();
       if (ctx.sent) {
@@ -79,18 +76,10 @@ test("Volten Server Core Error Pipeline & Boundary Constraints Matrix", async (t
       }
     });
 
-    rootApp.get("/error/next-after-send", async (ctx, next) => {
+    volten.get("/error/next-after-send", async (ctx, next) => {
       ctx.text("already_finalized");
       await next();
     });
-
-    fallbackTenant.get("/crash", () => {
-      throw new Error("tenant_isolation_breach_fault");
-    });
-
-    if (!(volten as any).hostErrorHandlers) {
-      (volten as any).hostErrorHandlers = Object.create(null);
-    }
   };
 
   // =========================================================================
@@ -162,33 +151,7 @@ test("Volten Server Core Error Pipeline & Boundary Constraints Matrix", async (t
   );
 
   await t.test(
-    "Matrix 5: Isolated Multi-Tenant Virtual Host Error Scoping Boundary",
-    async () => {
-      resetErrorMetrics();
-
-      // Explicitly register directly to the instance's virtual host handler collection
-      (volten as any).hostErrorHandlers["isolated.volten.local"] = (
-        err: Error,
-        ctx: any,
-      ) => {
-        tenantErrorHit = true;
-        customErrorObject = err;
-        ctx.status(503).text(`custom_tenant_isolated_catch:${err.message}`);
-      };
-
-      const res = await request(volten, "/crash", {
-        headers: { host: "isolated.volten.local" },
-      });
-
-      assert.equal(res.status, 503);
-      assert.equal(tenantErrorHit, true);
-      assert.equal(customErrorObject.message, "tenant_isolation_breach_fault");
-      (volten as any).hostErrorHandlers["isolated.volten.local"] = null;
-    },
-  );
-
-  await t.test(
-    "Matrix 6: Global Application Fallback Error Middleware Overrides",
+    "Matrix 5: Global Application Fallback Error Middleware Overrides",
     async () => {
       resetErrorMetrics();
 
@@ -204,7 +167,7 @@ test("Volten Server Core Error Pipeline & Boundary Constraints Matrix", async (t
   );
 
   await t.test(
-    "Matrix 7: Mid-Pipeline Next-Call Iteration Loop Breaches (Compose Safety)",
+    "Matrix 6: Mid-Pipeline Next-Call Iteration Loop Breaches (Compose Safety)",
     async () => {
       resetErrorMetrics();
       const res = await requestFetch(volten, "/error/pipeline-breach");
@@ -213,7 +176,7 @@ test("Volten Server Core Error Pipeline & Boundary Constraints Matrix", async (t
   );
 
   await t.test(
-    "Matrix 8: Next-Call Invocation Post Response Stream Serialization Traps",
+    "Matrix 7: Next-Call Invocation Post Response Stream Serialization Traps",
     async () => {
       resetErrorMetrics();
       const res = await request(volten, "/error/next-after-send");
@@ -223,7 +186,7 @@ test("Volten Server Core Error Pipeline & Boundary Constraints Matrix", async (t
   );
 
   await t.test(
-    "Matrix 9: Invalid Header Modification & Flush Actions Guardrail",
+    "Matrix 8: Invalid Header Modification & Flush Actions Guardrail",
     async () => {
       resetErrorMetrics();
       try {
@@ -237,14 +200,12 @@ test("Volten Server Core Error Pipeline & Boundary Constraints Matrix", async (t
   );
 
   await t.test(
-    "Matrix 10: Static Resolution Directory Traversal Access Block Constraints",
+    "Matrix 9: Static Resolution Directory Traversal Access Block Constraints",
     async () => {
       resetErrorMetrics();
-      volten.static(TMP_ERR_DIR, "isolated.volten.local");
+      volten.static(TMP_ERR_DIR);
 
-      const resTraversal = await request(volten, "/../../secret.txt", {
-        headers: { host: "isolated.volten.local" },
-      });
+      const resTraversal = await request(volten, "/../../secret.txt");
       assert.equal(resTraversal.status, 404);
 
       const resGetBody = await request(volten, "/error/read-body-on-get");

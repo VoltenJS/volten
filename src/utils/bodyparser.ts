@@ -19,10 +19,7 @@ export async function parseBody(
   this: App,
   ctx: RequestContext,
   text: boolean = false,
-  limit = ctx.route?.bodyLimit ||
-    (this.getSafeHost(ctx.host) || this.getSafeHost("**"))?.hostOptions
-      .bodyLimit ||
-    this.AppOptions.bodyLimit,
+  limit = ctx.route?.bodyLimit || this.AppOptions.bodyLimit,
 ): Promise<unknown> {
   const req = ctx.req!;
   const res = ctx.res!;
