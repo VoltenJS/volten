@@ -41,7 +41,9 @@ export class VoltenError extends Error {
     );
 
     if (error instanceof Error && error.stack) {
-      voltenErr.stack = error.stack;
+      const stackLines = error.stack.split("\n");
+      stackLines[0] = `VoltenError: ${message}`;
+      voltenErr.stack = stackLines.join("\n");
     }
 
     return voltenErr;
@@ -133,5 +135,11 @@ export class PayloadTooLargeError extends VoltenError {
       `Request payload exceeds the limit of ${limit}`,
       413,
     );
+  }
+}
+
+export class BadRequest extends VoltenError {
+  constructor(message: string = "Bad Request") {
+    super("ERR_BAD_REQUEST", message, 400);
   }
 }
