@@ -5,8 +5,7 @@ const API_OPTIONS = {
   bodyLimit: 1024 * 1024 * 2, // 2 Megabytes maximum threshold allocation
 };
 
-const volten = new App(API_OPTIONS);
-const app = volten.host("**");
+const app = new App(API_OPTIONS);
 const PORT = process.env.PORT || 3000;
 
 // =========================================================================
@@ -83,7 +82,7 @@ app.post("/api/v1/logs/raw", async (ctx) => {
   });
 });
 
-volten.listen(PORT, () => {
+app.listen(PORT, () => {
   console.log(
     `Inbound Data Handling & Body Parsing demo running on http://localhost:${PORT}`,
   );

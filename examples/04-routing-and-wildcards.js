@@ -1,8 +1,6 @@
 import { App } from "../dist/core/server.js";
 
-const volten = new App();
-// Using "**" as the host matcher allows the application to respond to any incoming hostname
-const app = volten.host("**");
+const app = new App();
 const PORT = process.env.PORT || 3000;
 // =========================================================================
 // 4. ROUTING SYSTEM, DYNAMIC PARAMETERS, AND WILDCARDS
@@ -75,7 +73,7 @@ app.get("/api/v1/search", (ctx) => {
   });
 });
 
-volten.listen(PORT, () => {
+app.listen(PORT, () => {
   console.log("Routing & Wildcards demo running on http://localhost:" + PORT);
   console.log(
     `Test Parameter Routing: http://localhost:${PORT}/shop/electronics/mac-studio`,

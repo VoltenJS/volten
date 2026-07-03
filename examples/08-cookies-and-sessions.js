@@ -1,7 +1,6 @@
 import { App } from "../dist/core/server.js";
 
-const volten = new App();
-const app = volten.host("**");
+const app = new App();
 const PORT = process.env.PORT || 3000;
 
 // =========================================================================
@@ -120,7 +119,7 @@ app.post("/api/v1/auth/logout", (ctx) => {
   });
 });
 
-volten.listen(PORT, () => {
+app.listen(PORT, () => {
   console.log(
     `State Management & Cookie Parsing demo running on http://localhost:${PORT}`,
   );

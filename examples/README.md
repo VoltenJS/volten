@@ -28,7 +28,7 @@ All examples are written using modern JavaScript/Node.js, are completely zero-de
 Before running the examples, make sure you build the code first by running:
 
 ```bash
-npm run build
+pnpm run build
 ```
 
 in the project root
