@@ -1,5 +1,6 @@
 import { VoltenHandler, PathData, RouteOptions } from "../core/types.ts";
 import { RequestContext } from "./requestctx.ts";
+import { compileMiddlewareChain } from "../core/compose.ts";
 
 export class MethodStorage {
   public GET: PathData | null = null;
@@ -60,13 +61,11 @@ export class RouteTree {
   public addPath(
     method: string,
     path: string,
-    middleware: VoltenHandler[] | VoltenHandler,
-    handler: VoltenHandler,
-    composeChain: VoltenHandler,
+    routeHandlers: VoltenHandler[],
     options: Required<RouteOptions>,
   ) {
     const originalPath = path;
-
+    const composeChain = compileMiddlewareChain(routeHandlers);
     if (this.caseInsensitive) {
       path = path.toLowerCase();
     }
@@ -74,8 +73,6 @@ export class RouteTree {
     const routeData: PathData = {
       method,
       bodyLimit: options.bodyLimit,
-      handler,
-      middleware: Array.isArray(middleware) ? middleware : [middleware],
       composeChain,
       lastFingerprint: 0,
       disableOpt: false,
@@ -212,6 +209,18 @@ export class RouteTree {
       prev = child;
       child = child.sibling;
     }
+  }
+
+  public checkMethodAllowed(path: string): string[] {
+    const allowedMethods: string[] = [];
+    const methodsToCheck = ["GET", "POST", "PUT", "PATCH", "DELETE"];
+
+    for (const m of methodsToCheck) {
+      if (this.matchPath(m, path, {} as RequestContext)) {
+        allowedMethods.push(m);
+      }
+    }
+    return allowedMethods;
   }
 
   public matchPath(
