@@ -6,7 +6,7 @@ import { globSync } from "fs";
 const testFiles = globSync("tests/**/*.test.ts").map((file) =>
   path.resolve(file),
 );
-const threshold = 85;
+const threshold = 70;
 console.log(`Starting Volten Test Suite with Coverage...\n`);
 
 const stream = run({

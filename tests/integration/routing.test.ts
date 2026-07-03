@@ -480,4 +480,5 @@ test("Volten Core Pipeline Integration", async (t) => {
       );
     },
   );
+  volten.close();
 });
