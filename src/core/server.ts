@@ -4,7 +4,6 @@ import {
   VoltenHandler,
   PreflightHandler,
   ErrorHandler,
-  HostData,
   RouteData,
   PathData,
   VoltenAppOptions,
@@ -23,25 +22,61 @@ import { JitCache } from "../utils/jitcache.ts";
 import { VoltenError } from "./errors.ts";
 import { parseBody, parseMultipartStream } from "../utils/bodyparser.ts";
 
-class HostScope {
-  constructor(
-    private app: App,
-    private host: string,
-    private hostOptions: Required<VoltenAppOptions>,
-  ) {
-    this.app.createHost(host, hostOptions);
-  }
+export class App {
+  private availableContexts: RequestContext[];
+  private poolIndex: number = 0;
+  private poolSize: number = 2048;
+  public JITCache: JitCache = new JitCache(500);
+  protected middleware: VoltenHandler[] = [];
+  protected tree: RouteTree;
+  customErrorHandler: ErrorHandler | null = null;
+  public serverStaticMap: string | null = null;
+  public AppOptions: Required<VoltenAppOptions> = DeafultVoltenOptions;
+  public static readonly EMPTY_OBJECT = Object.freeze({});
+
+  public parseBody = parseBody.bind(this);
+  public parseMultipartStream = parseMultipartStream.bind(this);
+  public server = http.createServer(this.onRequest.bind(this));
+  private acceptIncomming = true;
+
+  private handleUncaught = (err: any) => {
+    if (!this.AppOptions.noLogs) console.error(err);
+  };
+  private handleRejection = (err: any) => {
+    if (!this.AppOptions.noLogs) console.error(err);
+  };
 
   static(folderPath: string) {
-    this.app.static(folderPath, this.host);
+    const absolutePath = fs.existsSync(folderPath)
+      ? folderPath
+      : fs.existsSync(`./${folderPath}`)
+        ? `./${folderPath}`
+        : null;
+    if (!absolutePath) {
+      throw new Error(`Directory not found: ${folderPath}`);
+    }
+    this.serverStaticMap = absolutePath;
   }
 
-  use(...fns: VoltenHandler[]): this {
-    for (const fn of fns) {
-      this.app.use(fn, this.host);
-    }
-    return this;
+  resetCtx(ctx: RequestContext) {
+    ctx.reset();
+    this.availableContexts.push(ctx);
   }
+
+  constructor(options: VoltenAppOptions = {}) {
+    Object.assign(this.AppOptions, options);
+    this.poolSize = this.AppOptions.RequestPoolSize;
+    this.tree = new RouteTree(this.AppOptions.caseInsensitive);
+    this.onRequest = this.onRequest.bind(this);
+    this.availableContexts = [];
+    for (let i = 0; i < this.poolSize; i++) {
+      this.availableContexts.push(new RequestContext());
+    }
+    process.on("uncaughtException", this.handleUncaught);
+    process.on("unhandledRejection", this.handleRejection);
+  }
+
+  //#region Routing Functions
 
   private identifyParamType(
     arg2: RouteOptions | VoltenHandler,
@@ -58,6 +93,18 @@ class HostScope {
     return { options, routeHandlers };
   }
 
+  registerRoute(
+    method: string,
+    path: string,
+    options: Required<RouteOptions>,
+    ...handlers: VoltenHandler[]
+  ) {
+    const methodUpper = method.toUpperCase();
+    const routeHandlers = this.middleware.concat(handlers);
+    const routeData: RouteData = [methodUpper, path, routeHandlers, options];
+    this.tree.addPath(...routeData);
+  }
+
   get(path: string, ...handlers: VoltenHandler[]): void;
   get(path: string, options: RouteOptions, ...handlers: VoltenHandler[]): void;
   get(
@@ -69,7 +116,7 @@ class HostScope {
       arg2,
       ...handlers,
     );
-    this.app.registerRoute(this.host, "GET", path, options, ...routeHandlers);
+    this.registerRoute("GET", path, options, ...routeHandlers);
   }
 
   post(path: string, ...handlers: VoltenHandler[]): void;
@@ -83,7 +130,7 @@ class HostScope {
       arg2,
       ...handlers,
     );
-    this.app.registerRoute(this.host, "POST", path, options, ...routeHandlers);
+    this.registerRoute("POST", path, options, ...routeHandlers);
   }
 
   patch(path: string, ...handlers: VoltenHandler[]): void;
@@ -101,7 +148,7 @@ class HostScope {
       arg2,
       ...handlers,
     );
-    this.app.registerRoute(this.host, "PATCH", path, options, ...routeHandlers);
+    this.registerRoute("PATCH", path, options, ...routeHandlers);
   }
 
   put(path: string, ...handlers: VoltenHandler[]): void;
@@ -115,7 +162,7 @@ class HostScope {
       arg2,
       ...handlers,
     );
-    this.app.registerRoute(this.host, "PUT", path, options, ...routeHandlers);
+    this.registerRoute("PUT", path, options, ...routeHandlers);
   }
 
   delete(path: string, ...handlers: VoltenHandler[]): void;
@@ -133,174 +180,26 @@ class HostScope {
       arg2,
       ...handlers,
     );
-    this.app.registerRoute(
-      this.host,
-      "DELETE",
-      path,
-      options,
-      ...routeHandlers,
-    );
+    this.registerRoute("DELETE", path, options, ...routeHandlers);
   }
 
-  onError(handler: ErrorHandler) {
-    this.app.onError(handler, this.host);
+  getRoute(method: string, path: string, ctx: RequestContext): PathData | null {
+    return this.tree.matchPath(method, path, ctx) || null;
   }
 
-  preflight(handler: PreflightHandler) {
-    this.app.preflight(handler, this.host);
-  }
-}
-
-export class App {
-  private availableContexts: RequestContext[];
-  private poolIndex: number = 0;
-  private poolSize: number = 2048;
-  // To-Do: Make this customizable by dev
-  public JITCache: JitCache = new JitCache(500);
-  protected middleware: VoltenHandler[] = [];
-  protected currentHost: string | null = null;
-  // Check if it would be more efficient to seperate by method here instead of in RouteTree
-  protected routes: Map<string, HostData> = new Map();
-  private hostErrorHandlers: Record<string, ErrorHandler> = Object.create(null);
-  private hostPreflightHandlers: Record<
-    string,
-    {
-      handlers: PreflightHandler[];
-      compiledHandler: PreflightHandler | null;
-    }
-  > = Object.create(null);
-  customErrorHandler: ErrorHandler | null = null;
-  public serverStaticMap: Map<string, string> = new Map();
-  public AppOptions: Required<VoltenAppOptions> = DeafultVoltenOptions;
-  public static readonly EMPTY_OBJECT = Object.freeze({});
-
-  public parseBody = parseBody.bind(this);
-  public parseMultipartStream = parseMultipartStream.bind(this);
-  public server = http.createServer(this.onRequest.bind(this));
-  private acceptIncomming = true;
-
-  private handleUncaught = (err: any) => {
-    if (!this.AppOptions.noLogs) console.error(err);
-  };
-  private handleRejection = (err: any) => {
-    if (!this.AppOptions.noLogs) console.error(err);
-  };
-
-  static(folderPath: string, host: string) {
-    const absolutePath = fs.existsSync(folderPath)
-      ? folderPath
-      : fs.existsSync(`./${folderPath}`)
-        ? `./${folderPath}`
-        : null;
-    if (!absolutePath) {
-      throw new Error(`Directory not found: ${folderPath}`);
-    }
-    this.serverStaticMap.set(host, absolutePath);
-  }
-
-  resetCtx(ctx: RequestContext) {
-    ctx.reset();
-    this.availableContexts.push(ctx);
-  }
-
-  constructor(options: VoltenAppOptions = {}) {
-    Object.assign(this.AppOptions, options);
-    this.poolSize = this.AppOptions.RequestPoolSize;
-    this.onRequest = this.onRequest.bind(this);
-    this.availableContexts = [];
-    for (let i = 0; i < this.poolSize; i++) {
-      this.availableContexts.push(new RequestContext());
-    }
-    process.on("uncaughtException", this.handleUncaught);
-    process.on("unhandledRejection", this.handleRejection);
-  }
-
-  //#region Routing Functions
-
-  getHost(host: string): HostData {
-    const hostData = this.routes.get(host);
-    if (hostData) {
-      return hostData;
-    }
-    this.createHost(host, this.AppOptions);
-    return this.routes.get(host) as HostData;
-  }
-
-  createHost(host: string, options: Required<VoltenAppOptions>): void {
-    if (this.routes.get(host)) return;
-    this.routes.set(host, {
-      tree: new RouteTree(options.caseInsensitive),
-      middleware: [],
-      immediate: new Map(),
-      hostOptions: options,
-    });
-  }
-
-  getSafeHost(host: string): HostData | null {
-    const hostData = this.routes.get(host);
-    if (hostData) {
-      return hostData;
-    }
-    return null;
-  }
-
-  registerRoute(
-    host: string,
-    method: string,
-    path: string,
-    options: Required<RouteOptions>,
-    ...handlers: VoltenHandler[]
-  ) {
-    const hostData = this.getHost(host);
-    const methodUpper = method.toUpperCase();
-
-    // Flatten the middleware chain for this route
-    const routeHandlers = this.middleware.concat(hostData.middleware, handlers);
-    const routeData: RouteData = [methodUpper, path, routeHandlers, options];
-    hostData.tree.addPath(...routeData);
-  }
-
-  getRoute(
-    method: string,
-    host: string,
-    path: string,
-    ctx: RequestContext,
-  ): PathData | null {
-    return (
-      this.routes.get(host)?.tree.matchPath(method, path, ctx) ||
-      this.routes.get("**")?.tree.matchPath(method, path, ctx) ||
-      null
-    );
-  }
-
-  getRouteTree(host: string): RouteTree | null {
-    return this.routes.get(host)?.tree || this.routes.get("**")?.tree || null;
+  getRouteTree(): RouteTree {
+    return this.tree;
   }
 
   //#endregion
   //#region Middleware & Internal Functions
-  host(host: string, options?: VoltenAppOptions): HostScope {
-    if (host.endsWith("/")) {
-      host = host.slice(0, -1);
-    }
-    if (options) {
-      return new HostScope(this, host, { ...this.AppOptions, ...options });
-    }
-    return new HostScope(this, host, this.AppOptions);
-  }
 
-  use(fn: VoltenHandler, host?: string): void {
-    if (host) {
-      const hostData: HostData = this.getHost(host);
-      hostData.middleware.push(fn);
-      this.routes.set(host, hostData);
-      return;
-    }
-    this.middleware.push(fn);
+  use(...fns: VoltenHandler[]): this {
+    this.middleware.push(...fns);
+    return this;
   }
 
   private errorHandler: ErrorHandler = (err, ctx) => {
-    // 1. Establish structural defaults based on the Volten Error Code
     let status = 500;
     let headers: Record<string, string | number> = {
       ...INTERNAL_SERVER_ERROR_HEADERS,
@@ -354,7 +253,6 @@ export class App {
         break;
     }
 
-    // 3. Centralized Node.js Stream termination
     if (!ctx.headersSent) {
       res.writeHead(status, headers);
       res.end(body);
@@ -370,10 +268,7 @@ export class App {
     const error = err instanceof VoltenError ? err : VoltenError.from(err);
     const res = ctx.res!;
 
-    const customHandler =
-      this.hostErrorHandlers[ctx.host] ||
-      this.hostErrorHandlers["**"] ||
-      this.customErrorHandler;
+    const customHandler = this.customErrorHandler;
 
     if (customHandler) {
       try {
@@ -381,8 +276,7 @@ export class App {
         if (!res.writableEnded && !res.destroyed) {
           if (!this.AppOptions.noLogs) {
             console.warn(
-              `[Volten Framework Warning]: Custom error handler for host "${ctx.host}" ` +
-                `returned without terminating the response. Falling back to default handler.`,
+              `[Volten Framework Warning]: Custom error handler returned without terminating the response. Falling back to default handler.`,
             );
           }
           this.executeFallback(error, ctx);
@@ -411,71 +305,35 @@ export class App {
     }
   }
 
-  private getPreflightHandler(host: string) {
-    const preflightHandler =
-      this.hostPreflightHandlers[host]?.compiledHandler ||
-      this.hostPreflightHandlers["**"]?.compiledHandler;
-    return preflightHandler || this.preflightHandler;
+  private getPreflightHandler() {
+    return this.preflightHandler;
   }
 
-  public onError(fn: ErrorHandler, host?: string) {
-    if (host) {
-      this.hostErrorHandlers[host] = fn;
-      return;
-    }
+  public onError(fn: ErrorHandler) {
     this.customErrorHandler = fn;
   }
 
-  public clearErrorHandler(host?: string) {
-    if (host) {
-      delete this.hostErrorHandlers[host];
-      return;
-    }
+  public clearErrorHandler() {
     this.customErrorHandler = null;
   }
 
-  public preflight(fn: PreflightHandler, host?: string) {
-    if (host) {
-      if (!this.hostPreflightHandlers[host]) {
-        this.hostPreflightHandlers[host] = {
-          handlers: [],
-          compiledHandler: null,
-        };
-      }
-      this.hostPreflightHandlers[host].handlers.push(fn);
-      return;
-    }
+  public preflight(fn: PreflightHandler) {
     this.preflightHandlers.push(fn);
   }
 
-  private compilePreflightHandlers() {
-    this.preflightHandler = (ctx: RequestContext) => {
-      for (const fn of this.preflightHandlers) {
-        const result = fn(ctx);
-        if (result instanceof Promise) {
-          return result.catch((err: VoltenError) => this.handleError(err, ctx));
+  private compilePreflightHandler() {
+    this.preflightHandler = async (ctx: RequestContext) => {
+      try {
+        for (const fn of this.preflightHandlers) {
+          await fn(ctx);
         }
+      } catch (err) {
+        if (VoltenError.isVoltenError(err)) {
+          return this.handleError(err, ctx);
+        }
+        throw err;
       }
     };
-
-    Object.entries(this.hostPreflightHandlers).forEach(
-      ([host, { handlers }]) => {
-        const handler = async (ctx: RequestContext) => {
-          try {
-            for (const fn of handlers) {
-              await fn(ctx);
-            }
-          } catch (err) {
-            if (VoltenError.isVoltenError(err)) {
-              return this.handleError(err, ctx);
-            }
-            throw err;
-          }
-        };
-
-        this.hostPreflightHandlers[host].compiledHandler = handler;
-      },
-    );
   }
 
   private createCtx(
@@ -499,7 +357,7 @@ export class App {
   }
 
   private async handleRequest(ctx: RequestContext) {
-    const preflightHandler = this.getPreflightHandler(ctx.host || "");
+    const preflightHandler = this.getPreflightHandler();
     if (preflightHandler) {
       const result = preflightHandler(ctx);
       if (result instanceof Promise) {
@@ -511,14 +369,12 @@ export class App {
     }
 
     await ctx.routePath().catch((err) => {
-      //console.log("Route Path Error:", err);
       this.handleError(err, ctx);
       return;
     });
     const route = ctx.route;
     if (!route) return;
 
-    // Use a pre-bound 404 handler to avoid creating a new function every time
     const handlerChain = route.composeChain;
     const result = handlerChain(ctx);
     if (result instanceof Promise) {
@@ -528,11 +384,7 @@ export class App {
 
   listen(port: number, cb?: () => void): http.Server {
     const server = http.createServer(this.onRequest);
-
-    /*server.on("connection", (socket) => {
-      socket.setNoDelay(true);
-    });*/
-    this.compilePreflightHandlers();
+    this.compilePreflightHandler();
     server.listen(port, "0.0.0.0", 16384, cb);
     return server;
   }
@@ -541,22 +393,16 @@ export class App {
     if (!this.acceptIncomming) {
       req.socket.destroy();
     }
-    const host = req.headers.host || "";
-    const hostConfig = this.getSafeHost(host) || this.getSafeHost("**");
-    const limit =
-      hostConfig?.hostOptions.bodyLimit || this.AppOptions.bodyLimit;
+    const limit = this.AppOptions.bodyLimit;
 
-    // Handle Content-Length strictly
     const clHeader = req.headers["content-length"];
     if (clHeader) {
       const contentLength = parseInt(clHeader, 10);
       if (contentLength > limit) {
-        //req.socket.destroy();
         req.pause();
         res.writeHead(413, PAYLOAD_TOO_LARGE_HEADERS);
         res.end(PAYLOAD_TOO_LARGE_BUF);
         req.socket.destroy();
-
         return;
       }
     }

@@ -97,36 +97,25 @@ test("Volten Other Tests", async (t) => {
 
       assert.throws(() => {
         // Intentionally passing a totally fabricated folder location to trip Error branch
-        dummyApp.static("./completely_imaginary_directory_path_xyz_999", "**");
+        dummyApp.static("./completely_imaginary_directory_path_xyz_999");
       }, /Directory not found/);
-      dummyApp.close();
-    },
-  );
-  await t.test(
-    "Matrix 4: Server Instance Unregistered Host Extraction Safeties",
-    () => {
-      const dummyApp = new App({ noLogs: true });
-      // Attempt retrieving host data from an entirely unconfigured host scope string
-      const result = dummyApp.getSafeHost("unregistered.domain.local");
-      assert.equal(result, null);
       dummyApp.close();
     },
   );
 
   // =========================================================================
-  // MATRIX 5: EMPTY BODY PARSING INVOCATION (src/core/server.ts Lines 208-213)
+  // MATRIX 4: EMPTY BODY PARSING INVOCATION (src/core/server.ts Lines 208-213)
   // =========================================================================
   await t.test(
-    "Matrix 5: Parsing Payloads With Zero Content-Length Assigned",
+    "Matrix 4: Parsing Payloads With Zero Content-Length Assigned",
     async () => {
       const busterApp = new App({
         RequestPoolSize: 2,
         caseInsensitive: true,
         noLogs: true,
       });
-      const host = busterApp.host("**");
 
-      host.post("/empty-content-len", async (ctx) => {
+      busterApp.post("/empty-content-len", async (ctx) => {
         const body = await ctx.body();
         ctx.json({
           bodyType: typeof body,
@@ -147,10 +136,10 @@ test("Volten Other Tests", async (t) => {
   );
 
   // =========================================================================
-  // MATRIX 6: RESPONSEBUFFER FLUSH MECHANICS (src/utils/requestctx.ts Lines 140-186)
+  // MATRIX 5: RESPONSEBUFFER FLUSH MECHANICS (src/utils/requestctx.ts Lines 140-186)
   // =========================================================================
   await t.test(
-    "Matrix 6: Context Buffer Stream Flush Queue Systems",
+    "Matrix 5: Context Buffer Stream Flush Queue Systems",
     async () => {
       const ctx = new RequestContext();
       const mockRes = new http.ServerResponse({ method: "GET" } as any);
@@ -175,10 +164,10 @@ test("Volten Other Tests", async (t) => {
   );
 
   // =========================================================================
-  // MATRIX 7: STATIC MISSING CONFIGS FALLBACK (src/utils/requestctx.ts Lines 93-105)
+  // MATRIX 6: STATIC MISSING CONFIGS FALLBACK (src/utils/requestctx.ts Lines 93-105)
   // =========================================================================
   await t.test(
-    "Matrix 7: Context Initialization Missing Host Static Configurations",
+    "Matrix 6: Context Initialization Missing Host Static Configurations",
     async () => {
       const testApp = new App({ RequestPoolSize: 2, noLogs: true });
       const ctx = new RequestContext();
@@ -215,10 +204,10 @@ test("Volten Other Tests", async (t) => {
   );
 
   // =========================================================================
-  // MATRIX 8: STREAM DESTROY ERROR CALLBACKS (src/utils/requestctx.ts Lines 217-227)
+  // MATRIX 7: STREAM DESTROY ERROR CALLBACKS (src/utils/requestctx.ts Lines 217-227)
   // =========================================================================
   await t.test(
-    "Matrix 8: SendFile Stream Failure Execution Callback Layers",
+    "Matrix 7: SendFile Stream Failure Execution Callback Layers",
     async () => {
       const testApp = new App({ RequestPoolSize: 2, noLogs: true });
       const ctx = new RequestContext();
@@ -256,12 +245,11 @@ test("Volten Other Tests", async (t) => {
     },
   );
 
-  await t.test("Matrix 9: URL Parser Parsing Fallbacks Validation", () => {
+  await t.test("Matrix 8: URL Parser Parsing Fallbacks Validation", () => {
     // Import or invoke your parsing dependencies to exhaust string parsing mutations
     const busterApp = new App({ caseInsensitive: true, noLogs: true });
-    const host = busterApp.host("**");
 
-    host.get("/parse-edge", (ctx) => {
+    busterApp.get("/parse-edge", (ctx) => {
       // Accessing path metrics
       ctx.text(ctx.path);
     });
@@ -269,16 +257,15 @@ test("Volten Other Tests", async (t) => {
   });
 
   await t.test(
-    "Matrix 10: Radix Tree Match Path Empty and Backtrack Bounds",
+    "Matrix 9: Radix Tree Match Path Empty and Backtrack Bounds",
     () => {
       const busterApp = new App({ caseInsensitive: true, noLogs: true });
-      const host = busterApp.host("**");
 
       // Mount varying complex parameter configurations
-      host.get("/tree/:param/fixed/:sub", (ctx) => {
+      busterApp.get("/tree/:param/fixed/:sub", (ctx) => {
         ctx.text("hit");
       });
-      host.get("/tree/wildcard/*", (ctx) => {
+      busterApp.get("/tree/wildcard/*", (ctx) => {
         ctx.text("wild");
       });
 

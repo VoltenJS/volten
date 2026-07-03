@@ -38,10 +38,6 @@ test("Volten Core Pipeline Integration", async (t) => {
     noLogs: true,
   });
 
-  // Host definition setup
-  const rootApp = volten.host("**");
-  const specificHostApp = volten.host("api.volten.local");
-
   // State setup tracking execution order
   let middlewareTrace: string[] = [];
 
@@ -55,73 +51,61 @@ test("Volten Core Pipeline Integration", async (t) => {
     next();
   });
 
-  // Host isolated middleware coverage
-  specificHostApp.use((ctx, next) => {
-    middlewareTrace.push("specific_host_pre");
-    ctx.setHeader("X-Host-Scoped", "true");
-    next();
-  });
-
   // 1. Basic HTTP Methods
-  rootApp.get("/methods", (ctx) => {
+  volten.get("/methods", (ctx) => {
     ctx.text("GET_OK");
   });
-  rootApp.post("/methods", (ctx) => {
+  volten.post("/methods", (ctx) => {
     ctx.text("POST_OK");
   });
-  rootApp.put("/methods", (ctx) => {
+  volten.put("/methods", (ctx) => {
     ctx.text("PUT_OK");
   });
-  rootApp.patch("/methods", (ctx) => {
+  volten.patch("/methods", (ctx) => {
     ctx.text("PATCH_OK");
   });
-  rootApp.delete("/methods", (ctx) => {
+  volten.delete("/methods", (ctx) => {
     ctx.text("DELETE_OK");
   });
 
-  rootApp.get("/limit", async (ctx) => {
+  volten.get("/limit", async (ctx) => {
     await new Promise((resolve) => setTimeout(resolve, 1));
     ctx.text("LIMIT_OK");
   });
 
   // 2. Radix Tree Splitting Nodes & Backtracking Targets
-  rootApp.get("/route/static-segment", (ctx) => {
+  volten.get("/route/static-segment", (ctx) => {
     ctx.text("static");
   });
-  rootApp.get("/route/static-segment-long", (ctx) => {
+  volten.get("/route/static-segment-long", (ctx) => {
     ctx.text("long-static");
   });
-  rootApp.get("/route/:param/fixed", (ctx) => {
+  volten.get("/route/:param/fixed", (ctx) => {
     ctx.json({ p: ctx.params.param });
   });
-  rootApp.get("/route/:param/:subparam", (ctx) => {
+  volten.get("/route/:param/:subparam", (ctx) => {
     ctx.json({ p1: ctx.params.param, p2: ctx.params.subparam });
   });
-  rootApp.get("/route/wildcard/*", (ctx) => {
+  volten.get("/route/wildcard/*", (ctx) => {
     ctx.text(`wildcard:${ctx.params["*"]}`);
   });
 
-  // Specific host testing targets
-  specificHostApp.get("/methods", (ctx) => {
-    ctx.text("SPECIFIC_HOST_GET_OK");
-  });
-
   // 3. Body Limits Overrides
-  rootApp.post("/limit/override", { bodyLimit: 10 }, async (ctx) => {
+  volten.post("/limit/override", { bodyLimit: 10 }, async (ctx) => {
     const b = await ctx.body();
     ctx.json(b);
   });
-  rootApp.post("/limit/empty", async (ctx) => {
+  volten.post("/limit/empty", async (ctx) => {
     const b = await ctx.body();
     ctx.json(b);
   });
-  rootApp.get("/limit/read-on-get", async (ctx) => {
+  volten.get("/limit/read-on-get", async (ctx) => {
     const b = await ctx.body(); // Edge case validation on non-payload body calls
     ctx.json(b);
   });
 
   // 4. Cookie Management Triggers
-  rootApp.get("/cookies/set", (ctx) => {
+  volten.get("/cookies/set", (ctx) => {
     ctx.setCookie("session", "abc", {
       httpOnly: true,
       secure: true,
@@ -133,60 +117,38 @@ test("Volten Core Pipeline Integration", async (t) => {
     ctx.setCookie("multi", "2"); // Array header verification
     ctx.text("cookies_set");
   });
-  rootApp.get("/cookies/read", (ctx) => {
+  volten.get("/cookies/read", (ctx) => {
     ctx.json(ctx.cookies);
   });
 
   // 5. Error Pipeline Transitions
-  rootApp.get("/error/sync", () => {
+  volten.get("/error/sync", () => {
     throw new Error("Deliberate Synchronous Fault");
   });
-  rootApp.get("/error/async", async () => {
+  volten.get("/error/async", async () => {
     throw new Error("Deliberate Asynchronous Fault");
   });
-  rootApp.get("/error/next-multiple", (ctx, next) => {
+  volten.get("/error/next-multiple", (ctx, next) => {
     next();
     next(); // Triggers loop breach guard mechanisms
   });
-  rootApp.get("/error/next-after-sent", async (ctx, next) => {
+  volten.get("/error/next-after-sent", async (ctx, next) => {
     ctx.text("already_sent");
     await next();
   });
 
-  // Host level scoped custom error boundaries
-  specificHostApp.onError((err, ctx) => {
-    ctx.status(503).text(`custom_host_error:${err.message}`);
-  });
-  specificHostApp.get("/error/trigger", () => {
-    throw new Error("isolated_fault");
-  });
-
-  // Preflight setup configurations
-  specificHostApp.preflight((ctx) => {
-    ctx.setHeader("X-Preflight-Intercepted", "true");
-    if (ctx.path === "/preflight/abort") {
-      ctx.status(204).send("");
-    }
-  });
-  specificHostApp.get("/preflight/abort", (ctx) => {
-    ctx.text("should_not_reach");
-  });
-  specificHostApp.get("/preflight/pass", (ctx) => {
-    ctx.text("reached_pass");
-  });
-
   // 6. JSON JIT, Buffers, Strings, Content Types, Stream Processing Utilities
-  rootApp.get("/response/buffer", (ctx) => {
+  volten.get("/response/buffer", (ctx) => {
     ctx.send(Buffer.from("buffer_payload"));
   });
-  rootApp.get("/response/json-jit", (ctx) => {
+  volten.get("/response/json-jit", (ctx) => {
     // Repeated execution targets caching systems safely
     ctx.json({ active: true, nodes: [1, 2, 3], metadata: { version: "1.0" } });
   });
-  rootApp.get("/response/empty-string", (ctx) => {
+  volten.get("/response/empty-string", (ctx) => {
     ctx.send("");
   });
-  rootApp.get("/response/remove-header", (ctx) => {
+  volten.get("/response/remove-header", (ctx) => {
     ctx.setHeader("X-Remove-Me", "yes");
     ctx.removeHeader("X-Remove-Me");
     ctx.flushHeaders();
@@ -194,7 +156,7 @@ test("Volten Core Pipeline Integration", async (t) => {
   });
 
   // Static serving registrations
-  volten.static(TMP_DIR, "**");
+  volten.static(TMP_DIR);
 
   // ==========================================
   // EXECUTING THE TESTS MATRIX (100+ assertions)
@@ -253,28 +215,7 @@ test("Volten Core Pipeline Integration", async (t) => {
   );
 
   await t.test(
-    "Matrix 3: Host Scoping Insulation and Intercept Boundaries",
-    async () => {
-      // Request aimed matching specific targeted VHost routing tree mappings
-      let res = await request(volten, "/methods", {
-        headers: { host: "api.volten.local" },
-      });
-      assert.equal(res.status, 200);
-      assert.equal(res.body, "SPECIFIC_HOST_GET_OK");
-      assert.equal(res.headers["x-host-scoped"], "true");
-
-      // Fallback to absolute match tree on alternate mismatching domain request targets
-      res = await request(volten, "/methods", {
-        headers: { host: "unrecognized.domain.com" },
-      });
-      assert.equal(res.status, 200);
-      assert.equal(res.body, "GET_OK");
-      assert.equal(res.headers["x-host-scoped"], undefined);
-    },
-  );
-
-  await t.test(
-    "Matrix 4: Input Payload, Payload Bounds Violation Controls",
+    "Matrix 3: Input Payload, Payload Bounds Violation Controls",
     async () => {
       // Basic body serialization verification targets
       let res = await request(volten, "/limit/empty", {
@@ -292,7 +233,7 @@ test("Volten Core Pipeline Integration", async (t) => {
   );
 
   await t.test(
-    "Matrix 5: State Serialization, Header Composition & Cookie Processing Engine",
+    "Matrix 4: State Serialization, Header Composition & Cookie Processing Engine",
     async () => {
       let res = await request(volten, "/cookies/set");
       assert.equal(res.status, 200);
@@ -320,7 +261,7 @@ test("Volten Core Pipeline Integration", async (t) => {
   );
 
   await t.test(
-    "Matrix 6: Fault Pipelines, Multiple Chain Executions and Pipeline Guard rails",
+    "Matrix 5: Fault Pipelines, Multiple Chain Executions and Pipeline Guard rails",
     async () => {
       // Synchronous crash middleware interception loops
       let res = await request(volten, "/error/sync");
@@ -339,37 +280,11 @@ test("Volten Core Pipeline Integration", async (t) => {
       res = await request(volten, "/error/next-after-sent");
       assert.equal(res.status, 200);
       assert.equal(res.body, "already_sent");
-
-      // Scoped application error intercept boundaries validation
-      res = await request(volten, "/error/trigger", {
-        headers: { host: "api.volten.local" },
-      });
-      assert.equal(res.status, 503);
-      assert.ok(res.body.includes("custom_host_error:isolated_fault"));
     },
   );
 
   await t.test(
-    "Matrix 7: Preflight Actions and Early Pipeline Terminations",
-    async () => {
-      // Intercept with definitive response generation termination
-      let res = await request(volten, "/preflight/abort", {
-        headers: { host: "api.volten.local" },
-      });
-      assert.equal(res.status, 204);
-      assert.equal(res.headers["x-preflight-intercepted"], "true");
-
-      // Pass-through validation on alternative endpoints matching criteria safely
-      res = await request(volten, "/preflight/pass", {
-        headers: { host: "api.volten.local" },
-      });
-      assert.equal(res.status, 200);
-      assert.equal(res.body, "reached_pass");
-    },
-  );
-
-  await t.test(
-    "Matrix 8: Response Body Types, JIT Fingerprinting Optimization Iterations",
+    "Matrix 6: Response Body Types, JIT Fingerprinting Optimization Iterations",
     async () => {
       // Buffer serialization streams
       let res = await request(volten, "/response/buffer");
@@ -398,7 +313,7 @@ test("Volten Core Pipeline Integration", async (t) => {
   );
 
   await t.test(
-    "Matrix 9: Static Target Resolution, Access Bounds, Directory Traversals",
+    "Matrix 7: Static Target Resolution, Access Bounds, Directory Traversals",
     async () => {
       // Regular asset delivery checks
       let res = await request(volten, "/asset.txt");
@@ -425,18 +340,16 @@ test("Volten Core Pipeline Integration", async (t) => {
   );
 
   await t.test(
-    "Matrix 10: Server Pool Contention States & Dynamic URL Resolution Edge-cases",
+    "Matrix 8: Server Pool Contention States & Dynamic URL Resolution Edge-cases",
     async () => {
       // 1. Validate the standard router parameter resolution safely
-      let res = await request(volten, "/methods?key=val&multi=a&multi=b+c", {
-        headers: { host: "fallback-domain.com" },
-      });
+      let res = await request(volten, "/methods?key=val&multi=a&multi=b+c");
       assert.equal(res.status, 200);
       const isolatedApp = new App({
         RequestPoolSize: 2,
         bodyLimit: 1024,
       });
-      isolatedApp.host("**").get("/sluggish-node", async (ctx) => {
+      isolatedApp.get("/sluggish-node", async (ctx) => {
         await new Promise((resolve) => setTimeout(resolve, 20));
         ctx.text("OK");
       });

@@ -1,7 +1,6 @@
 import { App } from "../dist/core/server.js";
 
-const volten = new App();
-const app = volten.host("**");
+const app = new App();
 const PORT = process.env.PORT || 3000;
 // =========================================================================
 // 3. ADVANCED JSON SERIALIZATION & RESOURCE BENCHMARKING
@@ -57,7 +56,7 @@ app.get("/api/v1/internal/users/:id/statistics/detailed", (ctx) => {
   return ctx.json(heavyReport);
 });
 
-volten.listen(PORT, () => {
+app.listen(PORT, () => {
   console.log("Heavy JSON Response demo running on http://localhost:" + PORT);
   console.log(
     `Test URL: http://localhost:${PORT}/api/v1/internal/users/99/statistics/detailed`,
