@@ -1,6 +1,5 @@
 import { App } from "./core/server.ts";
-const volten = new App();
-const app = volten.host("**");
+const app = new App();
 
 app.get("/", (ctx) => {
   ctx.send("Hello World!");
@@ -16,6 +15,6 @@ app.post("/data", async (ctx) => {
   ctx.json({ received: data });
 });
 
-volten.listen(3000, () => {
+app.listen(3000, () => {
   console.info("Server is running on port 3000 at: http://localhost:3000");
 });
