@@ -106,11 +106,10 @@ export class RequestContext {
     if (!this.inited) return;
     const app = this._app!;
     const pathname = this.path;
-    const route = app.getRoute(this.method, this.host, pathname, this);
+    const route = app.getRoute(this.method, pathname, this);
     if (!route) {
       try {
-        const staticPath =
-          app.serverStaticMap.get(this.host) || app.serverStaticMap.get("**");
+        const staticPath = app.serverStaticMap;
         if (!staticPath) {
           throw new Error("No static path configured for host");
         }
@@ -121,7 +120,7 @@ export class RequestContext {
         this.sendFile(filePath, 200, {});
         return;
       } catch {
-        const routeTree = app.getRouteTree(this.host);
+        const routeTree = app.getRouteTree();
         if (routeTree) {
           const methodsAllowed = routeTree.checkMethodAllowed(pathname);
           if (methodsAllowed.length > 0) {
