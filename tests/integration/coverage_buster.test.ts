@@ -4,12 +4,12 @@ import fs from "node:fs";
 import path from "node:path";
 import http from "http";
 import { App } from "../../src/core/server.ts";
-import { RequestContext } from "../../src/utils/requestctx.ts";
-import { JitCache } from "../../src/utils/jitcache.ts";
+import { RequestContext } from "../../src/utils/requestCtx.ts";
+import { JitCache } from "../../src/utils/jitCache.ts";
 import {
   createCompiledStringifier,
   getShapeFingerprint,
-} from "../../src/utils/stringifyjson.ts";
+} from "../../src/utils/stringifyJson.ts";
 import { request } from "../helpers.ts";
 import { VoltenError } from "../../src/core/errors.ts";
 

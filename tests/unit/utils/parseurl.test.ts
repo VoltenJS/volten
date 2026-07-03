@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseQuery, parseUrl } from "../../../src/utils/parseurl.ts";
+import { parseQuery, parseUrl } from "../../../src/utils/parseUrl.ts";
 
 // =====================================================================
 // Unit tests for parseUrl + parseQuery (src/utils/parseurl.ts)
