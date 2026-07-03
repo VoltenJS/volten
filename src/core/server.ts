@@ -17,7 +17,6 @@ import {
   PAYLOAD_TOO_LARGE_BUF,
   PAYLOAD_TOO_LARGE_HEADERS,
 } from "./types.ts";
-import { compileMiddlewareChain } from "./compose.ts";
 import { RouteTree } from "../utils/routetree.ts";
 import { RequestContext } from "../utils/requestctx.ts";
 import { JitCache } from "../utils/jitcache.ts";
@@ -39,7 +38,7 @@ class HostScope {
 
   use(...fns: VoltenHandler[]): this {
     for (const fn of fns) {
-      this.app.use(fn, this.host, this.hostOptions);
+      this.app.use(fn, this.host);
     }
     return this;
   }
@@ -163,8 +162,13 @@ export class App {
   // Check if it would be more efficient to seperate by method here instead of in RouteTree
   protected routes: Map<string, HostData> = new Map();
   private hostErrorHandlers: Record<string, ErrorHandler> = Object.create(null);
-  private hostPreflightHandlers: Record<string, PreflightHandler> =
-    Object.create(null);
+  private hostPreflightHandlers: Record<
+    string,
+    {
+      handlers: PreflightHandler[];
+      compiledHandler: PreflightHandler | null;
+    }
+  > = Object.create(null);
   customErrorHandler: ErrorHandler | null = null;
   public serverStaticMap: Map<string, string> = new Map();
   public AppOptions: Required<VoltenAppOptions> = DeafultVoltenOptions;
@@ -172,6 +176,15 @@ export class App {
 
   public parseBody = parseBody.bind(this);
   public parseMultipartStream = parseMultipartStream.bind(this);
+  public server = http.createServer(this.onRequest.bind(this));
+  private acceptIncomming = true;
+
+  private handleUncaught = (err: any) => {
+    if (!this.AppOptions.noLogs) console.error(err);
+  };
+  private handleRejection = (err: any) => {
+    if (!this.AppOptions.noLogs) console.error(err);
+  };
 
   static(folderPath: string, host: string) {
     const absolutePath = fs.existsSync(folderPath)
@@ -198,6 +211,8 @@ export class App {
     for (let i = 0; i < this.poolSize; i++) {
       this.availableContexts.push(new RequestContext());
     }
+    process.on("uncaughtException", this.handleUncaught);
+    process.on("unhandledRejection", this.handleRejection);
   }
 
   //#region Routing Functions
@@ -207,12 +222,7 @@ export class App {
     if (hostData) {
       return hostData;
     }
-    this.routes.set(host, {
-      tree: new RouteTree(this.AppOptions.caseInsensitive),
-      middleware: [],
-      immediate: new Map(),
-      hostOptions: this.AppOptions,
-    });
+    this.createHost(host, this.AppOptions);
     return this.routes.get(host) as HostData;
   }
 
@@ -245,21 +255,8 @@ export class App {
     const methodUpper = method.toUpperCase();
 
     // Flatten the middleware chain for this route
-    const routeMiddleware = this.middleware.concat(
-      hostData.middleware,
-      handlers,
-    );
-    const finalHandler = routeMiddleware.pop()!; // last handler
-    const compiledChain = compileMiddlewareChain(routeMiddleware, finalHandler);
-    const routeData: RouteData = [
-      methodUpper,
-      path,
-      routeMiddleware,
-      finalHandler,
-      compiledChain,
-      options,
-    ];
-
+    const routeHandlers = this.middleware.concat(hostData.middleware, handlers);
+    const routeData: RouteData = [methodUpper, path, routeHandlers, options];
     hostData.tree.addPath(...routeData);
   }
 
@@ -269,7 +266,15 @@ export class App {
     path: string,
     ctx: RequestContext,
   ): PathData | null {
-    return this.routes.get(host)?.tree.matchPath(method, path, ctx) || null;
+    return (
+      this.routes.get(host)?.tree.matchPath(method, path, ctx) ||
+      this.routes.get("**")?.tree.matchPath(method, path, ctx) ||
+      null
+    );
+  }
+
+  getRouteTree(host: string): RouteTree | null {
+    return this.routes.get(host)?.tree || this.routes.get("**")?.tree || null;
   }
 
   //#endregion
@@ -284,21 +289,9 @@ export class App {
     return new HostScope(this, host, this.AppOptions);
   }
 
-  use(
-    fn: VoltenHandler,
-    host?: string,
-    hostOptions?: Required<VoltenAppOptions>,
-  ): void {
+  use(fn: VoltenHandler, host?: string): void {
     if (host) {
-      const hostData: HostData = this.routes.get(host) ?? {
-        tree: new RouteTree(
-          hostOptions?.caseInsensitive || this.AppOptions.caseInsensitive,
-        ),
-        middleware: [],
-        immediate: new Map(),
-        hostOptions: hostOptions || this.AppOptions,
-      };
-
+      const hostData: HostData = this.getHost(host);
       hostData.middleware.push(fn);
       this.routes.set(host, hostData);
       return;
@@ -346,12 +339,11 @@ export class App {
         break;
       case "ERR_HEADERS_SENT":
         ctx.res!.destroy();
-        ctx.req!.destroy();
         ctx.req!.socket.destroy();
         break;
       default:
         if (!this.AppOptions.noLogs) {
-          console.error("Volten Framework Error:", err);
+          console.log(err);
         }
         status = 500;
         body = err.message || "Internal Server Error";
@@ -371,6 +363,7 @@ export class App {
     }
   };
 
+  private preflightHandlers: PreflightHandler[] = [];
   private preflightHandler: PreflightHandler | null = null;
 
   public async handleError(err: unknown, ctx: RequestContext): Promise<void> {
@@ -420,8 +413,9 @@ export class App {
 
   private getPreflightHandler(host: string) {
     const preflightHandler =
-      this.hostPreflightHandlers[host] || this.hostPreflightHandlers["**"];
-    return preflightHandler || this.preflightHandler || null;
+      this.hostPreflightHandlers[host]?.compiledHandler ||
+      this.hostPreflightHandlers["**"]?.compiledHandler;
+    return preflightHandler || this.preflightHandler;
   }
 
   public onError(fn: ErrorHandler, host?: string) {
@@ -442,10 +436,46 @@ export class App {
 
   public preflight(fn: PreflightHandler, host?: string) {
     if (host) {
-      this.hostPreflightHandlers[host] = fn;
+      if (!this.hostPreflightHandlers[host]) {
+        this.hostPreflightHandlers[host] = {
+          handlers: [],
+          compiledHandler: null,
+        };
+      }
+      this.hostPreflightHandlers[host].handlers.push(fn);
       return;
     }
-    this.preflightHandler = fn;
+    this.preflightHandlers.push(fn);
+  }
+
+  private compilePreflightHandlers() {
+    this.preflightHandler = (ctx: RequestContext) => {
+      for (const fn of this.preflightHandlers) {
+        const result = fn(ctx);
+        if (result instanceof Promise) {
+          return result.catch((err: VoltenError) => this.handleError(err, ctx));
+        }
+      }
+    };
+
+    Object.entries(this.hostPreflightHandlers).forEach(
+      ([host, { handlers }]) => {
+        const handler = async (ctx: RequestContext) => {
+          try {
+            for (const fn of handlers) {
+              await fn(ctx);
+            }
+          } catch (err) {
+            if (VoltenError.isVoltenError(err)) {
+              return this.handleError(err, ctx);
+            }
+            throw err;
+          }
+        };
+
+        this.hostPreflightHandlers[host].compiledHandler = handler;
+      },
+    );
   }
 
   private createCtx(
@@ -490,7 +520,7 @@ export class App {
 
     // Use a pre-bound 404 handler to avoid creating a new function every time
     const handlerChain = route.composeChain;
-    const result = handlerChain(ctx, () => {});
+    const result = handlerChain(ctx);
     if (result instanceof Promise) {
       result.catch((err: unknown) => this.handleError(err, ctx));
     }
@@ -502,12 +532,15 @@ export class App {
     /*server.on("connection", (socket) => {
       socket.setNoDelay(true);
     });*/
-
+    this.compilePreflightHandlers();
     server.listen(port, "0.0.0.0", 16384, cb);
     return server;
   }
 
   private onRequest(req: http.IncomingMessage, res: http.ServerResponse) {
+    if (!this.acceptIncomming) {
+      req.socket.destroy();
+    }
     const host = req.headers.host || "";
     const hostConfig = this.getSafeHost(host) || this.getSafeHost("**");
     const limit =
@@ -534,5 +567,18 @@ export class App {
     this.handleRequest(ctx).catch(async (err) => {
       await this.handleError(err, ctx);
     });
+  }
+
+  public close() {
+    this.acceptIncomming = false;
+    const awaitFinish = setInterval(() => {
+      if (this.poolSize - this.availableContexts.length === 0) {
+        awaitFinish.close();
+        this.server.close();
+        process.exit(0);
+      }
+    }, 100);
+    process.off("uncaughtException", this.handleUncaught);
+    process.off("unhandledRejection", this.handleRejection);
   }
 }

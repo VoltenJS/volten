@@ -24,9 +24,11 @@ import {
 } from "./stringifyjson.ts";
 import { isFileInFolder } from "./security.ts";
 import {
+  MethodNotAllowedError,
   HeadersSentError,
   NotFoundError,
   VoltenError,
+  BadRequest,
 } from "../core/errors.ts";
 
 let DATE_HEADER_BUF = new Date().toUTCString();
@@ -38,6 +40,8 @@ export class RequestContext {
   public _app: App | null = null;
   private _req: http.IncomingMessage | null = null;
   private _res: http.ServerResponse | null = null;
+  private _setHeader: http.ServerResponse["setHeader"] | null = null;
+  private _removeHeader: http.ServerResponse["removeHeader"] | null = null;
   private _cookiesCache: Record<string, string> | null = null;
   public _multipartPromises: Array<Promise<void>> = [];
   public route: PathData | null = null;
@@ -73,6 +77,8 @@ export class RequestContext {
     this._app = app;
     this._req = req;
     this._res = res;
+    this._setHeader = res.setHeader.bind(res);
+    this._removeHeader = res.removeHeader.bind(res);
     this._res.on("finish", () => {
       this._app?.resetCtx(this);
     });
@@ -100,9 +106,7 @@ export class RequestContext {
     if (!this.inited) return;
     const app = this._app!;
     const pathname = this.path;
-    const route =
-      app.getRoute(this.method, this.host, pathname, this) ||
-      app.getRoute(this.method, "**", pathname, this);
+    const route = app.getRoute(this.method, this.host, pathname, this);
     if (!route) {
       try {
         const staticPath =
@@ -112,11 +116,18 @@ export class RequestContext {
         }
         const filePath = path.join(staticPath, pathname);
         if (!(await isFileInFolder(staticPath, filePath))) {
-          throw new Error("Attempted directory traversal attack");
+          throw new BadRequest("Attempted directory traversal attack");
         }
         this.sendFile(filePath, 200, {});
         return;
       } catch {
+        const routeTree = app.getRouteTree(this.host);
+        if (routeTree) {
+          const methodsAllowed = routeTree.checkMethodAllowed(pathname);
+          if (methodsAllowed.length > 0) {
+            throw new MethodNotAllowedError(this.method, methodsAllowed);
+          }
+        }
         throw new NotFoundError("Route Not Found");
       }
     }
@@ -129,6 +140,8 @@ export class RequestContext {
     this._app = null;
     this._req = null;
     this._res = null;
+    this._setHeader = null;
+    this._removeHeader = null;
     this.route = null;
     this.headers = null;
     this.params = Object.create(null);
@@ -645,7 +658,7 @@ export class RequestContext {
     if (this.res!.headersSent) {
       throw new HeadersSentError();
     }
-    this.res!.setHeader(key, value);
+    this._setHeader!(key, value);
     return this;
   }
 
@@ -653,7 +666,7 @@ export class RequestContext {
     if (this.res!.headersSent) {
       throw new HeadersSentError();
     }
-    this.res!.removeHeader(key);
+    this._removeHeader!(key);
     return this;
   }
 
