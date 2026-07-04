@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  Volten is a small, fast HTTP framework built directly on Node's native <code>http</code> module. It ships with routing, middleware, body parsing, streaming, static file serving, cookies, multi-tenancy, and error handling — all without a single runtime dependency.
+  Volten is a small, fast HTTP framework built directly on Node's native <code>http</code> module. It ships with routing, middleware, body parsing, streaming, static file serving, cookies, and error handling — all without a single runtime dependency.
 </p>
 
 ---
@@ -23,7 +23,6 @@
 - **Streaming responses** — first-class backpressure-aware write/stream API on `ctx`.
 - **Cookies and sessions** — built-in `ctx.cookies` helpers.
 - **Static file serving** — host-bound, path-traversal-safe file delivery.
-- **Multi-tenancy** — bind routes and middleware to specific hosts or a wildcard (`**`).
 - **Error handling** — global, per-host, and custom error handlers with safe fallbacks.
 - **Context pooling** — reusable `RequestContext` objects to reduce allocation overhead.
 
@@ -55,10 +54,7 @@ pnpm run build
 
 ```javascript
 const { App } = require("./dist/core/server.js");
-const volten = new App();
-
-// Bind routes to all hosts (wildcard)
-const app = volten.host("**");
+const app = new App();
 
 // Global middleware — runs on every request
 app.use((ctx, next) => {
@@ -81,7 +77,7 @@ app.post("/data", async (ctx) => {
   ctx.json({ received: body });
 });
 
-volten.listen(3000, () => {
+app.listen(3000, () => {
   console.log("Volten listening on http://localhost:3000");
 });
 ```
@@ -112,7 +108,6 @@ The [`examples/`](./examples) directory contains runnable, self-contained sample
 - **Routing:** Implemented as a per-host trie (`RouteTree`). Match cost is proportional to path depth, not to the number of registered routes.
 - **Context:** `RequestContext` objects are pooled (default pool size: 2048) and reset between requests to minimize GC pressure.
 - **Streaming:** Responses use Node's native `ServerResponse` directly. `ctx.write`, `ctx.end`, and `ctx.stream` handle backpressure correctly.
-- **Host binding:** Routes, middleware, error handlers, and preflight hooks can all be scoped per-host or to the wildcard host `**`.
 
 ---
 
