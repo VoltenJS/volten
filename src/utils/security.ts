@@ -1,10 +1,7 @@
 import path from "path";
 import fs from "fs/promises";
 
-export async function isFileInFolder(
-  folderPath: string,
-  filePath: string,
-): Promise<boolean> {
+export async function isFileInFolder(folderPath: string, filePath: string): Promise<boolean> {
   try {
     const realFolderPath = await fs.realpath(path.resolve(folderPath));
     if (!path.isAbsolute(filePath)) {

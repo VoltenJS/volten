@@ -20,7 +20,7 @@ test("RequestContext: default field values are uninitialized", () => {
   assert.equal(ctx._app, null);
   assert.equal((ctx as any)._req, null);
   assert.equal((ctx as any)._res, null);
-  assert.equal(ctx.route, null);
+  assert.equal(ctx._route, null);
   assert.equal(ctx.headers, null);
   assert.equal(ctx.inited, false);
   assert.deepEqual(ctx.state, {});
@@ -38,12 +38,12 @@ test("RequestContext: reset() clears all per-request state", () => {
   (ctx as any)._app = { sentinel: true };
   (ctx as any)._req = { sentinel: true };
   (ctx as any)._res = { sentinel: true };
-  ctx.route = { sentinel: true } as any;
+  ctx._route = { sentinel: true } as any;
   ctx.headers = { sentinel: true } as any;
   ctx.inited = true;
-  ctx.state.foo = "bar";
-  ctx.state.nested = { x: 1 };
-  ctx.params.id = "42";
+  ctx.state["foo"] = "bar";
+  ctx.state["nested"] = { x: 1 };
+  ctx.params["id"] = "42";
   ctx.method = "POST";
   ctx.url = "/x";
   ctx.path = "/x";
@@ -58,7 +58,7 @@ test("RequestContext: reset() clears all per-request state", () => {
   assert.equal(ctx._app, null);
   assert.equal((ctx as any)._req, null);
   assert.equal((ctx as any)._res, null);
-  assert.equal(ctx.route, null);
+  assert.equal(ctx._route, null);
   assert.equal(ctx.headers, null);
   assert.equal(ctx.inited, false);
   assert.deepEqual(ctx.state, {});
