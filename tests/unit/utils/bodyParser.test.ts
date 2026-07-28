@@ -1,14 +1,11 @@
-import { test, before, after } from "node:test";
+import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import { Readable, PassThrough } from "node:stream";
-import { AddressInfo } from "node:net";
+import type { AddressInfo } from "node:net";
 import { App } from "../../../src/core/server.ts";
 import { RequestContext } from "../../../src/utils/requestCtx.ts";
-import {
-  parseBody,
-  parseMultipartStream,
-} from "../../../src/utils/bodyParser.ts";
+import { parseBody, parseMultipartStream } from "../../../src/utils/bodyParser.ts";
 import { PayloadTooLargeError } from "../../../src/core/errors.ts";
 
 after(() => {
@@ -72,7 +69,7 @@ test("parseBody: rejects multipart/form-data explicitly", async () => {
   (ctx as any)._req = req as any;
   (ctx as any)._res = res as any;
   ctx._app = app;
-  ctx.route = {
+  ctx._route = {
     bodyLimit: 1024,
     method: "POST",
     middleware: [],
@@ -84,10 +81,7 @@ test("parseBody: rejects multipart/form-data explicitly", async () => {
     disableOpt: false,
     methodStorage: { get: () => null, set: () => {} } as any,
   } as any;
-  await assert.rejects(
-    () => parseBody.call(app, ctx, false),
-    /multipart\/form-data/,
-  );
+  await assert.rejects(() => parseBody.call(app, ctx, false), /multipart\/form-data/);
   app.close();
 });
 
@@ -163,10 +157,9 @@ test("parseBody: parses raw text body when text=true", async () => {
 test("parseBody: parses urlencoded text body (falls through JSON parse)", async () => {
   const app = new App({ noLogs: true });
   const ctx = new RequestContext();
-  const { req, res } = makeReqRes(
-    { "content-type": "application/x-www-form-urlencoded" },
-    [Buffer.from("a=1&b=2")],
-  );
+  const { req, res } = makeReqRes({ "content-type": "application/x-www-form-urlencoded" }, [
+    Buffer.from("a=1&b=2"),
+  ]);
   (ctx as any)._req = req as any;
   (ctx as any)._res = res as any;
   ctx._app = app;
@@ -218,7 +211,7 @@ test("parseBody: rejects with PayloadTooLargeError when streaming exceeds limit"
 
   setImmediate(() => {
     for (let i = 0; i < 5; i++) {
-      for (const cb of listeners.data) cb(Buffer.from("X".repeat(30)));
+      for (const cb of listeners["data"] ?? []) cb(Buffer.from("X".repeat(30)));
     }
   });
 
@@ -256,7 +249,7 @@ test("parseBody: end handler runs cleanup and resolves empty object", async () =
 test("parseBody: uses route.bodyLimit when present", async () => {
   const app = new App({ noLogs: true });
   const ctx = new RequestContext();
-  ctx.route = {
+  ctx._route = {
     bodyLimit: 50,
     method: "POST",
     middleware: [],
@@ -317,10 +310,7 @@ test("parseMultipartStream: throws when boundary is missing", async () => {
   const { req } = makeMultipartReq("multipart/form-data", Buffer.from(""));
   (ctx as any)._req = req;
   ctx._app = app;
-  await assert.rejects(
-    () => parseMultipartStream.call(app, ctx).next(),
-    /No boundary/,
-  );
+  await assert.rejects(() => parseMultipartStream.call(app, ctx).next(), /No boundary/);
   app.close();
 });
 
@@ -335,10 +325,7 @@ test("parseMultipartStream: yields a text field and finishes", async () => {
       `hello world\r\n` +
       `--${boundary}--\r\n`,
   );
-  const { req } = makeMultipartReq(
-    `multipart/form-data; boundary=${boundary}`,
-    body,
-  );
+  const { req } = makeMultipartReq(`multipart/form-data; boundary=${boundary}`, body);
   (ctx as any)._req = req;
   ctx._app = app;
 
@@ -365,10 +352,7 @@ test("parseMultipartStream: yields multiple text fields in order", async () => {
       `\r\nsecond\r\n` +
       `--${boundary}--\r\n`,
   );
-  const { req } = makeMultipartReq(
-    `multipart/form-data; boundary=${boundary}`,
-    body,
-  );
+  const { req } = makeMultipartReq(`multipart/form-data; boundary=${boundary}`, body);
   (ctx as any)._req = req;
   ctx._app = app;
 
@@ -397,10 +381,7 @@ test("parseMultipartStream: yields a file part with content-type header", async 
       `${fileContent}\r\n` +
       `--${boundary}--\r\n`,
   );
-  const { req } = makeMultipartReq(
-    `multipart/form-data; boundary=${boundary}`,
-    body,
-  );
+  const { req } = makeMultipartReq(`multipart/form-data; boundary=${boundary}`, body);
   (ctx as any)._req = req;
   ctx._app = app;
 
@@ -434,10 +415,7 @@ test("parseMultipartStream: file part save() writes the streamed content to disk
       `${fileContent}\r\n` +
       `--${boundary}--\r\n`,
   );
-  const { req } = makeMultipartReq(
-    `multipart/form-data; boundary=${boundary}`,
-    body,
-  );
+  const { req } = makeMultipartReq(`multipart/form-data; boundary=${boundary}`, body);
   (ctx as any)._req = req;
   ctx._app = app;
 
@@ -467,10 +445,7 @@ test("parseMultipartStream: supports quoted boundary parameter", async () => {
       `\r\nval\r\n` +
       `--${boundary}--\r\n`,
   );
-  const { req } = makeMultipartReq(
-    `multipart/form-data; boundary="${boundary}"`,
-    body,
-  );
+  const { req } = makeMultipartReq(`multipart/form-data; boundary="${boundary}"`, body);
   (ctx as any)._req = req;
   ctx._app = app;
 

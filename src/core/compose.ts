@@ -1,4 +1,4 @@
-import { VoltenChainHandler, VoltenHandler } from "./types.ts";
+import type { VoltenChainHandler, VoltenHandler } from "./types.ts";
 import { RequestContext } from "../utils/requestCtx.ts";
 import { InvalidNextCallError } from "./errors.ts";
 
@@ -22,15 +22,13 @@ export function compose(middleware: VoltenHandler[]): VoltenHandler {
 }
 */
 
-export function compileMiddlewareChain(
-  chain: VoltenHandler[],
-): VoltenChainHandler {
+export function compileMiddlewareChain(chain: VoltenHandler[]): VoltenChainHandler {
   const len = chain.length;
 
-  return function (ctx: RequestContext): Promise<unknown> {
+  return function (ctx: RequestContext): Promise<void> {
     let index = -1;
 
-    function dispatch(i: number): Promise<unknown> {
+    function dispatch(i: number): Promise<void> {
       if (i <= index) {
         throw new InvalidNextCallError();
       }
@@ -39,6 +37,10 @@ export function compileMiddlewareChain(
       if (i >= len) return Promise.resolve();
 
       const fn = chain[i];
+      if (fn == undefined) {
+        return dispatch(i + 1);
+      }
+
       try {
         // Return directly to preserve promise chains (whether sync or async)
         return Promise.resolve(
@@ -48,18 +50,18 @@ export function compileMiddlewareChain(
             }
             return dispatch(i + 1);
           }),
-        ).catch((err) => {
-          ctx._app?.handleError(err, ctx);
+        ).catch((err: unknown) => {
+          void ctx._app?.handleError(err, ctx);
         });
-      } catch (err) {
-        ctx._app?.handleError(err, ctx);
+      } catch (err: unknown) {
+        void ctx._app?.handleError(err, ctx);
         return Promise.resolve();
       }
     }
 
     return dispatch(0).catch((err: unknown) => {
-      if (ctx._app) {
-        ctx._app.handleError(err, ctx);
+      if (ctx._app !== null) {
+        void ctx._app.handleError(err, ctx);
       }
     });
   };

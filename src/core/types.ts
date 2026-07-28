@@ -5,31 +5,21 @@ import { MethodStorage } from "../utils/routeTree.ts";
 import { VoltenError } from "./errors.ts";
 import { Readable } from "stream";
 
-export type Next = () => Promise<unknown> | unknown;
+export type Next = () => Promise<void> | void;
 
-export type VoltenHandler = (
-  ctx: RequestContext,
-  next: Next,
-) => Promise<unknown> | unknown;
+export type VoltenHandler = (ctx: RequestContext, next: Next) => Promise<void> | void;
 
-export type VoltenChainHandler = (
-  ctx: RequestContext,
-) => Promise<unknown> | unknown;
+export type VoltenChainHandler = (ctx: RequestContext) => Promise<void> | void;
 
-export type PreflightHandler = (
-  ctx: RequestContext,
-) => Promise<unknown> | unknown;
+export type PreflightHandler = (ctx: RequestContext) => Promise<void> | void;
 
-export type ErrorHandler = (
-  err: VoltenError,
-  ctx: RequestContext,
-) => Promise<unknown> | unknown;
+export type ErrorHandler = (err: VoltenError, ctx: RequestContext) => Promise<void> | void;
 
 export type NativeErrorHandler = (
   err: VoltenError,
   req: IncomingMessage,
   res: ServerResponse,
-) => Promise<unknown> | unknown;
+) => Promise<void> | void;
 
 export type Params = Record<string, unknown>;
 export type Query = Record<string, string | string[]>;
