@@ -1,11 +1,8 @@
 import { App } from "../core/server.ts";
-import {
-  PAYLOAD_TOO_LARGE_BUF,
-  PAYLOAD_TOO_LARGE_HEADERS,
-} from "../core/types.ts";
+import { PAYLOAD_TOO_LARGE_BUF, PAYLOAD_TOO_LARGE_HEADERS } from "../core/types.ts";
 import { PayloadTooLargeError } from "../core/errors.ts";
 import { RequestContext } from "./requestCtx.ts";
-import { MultipartPart } from "../core/types.ts";
+import type { MultipartPart } from "../core/types.ts";
 import { Readable } from "stream";
 import { createWriteStream } from "fs";
 import { mkdir } from "fs/promises";
@@ -19,12 +16,12 @@ export async function parseBody(
   this: App,
   ctx: RequestContext,
   text: boolean = false,
-  limit = ctx.route?.bodyLimit || this.AppOptions.bodyLimit,
+  limit = ctx._route?.bodyLimit ?? this.AppOptions.bodyLimit,
 ): Promise<unknown> {
-  const req = ctx.req!;
-  const res = ctx.res!;
+  const req = ctx.req;
+  const res = ctx.res;
 
-  const contentType = req.headers["content-type"] || "";
+  const contentType = req.headers["content-type"] ?? "";
 
   if (contentType.includes("multipart/form-data")) {
     throw new Error(
@@ -66,19 +63,19 @@ export async function parseBody(
       cleanup();
 
       if (chunks.length === 0) {
-        return resolve(App.EMPTY_OBJECT);
+        resolve(App.EMPTY_OBJECT);
+        return;
       }
 
       const rawBody = Buffer.concat(chunks, receivedSize).toString("utf8");
 
-      if (
-        (contentType.includes("application/json") || chunks.length > 0) &&
-        !text
-      ) {
+      if ((contentType.includes("application/json") || chunks.length > 0) && !text) {
         try {
-          return resolve(JSON.parse(rawBody));
+          resolve(JSON.parse(rawBody));
+          return;
         } catch {
-          return resolve(rawBody);
+          resolve(rawBody);
+          return;
         }
       }
 
@@ -109,24 +106,22 @@ export async function parseBody(
 export async function* parseMultipartStream(
   ctx: RequestContext,
 ): AsyncGenerator<MultipartPart, void, unknown> {
-  const req = ctx.req!;
-  const contentTypeHeader = req.headers["content-type"] || "";
+  const req = ctx.req;
+  const contentTypeHeader = req.headers["content-type"] ?? "";
 
-  const boundaryMatch = contentTypeHeader.match(
-    /boundary=(?:"([^"]+)"|([^;]+))/,
-  );
-  if (!boundaryMatch) {
+  const boundaryMatch = contentTypeHeader.match(/boundary=(?:"([^"]+)"|([^;]+))/);
+  if (boundaryMatch === null) {
     throw new Error("Malformed Multipart: No boundary found in headers");
   }
 
-  const boundaryStr = "--" + (boundaryMatch[1] || boundaryMatch[2]);
+  const boundaryStr = "--" + (boundaryMatch[1] ?? boundaryMatch[2] ?? "");
   const boundaryBuffer = Buffer.from(boundaryStr);
   const boundaryLength = boundaryBuffer.length;
   const endBoundaryBuffer = Buffer.from(boundaryStr + "--");
 
   // Queue system to decouple incoming data execution from generator consumption
   const partQueue: MultipartPart[] = [];
-  let resolveNextPart: ((value: void) => void) | null = null;
+  let resolveNextPart: (() => void) | null = null;
   let isNetworkDone = false;
   let networkError: Error | null = null;
 
@@ -139,7 +134,7 @@ export async function* parseMultipartStream(
   let inHeaderSection = false;
   let activePartMeta: {
     name?: string;
-    filename?: string;
+    filename?: string | undefined;
     contentType?: string;
   } | null = null;
 
@@ -152,30 +147,22 @@ export async function* parseMultipartStream(
         const headerEndIndex = residue.indexOf("\r\n\r\n");
         if (headerEndIndex === -1) break;
 
-        const headersString = residue
-          .subarray(0, headerEndIndex)
-          .toString("utf8");
+        const headersString = residue.subarray(0, headerEndIndex).toString("utf8");
         residue = residue.subarray(headerEndIndex + 4);
         inHeaderSection = false;
 
-        if (
-          headersString.toLowerCase().includes("content-disposition: form-data")
-        ) {
+        if (headersString.toLowerCase().includes("content-disposition: form-data")) {
           const nameMatch = headersString.match(/name="([^"]+)"/i);
           const filenameMatch = headersString.match(/filename="([^"]+)"/i);
-          const contentTypeMatch = headersString.match(
-            /Content-Type:\s*([^\r\n;]+)/i,
-          );
+          const contentTypeMatch = headersString.match(/Content-Type:\s*([^\r\n;]+)/i);
 
           activePartMeta = {
-            name: nameMatch ? nameMatch[1] : "",
-            filename: filenameMatch ? filenameMatch[1] : undefined,
-            contentType: contentTypeMatch
-              ? contentTypeMatch[1].trim()
-              : undefined,
+            name: nameMatch !== null ? (nameMatch[1] ?? "") : "",
+            filename: filenameMatch !== null ? (filenameMatch[1] ?? "") : undefined,
+            contentType: contentTypeMatch !== null ? (contentTypeMatch[1] ?? "").trim() : "",
           };
 
-          if (activePartMeta.filename) {
+          if (activePartMeta.filename !== undefined) {
             const nodeCompatibleStream = new Readable({
               highWaterMark: 1024 * 1024,
               read() {},
@@ -199,6 +186,7 @@ export async function* parseMultipartStream(
             const bufferMethod = async (): Promise<Buffer> => {
               const chunks: Uint8Array[] = [];
               for await (const chunk of nodeCompatibleStream) {
+                // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
                 chunks.push(chunk);
               }
               return Buffer.concat(chunks);
@@ -206,16 +194,16 @@ export async function* parseMultipartStream(
 
             partQueue.push({
               isFile: true,
-              name: activePartMeta.name!,
-              filename: activePartMeta.filename,
-              contentType: activePartMeta.contentType,
+              name: activePartMeta.name ?? "",
+              filename: activePartMeta.filename ?? "",
+              contentType: activePartMeta.contentType ?? "",
               stream: nodeCompatibleStream,
               save: saveMethod,
               buffer: bufferMethod,
               text: async () => (await bufferMethod()).toString("utf8"),
             });
 
-            if (resolveNextPart) {
+            if (resolveNextPart !== null) {
               resolveNextPart();
               resolveNextPart = null;
             }
@@ -229,11 +217,8 @@ export async function* parseMultipartStream(
       if (index === -1) {
         const safeKeepLength = boundaryLength + 4;
         if (residue.length > safeKeepLength) {
-          const streamablePart = residue.subarray(
-            0,
-            residue.length - safeKeepLength,
-          );
-          if (currentFileController) {
+          const streamablePart = residue.subarray(0, residue.length - safeKeepLength);
+          if (currentFileController !== null) {
             currentFileController.enqueue(
               new Uint8Array(
                 streamablePart.buffer,
@@ -256,7 +241,7 @@ export async function* parseMultipartStream(
 
         const exactDataBlock = residue.subarray(0, dataLength);
 
-        if (currentFileController) {
+        if (currentFileController !== null) {
           currentFileController.enqueue(
             new Uint8Array(
               exactDataBlock.buffer,
@@ -266,14 +251,14 @@ export async function* parseMultipartStream(
           );
           currentFileController.close();
           currentFileController = null;
-        } else if (activePartMeta && !activePartMeta.filename) {
+        } else if (activePartMeta !== null && activePartMeta.filename === undefined) {
           partQueue.push({
             isFile: false,
-            name: activePartMeta.name!,
+            name: activePartMeta.name ?? "",
             value: exactDataBlock.toString("utf8"),
           });
 
-          if (resolveNextPart) {
+          if (resolveNextPart !== null) {
             resolveNextPart();
             resolveNextPart = null;
           }
@@ -281,19 +266,19 @@ export async function* parseMultipartStream(
       }
 
       if (residue.indexOf(endBoundaryBuffer) === index) {
-        if (currentFileController) {
+        if (currentFileController !== null) {
           currentFileController.close();
           currentFileController = null;
         }
         isNetworkDone = true;
-        if (resolveNextPart) {
+        if (resolveNextPart !== null) {
           resolveNextPart();
           resolveNextPart = null;
         }
         return;
       }
 
-      if (currentFileController) {
+      if (currentFileController !== null) {
         currentFileController.close();
         currentFileController = null;
       }
@@ -315,32 +300,37 @@ export async function* parseMultipartStream(
       processChunk(chunk);
     } catch (err) {
       networkError = err as Error;
-      if (resolveNextPart) resolveNextPart();
+      if (resolveNextPart !== null) resolveNextPart();
     }
   });
 
   req.on("end", () => {
-    if (currentFileController) {
+    if (currentFileController !== null) {
       currentFileController.close();
     }
     isNetworkDone = true;
-    if (resolveNextPart) resolveNextPart();
+    if (resolveNextPart !== null) resolveNextPart();
   });
 
   req.on("error", (err) => {
     networkError = err;
-    if (resolveNextPart) resolveNextPart();
+    if (resolveNextPart !== null) resolveNextPart();
   });
 
   // Yield fields from our decoupled buffer queue
-  while (true) {
+  for (;;) {
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition, @typescript-eslint/strict-boolean-expressions, @typescript-eslint/only-throw-error
     if (networkError) throw networkError;
 
     if (partQueue.length > 0) {
-      yield partQueue.shift()!;
+      const part = partQueue.shift();
+      if (part !== undefined) {
+        yield part;
+      }
       continue;
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (isNetworkDone) break;
 
     await new Promise<void>((resolve) => {
