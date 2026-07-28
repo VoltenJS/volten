@@ -1,4 +1,4 @@
-import { Query } from "../core/types.ts";
+import type { Query } from "../core/types.ts";
 
 export function parseUrl(url: string) {
   let start = 0;
@@ -23,14 +23,14 @@ export function parseUrl(url: string) {
   if (queryIndex === -1) {
     return {
       pathname:
-        remaining.endsWith("/") && remaining.length > 1
-          ? remaining.slice(0, -1)
-          : remaining || "/",
+        // eslint-disable-next-line @typescript-eslint/strict-boolean-expressions
+        remaining.endsWith("/") && remaining.length > 1 ? remaining.slice(0, -1) : remaining || "/",
       queryStr: "",
     };
   }
 
-  let pathname = remaining.substring(0, queryIndex) || "/";
+  // eslint-disable-next-line @typescript-eslint/strict-boolean-expressions
+  let pathname = remaining.slice(0, queryIndex) || "/";
   if (pathname.endsWith("/") && pathname.length > 1) {
     pathname = pathname.slice(0, -1);
   }
@@ -42,24 +42,22 @@ export function parseUrl(url: string) {
 }
 export function parseQuery(queryStr: string): Query {
   const query: Query = {};
-  if (!queryStr) return query;
+  if (queryStr == "") return query;
 
   const pairs = queryStr.split("&").filter(Boolean);
-  for (let i = 0; i < pairs.length; i++) {
-    const pair = pairs[i].split("=");
-    const key = decodeURIComponent(pair[0]);
+  for (const pairStr of pairs) {
+    const pair = pairStr.split("=");
+    const key = decodeURIComponent(pair[0] ?? "");
     if (key === "__proto__" || key === "constructor" || key === "prototype") {
       continue;
     }
-    const value = pair[1]
-      ? decodeURIComponent(pair[1].replace(/\+/g, " "))
-      : "";
+    const value = pair[1] !== undefined ? decodeURIComponent(pair[1].replace(/\+/g, " ")) : "";
 
-    if (query[key]) {
+    if (query[key] !== undefined) {
       if (Array.isArray(query[key])) {
-        (query[key] as string[]).push(value);
+        query[key].push(value);
       } else {
-        query[key] = [query[key] as string, value];
+        query[key] = [query[key], value];
       }
     } else {
       query[key] = value;

@@ -1,6 +1,6 @@
 import http from "http";
 import fs from "fs";
-import {
+import type {
   VoltenHandler,
   PreflightHandler,
   ErrorHandler,
@@ -8,6 +8,8 @@ import {
   PathData,
   VoltenAppOptions,
   RouteOptions,
+} from "./types.ts";
+import {
   DeafultVoltenOptions,
   SERVICE_UNAVAILABLE_BUF,
   SERVICE_UNAVAILABLE_HEADERS,
@@ -39,10 +41,10 @@ export class App {
   public server = http.createServer(this.onRequest.bind(this));
   private acceptIncomming = true;
 
-  private handleUncaught = (err: any) => {
+  private handleUncaught = (err: unknown) => {
     if (!this.AppOptions.noLogs) console.error(err);
   };
-  private handleRejection = (err: any) => {
+  private handleRejection = (err: unknown) => {
     if (!this.AppOptions.noLogs) console.error(err);
   };
 
@@ -52,7 +54,7 @@ export class App {
       : fs.existsSync(`./${folderPath}`)
         ? `./${folderPath}`
         : null;
-    if (!absolutePath) {
+    if (absolutePath === null) {
       throw new Error(`Directory not found: ${folderPath}`);
     }
     this.serverStaticMap = absolutePath;
@@ -82,13 +84,11 @@ export class App {
     arg2: RouteOptions | VoltenHandler,
     ...handlers: VoltenHandler[]
   ): { options: Required<RouteOptions>; routeHandlers: VoltenHandler[] } {
-    const isOptions = typeof arg2 === "object" && arg2 !== null;
+    const isOptions = typeof arg2 === "object";
     const options = (isOptions ? { ...arg2 } : {}) as Required<RouteOptions>;
-    options.bodyLimit = options.bodyLimit || null;
+    options.bodyLimit = options.bodyLimit ?? null;
 
-    const routeHandlers = isOptions
-      ? handlers
-      : [arg2 as VoltenHandler, ...handlers];
+    const routeHandlers = isOptions ? handlers : [arg2, ...handlers];
 
     return { options, routeHandlers };
   }
@@ -107,84 +107,41 @@ export class App {
 
   get(path: string, ...handlers: VoltenHandler[]): void;
   get(path: string, options: RouteOptions, ...handlers: VoltenHandler[]): void;
-  get(
-    path: string,
-    arg2: RouteOptions | VoltenHandler,
-    ...handlers: VoltenHandler[]
-  ): void {
-    const { options, routeHandlers } = this.identifyParamType(
-      arg2,
-      ...handlers,
-    );
+  get(path: string, arg2: RouteOptions | VoltenHandler, ...handlers: VoltenHandler[]): void {
+    const { options, routeHandlers } = this.identifyParamType(arg2, ...handlers);
     this.registerRoute("GET", path, options, ...routeHandlers);
   }
 
   post(path: string, ...handlers: VoltenHandler[]): void;
   post(path: string, options: RouteOptions, ...handlers: VoltenHandler[]): void;
-  post(
-    path: string,
-    arg2: RouteOptions | VoltenHandler,
-    ...handlers: VoltenHandler[]
-  ): void {
-    const { options, routeHandlers } = this.identifyParamType(
-      arg2,
-      ...handlers,
-    );
+  post(path: string, arg2: RouteOptions | VoltenHandler, ...handlers: VoltenHandler[]): void {
+    const { options, routeHandlers } = this.identifyParamType(arg2, ...handlers);
     this.registerRoute("POST", path, options, ...routeHandlers);
   }
 
   patch(path: string, ...handlers: VoltenHandler[]): void;
-  patch(
-    path: string,
-    options: RouteOptions,
-    ...handlers: VoltenHandler[]
-  ): void;
-  patch(
-    path: string,
-    arg2: RouteOptions | VoltenHandler,
-    ...handlers: VoltenHandler[]
-  ): void {
-    const { options, routeHandlers } = this.identifyParamType(
-      arg2,
-      ...handlers,
-    );
+  patch(path: string, options: RouteOptions, ...handlers: VoltenHandler[]): void;
+  patch(path: string, arg2: RouteOptions | VoltenHandler, ...handlers: VoltenHandler[]): void {
+    const { options, routeHandlers } = this.identifyParamType(arg2, ...handlers);
     this.registerRoute("PATCH", path, options, ...routeHandlers);
   }
 
   put(path: string, ...handlers: VoltenHandler[]): void;
   put(path: string, options: RouteOptions, ...handlers: VoltenHandler[]): void;
-  put(
-    path: string,
-    arg2: RouteOptions | VoltenHandler,
-    ...handlers: VoltenHandler[]
-  ): void {
-    const { options, routeHandlers } = this.identifyParamType(
-      arg2,
-      ...handlers,
-    );
+  put(path: string, arg2: RouteOptions | VoltenHandler, ...handlers: VoltenHandler[]): void {
+    const { options, routeHandlers } = this.identifyParamType(arg2, ...handlers);
     this.registerRoute("PUT", path, options, ...routeHandlers);
   }
 
   delete(path: string, ...handlers: VoltenHandler[]): void;
-  delete(
-    path: string,
-    options: RouteOptions,
-    ...handlers: VoltenHandler[]
-  ): void;
-  delete(
-    path: string,
-    arg2: RouteOptions | VoltenHandler,
-    ...handlers: VoltenHandler[]
-  ): void {
-    const { options, routeHandlers } = this.identifyParamType(
-      arg2,
-      ...handlers,
-    );
+  delete(path: string, options: RouteOptions, ...handlers: VoltenHandler[]): void;
+  delete(path: string, arg2: RouteOptions | VoltenHandler, ...handlers: VoltenHandler[]): void {
+    const { options, routeHandlers } = this.identifyParamType(arg2, ...handlers);
     this.registerRoute("DELETE", path, options, ...routeHandlers);
   }
 
   getRoute(method: string, path: string, ctx: RequestContext): PathData | null {
-    return this.tree.matchPath(method, path, ctx) || null;
+    return this.tree.matchPath(method, path, ctx);
   }
 
   getRouteTree(): RouteTree {
@@ -205,7 +162,7 @@ export class App {
       ...INTERNAL_SERVER_ERROR_HEADERS,
     };
     let body: string | Buffer = INTERNAL_SERVER_ERROR_BUF;
-    const res = ctx.res!;
+    const res = ctx.res;
     switch (err.code) {
       case "ERR_PAYLOAD_TOO_LARGE":
         status = 413;
@@ -214,7 +171,7 @@ export class App {
         break;
       case "ERR_METHOD_NOT_ALLOWED":
         status = 405;
-        body = err.message || "Method Not Allowed";
+        body = err.message !== "" ? err.message : "Method Not Allowed";
         headers = {
           "content-type": "text/plain; charset=utf-8",
           "content-length": Buffer.byteLength(body),
@@ -222,7 +179,7 @@ export class App {
         break;
       case "ERR_NOT_FOUND":
         status = 404;
-        body = err.message || "Not Found";
+        body = err.message !== "" ? err.message : "Not Found";
         headers = {
           "content-type": "text/plain; charset=utf-8",
           "content-length": Buffer.byteLength(body),
@@ -230,22 +187,22 @@ export class App {
         break;
       case "SERVICE_UNAVAILABLE":
         status = 503;
-        body = err.message || "Service Unavailable";
+        body = err.message !== "" ? err.message : "Service Unavailable";
         headers = {
           "content-type": "text/plain; charset=utf-8",
           "content-length": Buffer.byteLength(body),
         };
         break;
       case "ERR_HEADERS_SENT":
-        ctx.res!.destroy();
-        ctx.req!.socket.destroy();
+        ctx.res.destroy();
+        ctx.req.socket.destroy();
         break;
       default:
         if (!this.AppOptions.noLogs) {
-          console.log(err);
+          console.error(err);
         }
         status = 500;
-        body = err.message || "Internal Server Error";
+        body = err.message !== "" ? err.message : "Internal Server Error";
         headers = {
           "content-type": "text/plain; charset=utf-8",
           "content-length": Buffer.byteLength(body),
@@ -266,11 +223,11 @@ export class App {
 
   public async handleError(err: unknown, ctx: RequestContext): Promise<void> {
     const error = err instanceof VoltenError ? err : VoltenError.from(err);
-    const res = ctx.res!;
+    const res = ctx.res;
 
     const customHandler = this.customErrorHandler;
 
-    if (customHandler) {
+    if (customHandler !== null) {
       try {
         await customHandler(error, ctx);
         if (!res.writableEnded && !res.destroyed) {
@@ -279,27 +236,27 @@ export class App {
               `[Volten Framework Warning]: Custom error handler returned without terminating the response. Falling back to default handler.`,
             );
           }
-          this.executeFallback(error, ctx);
+          await this.executeFallback(error, ctx);
         }
       } catch (customHandlerError) {
         if (!this.AppOptions.noLogs) {
           console.error("Custom error handler crashed:", customHandlerError);
         }
-        this.executeFallback(error, ctx);
+        await this.executeFallback(error, ctx);
       }
     } else {
-      this.executeFallback(error, ctx);
+      await this.executeFallback(error, ctx);
     }
   }
 
-  private executeFallback(error: VoltenError, ctx: RequestContext): void {
+  private async executeFallback(error: VoltenError, ctx: RequestContext): Promise<void> {
     try {
-      this.errorHandler(error, ctx);
+      await this.errorHandler(error, ctx);
     } catch (finalError) {
       if (!this.AppOptions.noLogs) {
         console.error("Critical failure in core errorHandler:", finalError);
       }
-      if (ctx.res && !ctx.res.destroyed) {
+      if (!ctx.res.destroyed) {
         ctx.res.destroy();
       }
     }
@@ -336,12 +293,9 @@ export class App {
     };
   }
 
-  private createCtx(
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
-  ): RequestContext | null {
+  private createCtx(req: http.IncomingMessage, res: http.ServerResponse): RequestContext | null {
     const ctx = this.availableContexts.pop();
-    if (!ctx) {
+    if (ctx == undefined) {
       res.setHeader("Connection", "close");
       res.writeHead(503, SERVICE_UNAVAILABLE_HEADERS);
       res.end(SERVICE_UNAVAILABLE_BUF);
@@ -358,22 +312,22 @@ export class App {
 
   private async handleRequest(ctx: RequestContext) {
     const preflightHandler = this.getPreflightHandler();
-    if (preflightHandler) {
+    if (preflightHandler !== null) {
       const result = preflightHandler(ctx);
       if (result instanceof Promise) {
-        await result.catch((err: VoltenError) => this.handleError(err, ctx));
+        await result.catch((err: unknown) => this.handleError(err, ctx));
       }
       if (ctx.sent) {
         return;
       }
     }
 
-    await ctx.routePath().catch((err) => {
-      this.handleError(err, ctx);
+    await ctx.routePath().catch((err: unknown) => {
+      void this.handleError(err, ctx);
       return;
     });
-    const route = ctx.route;
-    if (!route) return;
+    const route = ctx._route;
+    if (route === null) return;
 
     const handlerChain = route.composeChain;
     const result = handlerChain(ctx);
@@ -383,7 +337,7 @@ export class App {
   }
 
   listen(port: number, cb?: () => void): http.Server {
-    const server = http.createServer(this.onRequest);
+    const server = http.createServer(this.onRequest.bind(this));
     this.compilePreflightHandler();
     server.listen(port, "0.0.0.0", 16384, cb);
     return server;
@@ -396,7 +350,7 @@ export class App {
     const limit = this.AppOptions.bodyLimit;
 
     const clHeader = req.headers["content-length"];
-    if (clHeader) {
+    if (clHeader !== undefined) {
       const contentLength = parseInt(clHeader, 10);
       if (contentLength > limit) {
         req.pause();
@@ -407,10 +361,10 @@ export class App {
       }
     }
     const ctx = this.createCtx(req, res);
-    if (!ctx) {
+    if (ctx === null) {
       return;
     }
-    this.handleRequest(ctx).catch(async (err) => {
+    this.handleRequest(ctx).catch(async (err: unknown) => {
       await this.handleError(err, ctx);
     });
   }

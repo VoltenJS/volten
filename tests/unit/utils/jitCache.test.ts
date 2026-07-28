@@ -38,10 +38,7 @@ test("JitCache: resetCount throws when the fingerprint is missing", () => {
 
 test("JitCache: delete throws when the fingerprint is missing", () => {
   const cache = new JitCache();
-  assert.throws(
-    () => cache.delete(789),
-    /Attempting to delete a fingerprint that doesn't exist/,
-  );
+  assert.throws(() => cache.delete(789), /Attempting to delete a fingerprint that doesn't exist/);
 });
 
 test("JitCache: create evicts the oldest entry when max size is reached", () => {
@@ -59,7 +56,7 @@ test("JitCache: getCompiler refreshes LRU order", () => {
   const cache = new JitCache(2);
   cache.create(1);
   cache.create(2);
-  const compiler = (d: unknown, ctx: unknown) => {};
+  const compiler = (_d: unknown, _ctx: unknown) => {};
   cache.setCompiler(1, compiler as any);
 
   // Touch 1, then add 3 → 2 should be evicted, 1 should remain

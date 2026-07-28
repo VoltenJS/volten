@@ -28,45 +28,39 @@ test("compose: middleware and final handler run in sequential order", async () =
   const trace: string[] = [];
 
   const chain = compileMiddlewareChain([
-    async (ctx, next) => {
+    async (_ctx, next) => {
       trace.push("m1:before");
       await next();
       trace.push("m1:after");
     },
-    async (ctx, next) => {
+    async (_ctx, next) => {
       trace.push("m2:before");
       await next();
       trace.push("m2:after");
     },
-    (ctx) => {
+    (_ctx) => {
       trace.push("final");
     },
   ]);
 
   await chain(makeCtx());
 
-  assert.deepEqual(trace, [
-    "m1:before",
-    "m2:before",
-    "final",
-    "m2:after",
-    "m1:after",
-  ]);
+  assert.deepEqual(trace, ["m1:before", "m2:before", "final", "m2:after", "m1:after"]);
 });
 
 test("compose: middleware can short-circuit by not calling next", async () => {
   const trace: string[] = [];
 
   const chain = compileMiddlewareChain([
-    (ctx, next) => {
+    (_ctx, _next) => {
       trace.push("m1");
       // intentionally short-circuits here
     },
-    (ctx, next) => {
+    (_ctx, next) => {
       trace.push("m2");
       next();
     },
-    (ctx) => {
+    (_ctx) => {
       trace.push("final");
     },
   ]);
@@ -81,7 +75,7 @@ test("compose: synchronous next() works cleanly for sync middleware blocks", asy
   let finalCalled = false;
 
   const chain = compileMiddlewareChain([
-    (ctx, next) => {
+    (_ctx, next) => {
       next();
     },
     () => {

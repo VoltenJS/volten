@@ -2,7 +2,7 @@ import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { App } from "../../src/core/server.ts";
 import { RequestContext } from "../../src/utils/requestCtx.ts";
-import { Next } from "../../src/core/types.ts";
+import type { Next } from "../../src/core/types.ts";
 import { request } from "../helpers.ts";
 
 test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
@@ -36,7 +36,7 @@ test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
       await next();
       onionTrace.push("onion_1_out");
     } else if (ctx.url.includes("/pipeline/concurrent-race")) {
-      const delay = parseInt((ctx.query.delay as string) || "5", 10);
+      const delay = parseInt((ctx.query["delay"] as string) || "5", 10);
       raceTrace.push(`race_in_${delay}`);
       await next();
       raceTrace.push(`race_out_${delay}`);
@@ -70,9 +70,9 @@ test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
   // 3. State Mutation Pipeline Interceptor
   volten.use(async (ctx, next) => {
     if (ctx.url.includes("/state/")) {
-      ctx.state.internalTimestamp = 1716584400;
-      ctx.state.securityClearance = "Level-4";
-      ctx.state.mutatedTree = { initial: true };
+      ctx.state["internalTimestamp"] = 1716584400;
+      ctx.state["securityClearance"] = "Level-4";
+      ctx.state["mutatedTree"] = { initial: true };
     }
     await next();
   });
@@ -100,7 +100,7 @@ test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
   volten.use(async (ctx, next) => {
     await next();
     if (ctx.url.includes("/pipeline/post-mutate")) {
-      ctx.state.postExecutionMarker = "cleaned-up";
+      ctx.state["postExecutionMarker"] = "cleaned-up";
       postMutateState = structuredClone(ctx.state);
       try {
         // Framework safety check: Ensure trying to append headers on spent wire drops cleanly
@@ -132,20 +132,20 @@ test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
   });
 
   volten.get("/state/mutation-pass", (ctx) => {
-    if (ctx.state.mutatedTree) {
-      (ctx.state.mutatedTree as any).downstream = "appended";
+    if (ctx.state["mutatedTree"]) {
+      (ctx.state["mutatedTree"] as any).downstream = "appended";
     }
     ctx.json({
-      timestamp: ctx.state.internalTimestamp,
-      clearance: ctx.state.securityClearance,
-      tree: ctx.state.mutatedTree,
+      timestamp: ctx.state["internalTimestamp"],
+      clearance: ctx.state["securityClearance"],
+      tree: ctx.state["mutatedTree"],
     });
   });
 
   // Short-Circuiting via inline route middleware execution bypass
   volten.get(
     "/pipeline/short-circuit",
-    async (ctx, next) => {
+    async (ctx, _next) => {
       ctx.status(403).text("Forbidden Outright");
       // Intentionally omitting next() breaks the chain before hitting the final handler
     },
@@ -155,19 +155,19 @@ test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
   );
 
   volten.get("/pipeline/concurrent-race", async (ctx) => {
-    const delay = parseInt((ctx.query.delay as string) || "5", 10);
+    const delay = parseInt((ctx.query["delay"] as string) || "5", 10);
     await new Promise((resolve) => setTimeout(resolve, delay));
     ctx.text("race_condition_resolved");
   });
 
   // Inline Route Middleware Chain leading to a single handler
-  const guardAlpha = async (ctx: RequestContext, next: Next) => {
+  const guardAlpha = async (_ctx: RequestContext, next: Next) => {
     inlineTrace.push("alpha_in");
     await next();
     inlineTrace.push("alpha_out");
   };
 
-  const guardBeta = async (ctx: RequestContext, next: Next) => {
+  const guardBeta = async (_ctx: RequestContext, next: Next) => {
     inlineTrace.push("beta_in");
     await next();
     inlineTrace.push("beta_out");
@@ -178,7 +178,7 @@ test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
     ctx.text("guards_passed");
   });
 
-  volten.get("/pipeline/double-next", async (ctx, next) => {
+  volten.get("/pipeline/double-next", async (_ctx, next) => {
     doubleNextTrace.push("double_next_trigger");
     await next();
     await next();
@@ -220,29 +220,23 @@ test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
     },
   );
 
-  await t.test(
-    "Matrix 2: Deep Request Context Pipeline State Mutation Propagation",
-    async () => {
-      const res = await request(volten, "/state/mutation-pass");
-      assert.equal(res.status, 200);
-      const parsed = res.json<any>();
-      assert.equal(parsed.timestamp, 1716584400);
-      assert.equal(parsed.clearance, "Level-4");
-      assert.deepEqual(parsed.tree, {
-        initial: true,
-        downstream: "appended",
-      });
-    },
-  );
+  await t.test("Matrix 2: Deep Request Context Pipeline State Mutation Propagation", async () => {
+    const res = await request(volten, "/state/mutation-pass");
+    assert.equal(res.status, 200);
+    const parsed = res.json<any>();
+    assert.equal(parsed.timestamp, 1716584400);
+    assert.equal(parsed.clearance, "Level-4");
+    assert.deepEqual(parsed.tree, {
+      initial: true,
+      downstream: "appended",
+    });
+  });
 
-  await t.test(
-    "Matrix 3: Non-Awaited Immediate Short-Circuit Pipeline Interceptions",
-    async () => {
-      const res = await request(volten, "/pipeline/short-circuit");
-      assert.equal(res.status, 403);
-      assert.equal(res.body, "Forbidden Outright");
-    },
-  );
+  await t.test("Matrix 3: Non-Awaited Immediate Short-Circuit Pipeline Interceptions", async () => {
+    const res = await request(volten, "/pipeline/short-circuit");
+    assert.equal(res.status, 403);
+    assert.equal(res.body, "Forbidden Outright");
+  });
 
   await t.test(
     "Matrix 4: Dynamic Asynchronous Concurrency Race Controls & Context Desynchronization",
