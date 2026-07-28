@@ -4,7 +4,7 @@ import fs from "fs";
 import path from "path";
 import { App } from "../../src/core/server.ts";
 import { request } from "../helpers.ts"; // Assuming this handles server injection or local http fetch
-import { AddressInfo } from "node:net";
+import type { AddressInfo } from "node:net";
 
 // Temporary asset setup for Static file testing paths
 const TMP_DIR = path.resolve("./.tmp_static_test_dir");
@@ -46,7 +46,7 @@ test("Volten Core Pipeline Integration", async (t) => {
   // ==========================================
 
   // Global app level middleware coverage
-  volten.use((ctx, next) => {
+  volten.use((_, next) => {
     middlewareTrace.push("global_pre");
     next();
   });
@@ -81,10 +81,10 @@ test("Volten Core Pipeline Integration", async (t) => {
     ctx.text("long-static");
   });
   volten.get("/route/:param/fixed", (ctx) => {
-    ctx.json({ p: ctx.params.param });
+    ctx.json({ p: ctx.params["param"] });
   });
   volten.get("/route/:param/:subparam", (ctx) => {
-    ctx.json({ p1: ctx.params.param, p2: ctx.params.subparam });
+    ctx.json({ p1: ctx.params["param"], p2: ctx.params["subparam"] });
   });
   volten.get("/route/wildcard/*", (ctx) => {
     ctx.text(`wildcard:${ctx.params["*"]}`);
@@ -128,7 +128,7 @@ test("Volten Core Pipeline Integration", async (t) => {
   volten.get("/error/async", async () => {
     throw new Error("Deliberate Asynchronous Fault");
   });
-  volten.get("/error/next-multiple", (ctx, next) => {
+  volten.get("/error/next-multiple", (_, next) => {
     next();
     next(); // Triggers loop breach guard mechanisms
   });
@@ -162,75 +162,66 @@ test("Volten Core Pipeline Integration", async (t) => {
   // EXECUTING THE TESTS MATRIX (100+ assertions)
   // ==========================================
 
-  await t.test(
-    "Matrix 1: Method Distribution Routing Logic Validation",
-    async () => {
-      const verbs = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
-      for (const m of verbs) {
-        middlewareTrace = [];
-        const res = await request(volten, "/methods", { method: m });
-        assert.equal(res.status, 200, `Expected 200 on ${m}`);
-        assert.equal(res.body, `${m}_OK`);
-        assert.ok(
-          middlewareTrace.includes("global_pre"),
-          "Global middleware sequence verification dropped",
-        );
-      }
-    },
-  );
+  await t.test("Matrix 1: Method Distribution Routing Logic Validation", async () => {
+    const verbs = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
+    for (const m of verbs) {
+      middlewareTrace = [];
+      const res = await request(volten, "/methods", { method: m });
+      assert.equal(res.status, 200, `Expected 200 on ${m}`);
+      assert.equal(res.body, `${m}_OK`);
+      assert.ok(
+        middlewareTrace.includes("global_pre"),
+        "Global middleware sequence verification dropped",
+      );
+    }
+  });
 
-  await t.test(
-    "Matrix 2: Radix Path Matching, Splitting Nodes and Deep Backtracks",
-    async () => {
-      // Exact Static Route Node Hit
-      let res = await request(volten, "/route/static-segment");
-      assert.equal(res.status, 200);
-      assert.equal(res.body, "static");
+  await t.test("Matrix 2: Radix Path Matching, Splitting Nodes and Deep Backtracks", async () => {
+    // Exact Static Route Node Hit
+    let res = await request(volten, "/route/static-segment");
+    assert.equal(res.status, 200);
+    assert.equal(res.body, "static");
 
-      // Radix split branch verification path
-      res = await request(volten, "/route/static-segment-long");
-      assert.equal(res.status, 200);
-      assert.equal(res.body, "long-static");
+    // Radix split branch verification path
+    res = await request(volten, "/route/static-segment-long");
+    assert.equal(res.status, 200);
+    assert.equal(res.body, "long-static");
 
-      // Single token param node matching paths
-      res = await request(volten, "/route/v1/fixed");
-      assert.equal(res.status, 200);
-      assert.deepEqual(res.json(), { p: "v1" });
+    // Single token param node matching paths
+    res = await request(volten, "/route/v1/fixed");
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.json(), { p: "v1" });
 
-      // Multi-token path extraction layers
-      res = await request(volten, "/route/user_99/profile_data");
-      assert.equal(res.status, 200);
-      assert.deepEqual(res.json(), { p1: "user_99", p2: "profile_data" });
+    // Multi-token path extraction layers
+    res = await request(volten, "/route/user_99/profile_data");
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.json(), { p1: "user_99", p2: "profile_data" });
 
-      // Trailing global catch-all configurations
-      res = await request(volten, "/route/wildcard/assets/images/logo.png");
-      assert.equal(res.status, 200);
-      assert.equal(res.body, "wildcard:assets/images/logo.png");
+    // Trailing global catch-all configurations
+    res = await request(volten, "/route/wildcard/assets/images/logo.png");
+    assert.equal(res.status, 200);
+    assert.equal(res.body, "wildcard:assets/images/logo.png");
 
-      // Case insensitivity execution matrix verification
-      res = await request(volten, "/RoUtE/StAtIc-SeGmEnT");
-      assert.equal(res.status, 200);
-      assert.equal(res.body, "static");
-    },
-  );
+    // Case insensitivity execution matrix verification
+    res = await request(volten, "/RoUtE/StAtIc-SeGmEnT");
+    assert.equal(res.status, 200);
+    assert.equal(res.body, "static");
+  });
 
-  await t.test(
-    "Matrix 3: Input Payload, Payload Bounds Violation Controls",
-    async () => {
-      // Basic body serialization verification targets
-      let res = await request(volten, "/limit/empty", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ok: true }),
-      });
-      assert.equal(res.status, 200);
-      assert.deepEqual(res.json(), { ok: true });
+  await t.test("Matrix 3: Input Payload, Payload Bounds Violation Controls", async () => {
+    // Basic body serialization verification targets
+    let res = await request(volten, "/limit/empty", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ok: true }),
+    });
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.json(), { ok: true });
 
-      // Payload verification inside GET request specifications
-      res = await request(volten, "/limit/read-on-get");
-      assert.equal(res.status, 200);
-    },
-  );
+    // Payload verification inside GET request specifications
+    res = await request(volten, "/limit/read-on-get");
+    assert.equal(res.status, 200);
+  });
 
   await t.test(
     "Matrix 4: State Serialization, Header Composition & Cookie Processing Engine",
@@ -240,9 +231,7 @@ test("Volten Core Pipeline Integration", async (t) => {
       const setCookies = res.headers["set-cookie"];
       assert.ok(Array.isArray(setCookies) || typeof setCookies === "string");
 
-      const cookieStr = Array.isArray(setCookies)
-        ? setCookies.join("; ")
-        : setCookies || "";
+      const cookieStr = Array.isArray(setCookies) ? setCookies.join("; ") : setCookies || "";
       assert.ok(cookieStr.includes("session=abc"));
       assert.ok(cookieStr.includes("HttpOnly"));
       assert.ok(cookieStr.includes("Secure"));
@@ -255,8 +244,8 @@ test("Volten Core Pipeline Integration", async (t) => {
         headers: { cookie: "user=admin; pass=123; malformed%2" },
       });
       const parsed = res.json<Record<string, string>>();
-      assert.equal(parsed.user, "admin");
-      assert.equal(parsed.pass, "123");
+      assert.equal(parsed["user"], "admin");
+      assert.equal(parsed["pass"], "123");
     },
   );
 
@@ -365,9 +354,7 @@ test("Volten Core Pipeline Integration", async (t) => {
       const targetUrl = `http://127.0.0.1:${assignedPort}/sluggish-node`;
       const burstPromises: Promise<Response>[] = [];
       for (let i = 0; i < 6; i++) {
-        burstPromises.push(
-          fetch(targetUrl, { headers: { Connection: "close" } }),
-        );
+        burstPromises.push(fetch(targetUrl, { headers: { Connection: "close" } }));
       }
 
       const networkOutcomes = await Promise.all(burstPromises);
@@ -383,14 +370,8 @@ test("Volten Core Pipeline Integration", async (t) => {
       const has200 = codeList.includes(200);
       const has503 = codeList.includes(503);
 
-      assert.ok(
-        has200,
-        "Isolated pool failed to process baseline valid items.",
-      );
-      assert.ok(
-        has503,
-        "Starvation protective barrier failed to yield a 503 status.",
-      );
+      assert.ok(has200, "Isolated pool failed to process baseline valid items.");
+      assert.ok(has503, "Starvation protective barrier failed to yield a 503 status.");
     },
   );
   volten.close();

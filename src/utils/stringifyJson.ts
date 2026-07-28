@@ -1,3 +1,6 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { RequestContext } from "./requestCtx.ts";
 const OBJ_STACK = new Array(32);
 
@@ -29,8 +32,10 @@ export function getShapeFingerprint(obj: unknown): number {
           hash = Math.imul(hash ^ 7, 16777619);
           const keys = Object.keys(val);
           const kLen = keys.length;
+
           for (let j = 0; j < kLen; j++) {
             const key = keys[j];
+            if (key === undefined) continue;
             hash = Math.imul(hash ^ key.length, 16777619);
             hash = Math.imul(hash ^ key.charCodeAt(0), 16777619);
             if (sp < 32) OBJ_STACK[sp++] = val[key];
@@ -53,6 +58,8 @@ export function getShapeFingerprint(obj: unknown): number {
       case "function":
         hash = Math.imul(hash ^ 8, 16777619);
         break;
+      case "bigint":
+      case "symbol":
       default:
         hash = Math.imul(hash ^ 10, 16777619);
     }
@@ -156,7 +163,7 @@ export function createCompiledStringifier(sample: unknown) {
       lines.push(`ctx.writeStatic(String(${path}));`);
     } else if (Array.isArray(obj)) {
       lines.push(`ctx.writeStatic('[');`);
-      const i = `i${lines.length}`;
+      const i = `i${String(lines.length)}`;
       lines.push(`for (let ${i} = 0; ${i} < ${path}.length; ${i}++) {`);
 
       // RUNTIME CHECK: Since the array is mixed, we can't pre-compile the items
@@ -192,13 +199,10 @@ export function createCompiledStringifier(sample: unknown) {
 
   try {
     // Generate the optimized function
-    return new Function("d", "ctx", fnBody) as (
-      d: unknown,
-      ctx: RequestContext,
-    ) => void;
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval
+    return new Function("d", "ctx", fnBody) as (d: unknown, ctx: RequestContext) => void;
   } catch {
     // Fallback to standard stringify if the JIT fails
-    return (d: unknown, ctx: RequestContext) =>
-      ctx.writeStatic(JSON.stringify(d));
+    return (d: unknown, ctx: RequestContext) => ctx.writeStatic(JSON.stringify(d));
   }
 }
