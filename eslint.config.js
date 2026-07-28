@@ -1,21 +1,27 @@
 import js from "@eslint/js";
+import { defineConfig } from "eslint/config";
 import tseslint from "typescript-eslint";
 import eslintConfigPrettier from "eslint-config-prettier";
-// 1. Import the security plugin
 import pluginSecurity from "eslint-plugin-security";
 
-export default tseslint.config(
+export default defineConfig([
+  {
+    ignores: ["eslint.config.js", "tests"],
+  },
   js.configs.recommended,
-  ...tseslint.configs.recommended,
+  ...tseslint.configs.strictTypeChecked,
   eslintConfigPrettier,
-  // 2. Add the recommended security ruleset
   pluginSecurity.configs.recommended,
   {
+    languageOptions: {
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
     rules: {
-      // ❌ Turn off the standard JavaScript rule (it breaks on TS files)
       "no-unused-vars": "off",
 
-      //  Turn on the smart TypeScript rule instead
       "@typescript-eslint/no-unused-vars": [
         "warn",
         {
@@ -25,9 +31,26 @@ export default tseslint.config(
       ],
 
       "@typescript-eslint/no-explicit-any": "error",
+      "@typescript-eslint/no-non-null-assertion": "error",
+
+      "@typescript-eslint/no-unsafe-assignment": "error",
+      "@typescript-eslint/no-unsafe-call": "error",
+      "@typescript-eslint/no-unsafe-member-access": "error",
+
+      "@typescript-eslint/strict-boolean-expressions": [
+        "error",
+        {
+          allowString: false,
+          allowNumber: false,
+          allowNullableObject: false,
+        },
+      ],
+      "@typescript-eslint/no-floating-promises": "error",
+      "@typescript-eslint/switch-exhaustiveness-check": "error",
+
       "no-console": ["warn", { allow: ["warn", "error", "info"] }],
       "security/detect-object-injection": "off",
       "security/detect-non-literal-fs-filename": "off",
     },
   },
-);
+]);
