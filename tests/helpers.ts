@@ -1,5 +1,5 @@
 import http from "node:http";
-import { AddressInfo } from "node:net";
+import type { AddressInfo } from "node:net";
 import { App } from "../src/core/server.ts";
 
 interface FetchTestResponse {
@@ -76,7 +76,7 @@ export async function request(
 
       // 2. Separate paths and query strings if an absolute URL was passed
       let targetPath = path;
-      let targetHost = "127.0.0.1";
+      let targetHost;
 
       if (path.startsWith("http://") || path.startsWith("https://")) {
         try {

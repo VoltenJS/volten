@@ -6,7 +6,7 @@ app.get("/", (ctx) => {
 });
 
 app.get("/user/:id", (ctx) => {
-  const userId = ctx.params.id;
+  const userId = ctx.params["id"];
   ctx.json({ userId });
 });
 
