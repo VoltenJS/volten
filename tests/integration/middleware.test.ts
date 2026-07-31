@@ -1,4 +1,4 @@
-import { test, after } from "node:test";
+import { test } from "node:test";
 import assert from "node:assert/strict";
 import { App } from "../../src/core/server.ts";
 import { RequestContext } from "../../src/utils/requestCtx.ts";
@@ -325,10 +325,4 @@ test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
     },
   );
   volten.close();
-});
-
-after(() => {
-  setImmediate(() => {
-    process.exit(0);
-  });
 });

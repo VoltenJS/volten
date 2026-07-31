@@ -1,13 +1,7 @@
-import { test, after } from "node:test";
+import { test } from "node:test";
 import assert from "node:assert/strict";
 import { compileMiddlewareChain } from "../../../src/core/compose.ts";
 import { RequestContext } from "../../../src/utils/requestCtx.ts";
-
-after(() => {
-  setImmediate(() => {
-    process.exit(0);
-  });
-});
 
 function makeCtx(sentStatus = false): RequestContext {
   const ctx = new RequestContext();
