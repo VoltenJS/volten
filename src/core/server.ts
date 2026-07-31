@@ -369,13 +369,12 @@ export class App {
     });
   }
 
-  public close() {
+  public close(cb?: () => void) {
     this.acceptIncomming = false;
     const awaitFinish = setInterval(() => {
-      if (this.poolSize - this.availableContexts.length === 0) {
-        awaitFinish.close();
-        this.server.close();
-        process.exit(0);
+      if (this.availableContexts.length === this.poolSize) {
+        clearInterval(awaitFinish);
+        this.server.close(cb);
       }
     }, 100);
     process.off("uncaughtException", this.handleUncaught);
