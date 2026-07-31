@@ -1,4 +1,4 @@
-import { test, after } from "node:test";
+import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   VoltenError,
@@ -11,12 +11,6 @@ import {
   ServiceUnavailableError,
   PayloadTooLargeError,
 } from "../../../src/core/errors.ts";
-
-after(() => {
-  setImmediate(() => {
-    process.exit(0);
-  });
-});
 
 test("VoltenError: toJSON without stack", () => {
   const err = new VoltenError("ERR_TEST", "msg", 418);
