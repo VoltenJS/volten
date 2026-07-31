@@ -19,7 +19,7 @@
   "type": "module",
   "main": "examples/01-hello-world.js",
   "scripts": {
-    "build": "pnpm tsc --project tsconfig.build.json",
+    "build": "tsup",
     "start": "node dist/app.js",
     "dev": "nodemon",
     "test": "tsx tests/run.ts",
@@ -36,6 +36,7 @@
     "eslint-plugin-security": "^4.0.1",
     "nodemon": "^3.1.14",
     "prettier": "^3.8.3",
+    "tsup": "^8.5.1",
     "tsx": "^4.22.5",
     "typescript": "^6.0.2",
     "typescript-eslint": "^8.59.4"
