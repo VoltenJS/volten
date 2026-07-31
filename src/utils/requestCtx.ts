@@ -31,9 +31,10 @@ import {
 } from "../core/errors.ts";
 
 let DATE_HEADER_BUF = new Date().toUTCString();
-setInterval(() => {
+const timer = setInterval(() => {
   DATE_HEADER_BUF = new Date().toUTCString();
 }, 1000);
+timer.unref();
 
 export class RequestContext {
   public _app: App | null = null;
