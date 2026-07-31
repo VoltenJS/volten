@@ -19,7 +19,7 @@
   "type": "module",
   "main": "examples/01-hello-world.js",
   "scripts": {
-    "build": "pnpm tsc --project tsconfig.build.json",
+    "build": "tsup",
     "start": "node dist/app.js",
     "dev": "nodemon",
     "test": "tsx tests/run.ts",
