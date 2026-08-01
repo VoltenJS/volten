@@ -17,9 +17,6 @@ after(() => {
   try {
     fs.rmSync(TMP_ERR_DIR, { recursive: true, force: true });
   } catch {}
-  setImmediate(() => {
-    process.exit(0);
-  });
 });
 
 test("Volten Server Core Error Pipeline & Boundary Constraints Matrix", async (t) => {
@@ -29,9 +26,9 @@ test("Volten Server Core Error Pipeline & Boundary Constraints Matrix", async (t
   let tenantErrorHit = false;
   let customErrorObject: any = null;
 
-  const resetErrorMetrics = () => {
+  const resetErrorMetrics = async () => {
     if (volten) {
-      volten.close();
+      await volten.close();
     }
     customGlobalErrorHit = false;
     tenantErrorHit = false;
@@ -89,7 +86,7 @@ test("Volten Server Core Error Pipeline & Boundary Constraints Matrix", async (t
   await t.test(
     "Matrix 1: Synchronous Micro-Task Exception Interception & Serialization",
     async () => {
-      resetErrorMetrics();
+      await resetErrorMetrics();
       const res = await request(volten, "/error/sync-crash");
       assert.equal(res.status, 500);
     },
@@ -98,78 +95,69 @@ test("Volten Server Core Error Pipeline & Boundary Constraints Matrix", async (t
   await t.test(
     "Matrix 2: Asynchronous Promise Rejection Interception & Pipeline Preservation",
     async () => {
-      resetErrorMetrics();
+      await resetErrorMetrics();
       const res = await request(volten, "/error/async-crash");
       assert.equal(res.status, 500);
     },
   );
 
-  await t.test(
-    "Matrix 3: Inbound Content-Length Validation Overflow Protection",
-    async () => {
-      resetErrorMetrics();
-      const heavyPayload = "X".repeat(512);
+  await t.test("Matrix 3: Inbound Content-Length Validation Overflow Protection", async () => {
+    await resetErrorMetrics();
+    const heavyPayload = "X".repeat(512);
 
-      try {
-        const res = await request(volten, "/error/body-limit", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: heavyPayload,
-        });
-        assert.equal(res.status, 413);
-      } catch (err: any) {
-        // Intercepting the raw socket termination. ECONNRESET or an aborted message means validation passed.
-        assert.ok(
-          err.code === "ECONNRESET" ||
-            err.message.includes("hang up") ||
-            err.message.includes("aborted"),
-        );
-      }
-    },
-  );
-
-  await t.test(
-    "Matrix 4: Dynamic Stream Chunk Collector Limit Exceedance Handling",
-    async () => {
-      resetErrorMetrics();
-
-      try {
-        const res = await request(volten, "/error/body-limit", {
-          method: "POST",
-          headers: { "transfer-encoding": "chunked" },
-          body: "Z".repeat(300),
-        });
-        assert.equal(res.status, 413);
-      } catch (err: any) {
-        assert.ok(
-          err.code === "ECONNRESET" ||
-            err.message.includes("hang up") ||
-            err.message.includes("aborted"),
-        );
-      }
-    },
-  );
-
-  await t.test(
-    "Matrix 5: Global Application Fallback Error Middleware Overrides",
-    async () => {
-      resetErrorMetrics();
-
-      volten.onError((err, ctx) => {
-        customGlobalErrorHit = true;
-        ctx.status(500).text(`global_intercept:${err.message}`);
+    try {
+      const res = await request(volten, "/error/body-limit", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: heavyPayload,
       });
+      assert.equal(res.status, 413);
+    } catch (err: any) {
+      // Intercepting the raw socket termination. ECONNRESET or an aborted message means validation passed.
+      assert.ok(
+        err.code === "ECONNRESET" ||
+          err.message.includes("hang up") ||
+          err.message.includes("aborted"),
+      );
+    }
+  });
 
-      const res = await request(volten, "/error/sync-crash");
-      assert.equal(res.status, 500);
-      assert.equal(customGlobalErrorHit, true);
-    },
-  );
+  await t.test("Matrix 4: Dynamic Stream Chunk Collector Limit Exceedance Handling", async () => {
+    await resetErrorMetrics();
+
+    try {
+      const res = await request(volten, "/error/body-limit", {
+        method: "POST",
+        headers: { "transfer-encoding": "chunked" },
+        body: "Z".repeat(300),
+      });
+      assert.equal(res.status, 413);
+    } catch (err: any) {
+      assert.ok(
+        err.code === "ECONNRESET" ||
+          err.message.includes("hang up") ||
+          err.message.includes("aborted"),
+      );
+    }
+  });
+
+  await t.test("Matrix 5: Global Application Fallback Error Middleware Overrides", async () => {
+    await resetErrorMetrics();
+
+    volten.onError((err, ctx) => {
+      customGlobalErrorHit = true;
+      ctx.status(500).text(`global_intercept:${err.message}`);
+    });
+
+    const res = await request(volten, "/error/sync-crash");
+    assert.equal(res.status, 500);
+    assert.equal(customGlobalErrorHit, true);
+  });
 
   await t.test(
     "Matrix 6: Mid-Pipeline Next-Call Iteration Loop Breaches (Compose Safety)",
     async () => {
-      resetErrorMetrics();
+      await resetErrorMetrics();
       const res = await requestFetch(volten, "/error/pipeline-breach");
       assert.ok(res.status === 500);
     },
@@ -178,31 +166,28 @@ test("Volten Server Core Error Pipeline & Boundary Constraints Matrix", async (t
   await t.test(
     "Matrix 7: Next-Call Invocation Post Response Stream Serialization Traps",
     async () => {
-      resetErrorMetrics();
+      await resetErrorMetrics();
       const res = await request(volten, "/error/next-after-send");
       assert.equal(res.status, 200);
       assert.equal(res.body, "already_finalized");
     },
   );
 
-  await t.test(
-    "Matrix 8: Invalid Header Modification & Flush Actions Guardrail",
-    async () => {
-      resetErrorMetrics();
-      try {
-        await request(volten, "/error/double-header-flush");
-        assert.fail("The request should not have succeeded with a 200 OK");
-      } catch (err: any) {
-        // Assert that we caught a network error instead of a valid HTTP response
-        assert.ok(err, "A network connection drop was successfully triggered");
-      }
-    },
-  );
+  await t.test("Matrix 8: Invalid Header Modification & Flush Actions Guardrail", async () => {
+    await resetErrorMetrics();
+    try {
+      await request(volten, "/error/double-header-flush");
+      assert.fail("The request should not have succeeded with a 200 OK");
+    } catch (err: any) {
+      // Assert that we caught a network error instead of a valid HTTP response
+      assert.ok(err, "A network connection drop was successfully triggered");
+    }
+  });
 
   await t.test(
     "Matrix 9: Static Resolution Directory Traversal Access Block Constraints",
     async () => {
-      resetErrorMetrics();
+      await resetErrorMetrics();
       volten.static(TMP_ERR_DIR);
 
       const resTraversal = await request(volten, "/../../secret.txt");
