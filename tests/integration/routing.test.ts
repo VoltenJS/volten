@@ -23,10 +23,6 @@ after(() => {
   try {
     fs.rmSync(TMP_DIR, { recursive: true, force: true });
   } catch {}
-  // Terminate loop ticks smoothly
-  setImmediate(() => {
-    process.exit(0);
-  });
 });
 
 test("Volten Core Pipeline Integration", async (t) => {
