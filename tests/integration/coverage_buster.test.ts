@@ -22,10 +22,6 @@ after(() => {
   try {
     fs.rmSync(TMP_BUSTER_DIR, { recursive: true, force: true });
   } catch {}
-  // Terminate loop ticks smoothly
-  setImmediate(() => {
-    process.exit(0);
-  });
 });
 
 test("Volten Other Tests", async (t) => {

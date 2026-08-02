@@ -1,4 +1,4 @@
-import { test, after } from "node:test";
+import { test } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import { Readable, PassThrough } from "node:stream";
@@ -7,12 +7,6 @@ import { App } from "../../../src/core/server.ts";
 import { RequestContext } from "../../../src/utils/requestCtx.ts";
 import { parseBody, parseMultipartStream } from "../../../src/utils/bodyParser.ts";
 import { PayloadTooLargeError } from "../../../src/core/errors.ts";
-
-after(() => {
-  setImmediate(() => {
-    process.exit(0);
-  });
-});
 
 // Helper: build a minimal mock req/res pair for direct parseBody calls.
 function makeReqRes(headers: Record<string, string>, chunks: Buffer[] = []) {
