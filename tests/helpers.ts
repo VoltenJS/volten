@@ -25,6 +25,24 @@ export async function requestFetch(
       const address = server.address() as AddressInfo;
       const url = `http://127.0.0.1:${address.port}${path}`;
 
+      const srv = server as any;
+      if (srv.activeRequests === undefined) {
+        srv.activeRequests = 0;
+      }
+      srv.activeRequests++;
+
+      const cleanUpAndClose = (callback: (err?: Error | null) => void) => {
+        srv.activeRequests--;
+        if (srv.activeRequests === 0) {
+          if (typeof server.closeAllConnections === "function") {
+            server.closeAllConnections();
+          }
+          server.close(callback);
+        } else {
+          callback(null);
+        }
+      };
+
       try {
         const resOptions = {
           ...options,
@@ -37,11 +55,7 @@ export async function requestFetch(
         const response = await fetch(url, resOptions);
         const body = await response.text();
 
-        if (typeof server.closeAllConnections === "function") {
-          server.closeAllConnections();
-        }
-
-        server.close((err) => {
+        cleanUpAndClose((err) => {
           if (err) reject(err);
 
           resolve({
@@ -54,10 +68,7 @@ export async function requestFetch(
 
         server.unref();
       } catch (error) {
-        if (typeof server.closeAllConnections === "function") {
-          server.closeAllConnections();
-        }
-        server.close(() => reject(error));
+        cleanUpAndClose(() => reject(error));
         server.unref();
       }
     });
@@ -74,6 +85,24 @@ export async function request(
     const server = app.listen(0, () => {
       const address = server.address() as AddressInfo;
 
+      const srv = server as any;
+      if (srv.activeRequests === undefined) {
+        srv.activeRequests = 0;
+      }
+      srv.activeRequests++;
+
+      const cleanUpAndClose = (callback: (err?: Error | null) => void) => {
+        srv.activeRequests--;
+        if (srv.activeRequests === 0) {
+          if (typeof server.closeAllConnections === "function") {
+            server.closeAllConnections();
+          }
+          server.close(callback);
+        } else {
+          callback(null);
+        }
+      };
+
       // 2. Separate paths and query strings if an absolute URL was passed
       let targetPath = path;
       let targetHost;
@@ -84,8 +113,8 @@ export async function request(
           targetPath = parsedUrl.pathname + parsedUrl.search;
           targetHost = parsedUrl.host; // e.g., "fallback-domain.com"
         } catch (e) {
-          server.close();
-          return reject(e);
+          cleanUpAndClose(() => reject(e));
+          return;
         }
       }
 
@@ -120,12 +149,7 @@ export async function request(
         res.on("end", () => {
           const body = Buffer.concat(chunks).toString("utf8");
 
-          // Clean up connections and close server instantly
-          if (typeof server.closeAllConnections === "function") {
-            server.closeAllConnections();
-          }
-
-          server.close((err) => {
+          cleanUpAndClose((err) => {
             if (err) return reject(err);
 
             resolve({
@@ -141,10 +165,7 @@ export async function request(
       });
 
       req.on("error", (error) => {
-        if (typeof server.closeAllConnections === "function") {
-          server.closeAllConnections();
-        }
-        server.close(() => reject(error));
+        cleanUpAndClose(() => reject(error));
         server.unref();
       });
 

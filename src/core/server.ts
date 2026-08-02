@@ -216,6 +216,7 @@ export class App {
     } else {
       res.destroy();
     }
+    this.resetCtx(ctx);
   };
 
   private preflightHandlers: PreflightHandler[] = [];
@@ -258,6 +259,7 @@ export class App {
       }
       if (!ctx.res.destroyed) {
         ctx.res.destroy();
+        this.resetCtx(ctx);
       }
     }
   }
@@ -336,11 +338,20 @@ export class App {
     }
   }
 
-  listen(port: number, cb?: () => void): http.Server {
-    const server = http.createServer(this.onRequest.bind(this));
+  listen(...args: Parameters<http.Server["listen"]>): http.Server {
+    if (this.server.listening) {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      const lastArg = args[args.length - 1];
+      if (typeof lastArg === "function") {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+        process.nextTick(lastArg);
+      }
+      return this.server;
+    }
+
     this.compilePreflightHandler();
-    server.listen(port, "0.0.0.0", 16384, cb);
-    return server;
+    this.server.listen(...args);
+    return this.server;
   }
 
   private onRequest(req: http.IncomingMessage, res: http.ServerResponse) {
@@ -369,16 +380,34 @@ export class App {
     });
   }
 
-  public close() {
+  public async close(...args: Parameters<http.Server["close"]>) {
     this.acceptIncomming = false;
-    const awaitFinish = setInterval(() => {
-      if (this.poolSize - this.availableContexts.length === 0) {
-        awaitFinish.close();
-        this.server.close();
-        process.exit(0);
-      }
-    }, 100);
+
     process.off("uncaughtException", this.handleUncaught);
     process.off("unhandledRejection", this.handleRejection);
+
+    const timeoutMs = 10000;
+    const startTime = Date.now();
+    while (this.availableContexts.length < this.poolSize) {
+      if (Date.now() - startTime > timeoutMs) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    if (!this.server.listening) {
+      if (typeof args[0] === "function") {
+        args[0](new Error("ERR_SERVER_NOT_RUNNING: Server is not running."));
+      }
+      return;
+    }
+
+    return new Promise<void>((resolve) => {
+      this.server.close((err) => {
+        if (typeof args[0] === "function") {
+          args[0](err);
+        }
+        resolve();
+      });
+    });
   }
 }
