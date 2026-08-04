@@ -67,9 +67,7 @@ export class RouteTree {
       method,
       bodyLimit: options.bodyLimit,
       composeChain,
-      lastFingerprint: 0,
       disableOpt: false,
-      setFingerprint: (_fingerprint: number) => {},
       setDeOpt: () => {},
       methodStorage: new MethodStorage(),
     };
@@ -155,10 +153,6 @@ export class RouteTree {
     }
 
     routeData.methodStorage = currentNode.methods;
-    routeData.setFingerprint = (fingerprint: number) => {
-      routeData.lastFingerprint = fingerprint;
-      routeData.methodStorage.set(method, routeData);
-    };
     routeData.setDeOpt = () => {
       routeData.disableOpt = true;
       routeData.methodStorage.set(method, routeData);
