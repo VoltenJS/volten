@@ -28,7 +28,7 @@ export class App {
   private availableContexts: RequestContext[];
   private poolIndex: number = 0;
   private poolSize: number = 2048;
-  public JITCache: JitCache = new JitCache(500);
+  public JITCache: JitCache = new JitCache();
   protected middleware: VoltenHandler[] = [];
   protected tree: RouteTree;
   customErrorHandler: ErrorHandler | null = null;
