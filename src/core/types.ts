@@ -24,11 +24,11 @@ export type NativeErrorHandler = (
 export type Params = Record<string, unknown>;
 export type Query = Record<string, string | string[]>;
 
-export type JitCompilerFunction = (d: unknown, ctx: RequestContext) => void;
+export type SerializerFn = (data: unknown, ctx?: unknown) => string;
 
 export interface FingerPrintData {
   stableCount: number;
-  JITcompiler: JitCompilerFunction | null;
+  JITcompiler: SerializerFn | null;
 }
 
 export type RouteData = [
@@ -42,8 +42,7 @@ export type PathData = {
   method: string;
   bodyLimit: number | null;
   composeChain: VoltenChainHandler;
-  lastFingerprint: number;
-  setFingerprint: (fingerprint: number) => void;
+  serializer?: (data: unknown) => string;
   setDeOpt: () => void;
   disableOpt: boolean;
   methodStorage: MethodStorage;

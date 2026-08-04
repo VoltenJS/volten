@@ -1,16 +1,120 @@
-import type { FingerPrintData, JitCompilerFunction } from "../core/types.ts";
-// To-Do: make an addData & getData function
+import type { FingerPrintData, SerializerFn } from "../core/types.ts";
+
+const OBJ_STACK: unknown[] = new Array(32);
+
 export class JitCache {
   private cache = new Map<number, FingerPrintData>();
-  private readonly max: number;
+  private maxCapacity: number;
 
-  constructor(maxSize = 1000) {
-    this.max = maxSize;
+  constructor(maxCapacity = 2000) {
+    this.maxCapacity = maxCapacity;
   }
 
-  create(fingerprint: number) {
-    if (this.cache.size >= this.max) {
-      // Evict the oldest item (the first key in the Map)
+  private fingerprintMap = new WeakMap<object, number>();
+
+  /**
+   * Generates a fast, lightweight structural shape fingerprint
+   * based on object keys and value types using a non-recursive stack traversal.
+   */
+  public getShapeFingerprint(obj: unknown): number {
+    if (obj !== null && typeof obj === "object") {
+      const cached = this.fingerprintMap.get(obj);
+      if (cached !== undefined) return cached;
+    }
+
+    let hash = 2166136261;
+    let sp = 0;
+    OBJ_STACK[sp++] = obj;
+
+    while (sp > 0) {
+      const val = OBJ_STACK[--sp];
+
+      if (val === null) {
+        hash = Math.imul(hash ^ 1, 16777619);
+        continue;
+      }
+
+      const type = typeof val;
+      switch (type) {
+        case "object":
+          if (Array.isArray(val)) {
+            hash = Math.imul(hash ^ 6, 16777619);
+            const len = val.length;
+            if (len > 0 && sp < 29) {
+              const arr = val as unknown[];
+              OBJ_STACK[sp++] = arr[0];
+              if (len > 1) OBJ_STACK[sp++] = arr[len - 1];
+              if (len > 5) OBJ_STACK[sp++] = arr[len >> 1];
+            }
+          } else if (val instanceof Date) {
+            hash = Math.imul(hash ^ 9, 16777619);
+          } else {
+            hash = Math.imul(hash ^ 7, 16777619);
+            let count = 0;
+            const valObj = val as Record<string, unknown>;
+            for (const key in valObj) {
+              if (Object.prototype.hasOwnProperty.call(valObj, key)) {
+                hash = Math.imul(hash ^ key.length, 16777619);
+                hash = Math.imul(hash ^ key.charCodeAt(0), 16777619);
+                if (sp < 32) OBJ_STACK[sp++] = valObj[key];
+                if (++count > 14) break;
+              }
+            }
+          }
+          break;
+        case "number":
+          hash = Math.imul(hash ^ 3, 16777619);
+          break;
+        case "string":
+          hash = Math.imul(hash ^ 4, 16777619);
+          break;
+        case "boolean":
+          hash = Math.imul(hash ^ 5, 16777619);
+          break;
+        case "undefined":
+          hash = Math.imul(hash ^ 2, 16777619);
+          break;
+        case "function":
+          hash = Math.imul(hash ^ 8, 16777619);
+          break;
+        case "bigint":
+          hash = Math.imul(hash ^ 11, 16777619);
+          break;
+        case "symbol":
+          hash = Math.imul(hash ^ 12, 16777619);
+          break;
+        default:
+          hash = Math.imul(hash ^ 10, 16777619);
+      }
+    }
+    const result = hash >>> 0;
+    const finalResult = result === 0 ? 1 : result;
+    if (obj !== null && typeof obj === "object") {
+      this.fingerprintMap.set(obj, finalResult);
+    }
+    return finalResult;
+  }
+
+  // Optimized lookup used by server
+  public get(fingerprint: number): SerializerFn | undefined {
+    const data = this.cache.get(fingerprint);
+    return data?.JITcompiler ?? undefined;
+  }
+
+  public set(fingerprint: number, fn: SerializerFn): void {
+    let data = this.cache.get(fingerprint);
+    if (data === undefined) {
+      this.create(fingerprint);
+      data = this.cache.get(fingerprint);
+    }
+    if (data !== undefined) {
+      data.JITcompiler = fn;
+    }
+  }
+
+  // Test-compatible methods
+  public create(fingerprint: number) {
+    if (this.cache.size >= this.maxCapacity) {
       const oldestKey = this.cache.keys().next().value;
       if (oldestKey !== undefined) {
         this.cache.delete(oldestKey);
@@ -23,73 +127,55 @@ export class JitCache {
     this.cache.set(fingerprint, fingerprintData);
   }
 
-  getCompiler(fingerprint: number) {
-    const fingerprintData = this.cache.get(fingerprint);
-    let fn = null;
-    if (fingerprintData !== undefined) {
-      const { JITcompiler } = fingerprintData;
-      if (JITcompiler !== null) {
-        fn = JITcompiler;
-        this.cache.delete(fingerprint);
-        this.cache.set(fingerprint, fingerprintData);
-      }
+  public getCompiler(fingerprint: number): SerializerFn | null {
+    const data = this.cache.get(fingerprint);
+    if (data !== undefined) {
+      // Touch to refresh LRU
+      this.cache.delete(fingerprint);
+      this.cache.set(fingerprint, data);
+      return data.JITcompiler;
     }
-    return fn;
+    return null;
   }
 
-  getCount(fingerprint: number) {
-    const fingerprintData = this.cache.get(fingerprint);
-    let count;
-    if (fingerprintData !== undefined) {
-      const { stableCount } = fingerprintData;
-      count = stableCount;
-    } else {
+  public getCount(fingerprint: number): number {
+    const data = this.cache.get(fingerprint);
+    if (data === undefined) {
       throw new Error("Fingerprint does not exist");
     }
-    return count;
+    return data.stableCount;
   }
 
-  setCompiler(fingerprint: number, fn: JitCompilerFunction) {
-    const existingFingerprint: FingerPrintData | null = this.cache.get(fingerprint) ?? null;
-
-    if (existingFingerprint === null) {
-      throw new Error(
-        "Attempting to set a compiler for a fingerprint that doesn't exist in the cache",
-      );
+  public setCompiler(fingerprint: number, fn: SerializerFn) {
+    const data = this.cache.get(fingerprint);
+    if (data === undefined) {
+      throw new Error("Attempting to set a compiler for a fingerprint that doesn't exist");
     }
-    existingFingerprint.JITcompiler = fn;
-    this.cache.set(fingerprint, existingFingerprint);
+    data.JITcompiler = fn;
   }
 
-  addCount(fingerprint: number) {
-    const existingFingerprint: FingerPrintData | null = this.cache.get(fingerprint) ?? null;
-
-    if (existingFingerprint === null) {
-      throw new Error("Attempting to add count for a fingerprint that doesn't exist in the cache");
+  public addCount(fingerprint: number) {
+    const data = this.cache.get(fingerprint);
+    if (data === undefined) {
+      throw new Error("Attempting to add count for a fingerprint that doesn't exist");
     }
-    existingFingerprint.stableCount += 1;
-    this.cache.set(fingerprint, existingFingerprint);
-  }
-  resetCount(fingerprint: number) {
-    const existingFingerprint: FingerPrintData | null = this.cache.get(fingerprint) ?? null;
-
-    if (existingFingerprint === null) {
-      throw new Error(
-        "Attempting to reset count for a fingerprint that doesn't exist in the cache",
-      );
-    }
-    existingFingerprint.stableCount = 0;
-    this.cache.set(fingerprint, existingFingerprint);
+    data.stableCount += 1;
   }
 
-  delete(fingerprint: number) {
-    const existingFingerprint: FingerPrintData | null = this.cache.get(fingerprint) ?? null;
-
-    if (existingFingerprint === null) {
-      throw new Error("Attempting to delete a fingerprint that doesn't exist in the cache");
+  public resetCount(fingerprint: number) {
+    const data = this.cache.get(fingerprint);
+    if (data === undefined) {
+      throw new Error("Attempting to reset count for a fingerprint that doesn't exist");
     }
-    existingFingerprint.JITcompiler = null;
-    existingFingerprint.stableCount = 0;
-    this.cache.set(fingerprint, existingFingerprint);
+    data.stableCount = 0;
+  }
+
+  public delete(fingerprint: number) {
+    const data = this.cache.get(fingerprint);
+    if (data === undefined) {
+      throw new Error("Attempting to delete a fingerprint that doesn't exist");
+    }
+    data.JITcompiler = null;
+    data.stableCount = 0;
   }
 }
