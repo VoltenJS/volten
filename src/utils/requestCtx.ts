@@ -20,7 +20,7 @@ import {
 } from "../core/types.ts";
 import { App } from "../core/server.ts";
 import { parseUrl, parseQuery } from "./parseUrl.ts";
-import { createCompiledStringifier, getShapeFingerprint } from "./stringifyJson.ts";
+import { createCompiledStringifier } from "./stringifyJson.ts";
 import { isFileInFolder } from "./security.ts";
 import {
   MethodNotAllowedError,
@@ -232,7 +232,6 @@ export class RequestContext {
   }
 
   public json(data: unknown, statusCode = this.res.statusCode) {
-    // To-Do: Improve JIT
     const res = this.res;
     res.statusCode = statusCode;
 
@@ -247,9 +246,7 @@ export class RequestContext {
     res.setHeader("Server", "Volten/1.0.0");
     res.setHeader("Connection", "keep-alive");
     res.setHeader("Date", DATE_HEADER_BUF);
-    // Disable JIT for every request, until JIT gets fixed
-    this.route.disableOpt = true;
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+
     if (this.route.disableOpt) {
       const body = JSON.stringify(data);
       this.setHeader("Content-Length", Buffer.byteLength(body));
@@ -259,62 +256,28 @@ export class RequestContext {
     }
 
     try {
-      if (this.route.lastFingerprint === 0) {
-        const stringified = JSON.stringify(data);
-        if (stringified.length > RequestContext.BUFFER_SIZE) {
-          this.route.setDeOpt();
+      let serializer = this.route.serializer;
+      if (serializer === undefined) {
+        const finger = this.app.JITCache.getShapeFingerprint(data);
+        serializer = this.app.JITCache.get(finger);
+        if (serializer === undefined) {
+          serializer = createCompiledStringifier(data);
+          this.app.JITCache.set(finger, serializer);
         }
+        this.route.serializer = serializer;
       }
+      const body = serializer(data);
+      this.setHeader("Content-Length", body.length);
+      res.end(body);
+      res.uncork();
+      return this;
     } catch {
-      this.route.setDeOpt();
+      const body = JSON.stringify(data);
+      this.setHeader("Content-Length", Buffer.byteLength(body));
+      res.end(body);
+      res.uncork();
+      return this;
     }
-
-    const finger = getShapeFingerprint(data);
-    let routeCount;
-    try {
-      routeCount = this.app.JITCache.getCount(finger);
-    } catch {
-      this.app.JITCache.create(finger);
-      routeCount = this.app.JITCache.getCount(finger);
-    }
-    const compiler = this.app.JITCache.getCompiler(finger);
-    if (compiler !== null) {
-      try {
-        this.bufferOffset = 0;
-        try {
-          compiler(data, this);
-          res.end(this.responseBuffer.subarray(0, this.bufferOffset));
-          res.uncork();
-        } catch (e: unknown) {
-          if (e instanceof Error && e.message === "Buffer Overflow") {
-            const body = JSON.stringify(data);
-            this.setHeader("Content-Length", Buffer.byteLength(body));
-            res.end(body);
-            res.uncork();
-          }
-        }
-        return this;
-      } catch {
-        this.app.JITCache.delete(finger);
-      }
-    }
-    if (this.route.lastFingerprint == finger) {
-      this.app.JITCache.addCount(finger);
-
-      if (routeCount >= 10) {
-        const newCompiler = createCompiledStringifier(data);
-        this.app.JITCache.setCompiler(finger, newCompiler);
-      }
-    } else {
-      this.route.setFingerprint(finger);
-      this.app.JITCache.resetCount(finger);
-    }
-
-    const body = JSON.stringify(data);
-    this.setHeader("Content-Length", Buffer.byteLength(body));
-    res.end(body);
-    res.uncork();
-    return this;
   }
 
   public sendFile(filePath: string, statusCode = this.res.statusCode, options?: SendFileOptions) {
