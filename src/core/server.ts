@@ -1,4 +1,5 @@
 import http from "http";
+import https from "https";
 import fs from "fs";
 import type {
   VoltenHandler,
@@ -10,7 +11,7 @@ import type {
   RouteOptions,
 } from "./types.ts";
 import {
-  DeafultVoltenOptions,
+  DefaultVoltenOptions,
   SERVICE_UNAVAILABLE_BUF,
   SERVICE_UNAVAILABLE_HEADERS,
   INTERNAL_SERVER_ERROR_BUF,
@@ -23,6 +24,7 @@ import { RequestContext } from "../utils/requestCtx.ts";
 import { JitCache } from "../utils/jitCache.ts";
 import { VoltenError } from "./errors.ts";
 import { parseBody, parseMultipartStream } from "../utils/bodyParser.ts";
+import { createServer } from "../utils/createServer.ts";
 
 export class App {
   private availableContexts: RequestContext[];
@@ -33,12 +35,12 @@ export class App {
   protected tree: RouteTree;
   customErrorHandler: ErrorHandler | null = null;
   public serverStaticMap: string | null = null;
-  public AppOptions: Required<VoltenAppOptions> = DeafultVoltenOptions;
+  public AppOptions = DefaultVoltenOptions;
   public static readonly EMPTY_OBJECT = Object.freeze({});
 
   public parseBody = parseBody.bind(this);
   public parseMultipartStream = parseMultipartStream.bind(this);
-  public server = http.createServer(this.onRequest.bind(this));
+  public server: http.Server | https.Server;
   private acceptIncomming = true;
 
   private handleUncaught = (err: unknown) => {
@@ -67,6 +69,9 @@ export class App {
 
   constructor(options: VoltenAppOptions = {}) {
     Object.assign(this.AppOptions, options);
+    const serverOptions =
+      this.AppOptions.https !== undefined ? { https: this.AppOptions.https } : {};
+    this.server = createServer(serverOptions, this.onRequest.bind(this));
     this.poolSize = this.AppOptions.RequestPoolSize;
     this.tree = new RouteTree(this.AppOptions.caseInsensitive);
     this.onRequest = this.onRequest.bind(this);
