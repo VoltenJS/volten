@@ -1,15 +1,7 @@
 import http from "http";
 import https from "https";
 import fs from "fs";
-import type {
-  VoltenHandler,
-  PreflightHandler,
-  ErrorHandler,
-  RouteData,
-  PathData,
-  VoltenAppOptions,
-  RouteOptions,
-} from "./types.ts";
+import type { PreflightHandler, ErrorHandler, PathData, VoltenAppOptions } from "./types.ts";
 import {
   DefaultVoltenOptions,
   SERVICE_UNAVAILABLE_BUF,
@@ -25,13 +17,13 @@ import { JitCache } from "../utils/jitCache.ts";
 import { VoltenError } from "./errors.ts";
 import { parseBody, parseMultipartStream } from "../utils/bodyParser.ts";
 import { createServer } from "../utils/createServer.ts";
+import { Router } from "./router.ts";
 
-export class App {
+export class App extends Router {
   private availableContexts: RequestContext[];
   private poolIndex: number = 0;
   private poolSize: number = 2048;
   public JITCache: JitCache = new JitCache();
-  protected middleware: VoltenHandler[] = [];
   protected tree: RouteTree;
   customErrorHandler: ErrorHandler | null = null;
   public serverStaticMap: string | null = null;
@@ -68,6 +60,7 @@ export class App {
   }
 
   constructor(options: VoltenAppOptions = {}) {
+    super();
     Object.assign(this.AppOptions, options);
     const serverOptions =
       this.AppOptions.https !== undefined ? { https: this.AppOptions.https } : {};
@@ -83,68 +76,6 @@ export class App {
     process.on("unhandledRejection", this.handleRejection);
   }
 
-  //#region Routing Functions
-
-  private identifyParamType(
-    arg2: RouteOptions | VoltenHandler,
-    ...handlers: VoltenHandler[]
-  ): { options: Required<RouteOptions>; routeHandlers: VoltenHandler[] } {
-    const isOptions = typeof arg2 === "object";
-    const options = (isOptions ? { ...arg2 } : {}) as Required<RouteOptions>;
-    options.bodyLimit = options.bodyLimit ?? null;
-
-    const routeHandlers = isOptions ? handlers : [arg2, ...handlers];
-
-    return { options, routeHandlers };
-  }
-
-  registerRoute(
-    method: string,
-    path: string,
-    options: Required<RouteOptions>,
-    ...handlers: VoltenHandler[]
-  ) {
-    const methodUpper = method.toUpperCase();
-    const routeHandlers = this.middleware.concat(handlers);
-    const routeData: RouteData = [methodUpper, path, routeHandlers, options];
-    this.tree.addPath(...routeData);
-  }
-
-  get(path: string, ...handlers: VoltenHandler[]): void;
-  get(path: string, options: RouteOptions, ...handlers: VoltenHandler[]): void;
-  get(path: string, arg2: RouteOptions | VoltenHandler, ...handlers: VoltenHandler[]): void {
-    const { options, routeHandlers } = this.identifyParamType(arg2, ...handlers);
-    this.registerRoute("GET", path, options, ...routeHandlers);
-  }
-
-  post(path: string, ...handlers: VoltenHandler[]): void;
-  post(path: string, options: RouteOptions, ...handlers: VoltenHandler[]): void;
-  post(path: string, arg2: RouteOptions | VoltenHandler, ...handlers: VoltenHandler[]): void {
-    const { options, routeHandlers } = this.identifyParamType(arg2, ...handlers);
-    this.registerRoute("POST", path, options, ...routeHandlers);
-  }
-
-  patch(path: string, ...handlers: VoltenHandler[]): void;
-  patch(path: string, options: RouteOptions, ...handlers: VoltenHandler[]): void;
-  patch(path: string, arg2: RouteOptions | VoltenHandler, ...handlers: VoltenHandler[]): void {
-    const { options, routeHandlers } = this.identifyParamType(arg2, ...handlers);
-    this.registerRoute("PATCH", path, options, ...routeHandlers);
-  }
-
-  put(path: string, ...handlers: VoltenHandler[]): void;
-  put(path: string, options: RouteOptions, ...handlers: VoltenHandler[]): void;
-  put(path: string, arg2: RouteOptions | VoltenHandler, ...handlers: VoltenHandler[]): void {
-    const { options, routeHandlers } = this.identifyParamType(arg2, ...handlers);
-    this.registerRoute("PUT", path, options, ...routeHandlers);
-  }
-
-  delete(path: string, ...handlers: VoltenHandler[]): void;
-  delete(path: string, options: RouteOptions, ...handlers: VoltenHandler[]): void;
-  delete(path: string, arg2: RouteOptions | VoltenHandler, ...handlers: VoltenHandler[]): void {
-    const { options, routeHandlers } = this.identifyParamType(arg2, ...handlers);
-    this.registerRoute("DELETE", path, options, ...routeHandlers);
-  }
-
   getRoute(method: string, path: string, ctx: RequestContext): PathData | null {
     return this.tree.matchPath(method, path, ctx);
   }
@@ -155,11 +86,6 @@ export class App {
 
   //#endregion
   //#region Middleware & Internal Functions
-
-  use(...fns: VoltenHandler[]): this {
-    this.middleware.push(...fns);
-    return this;
-  }
 
   private errorHandler: ErrorHandler = (err, ctx) => {
     let status = 500;
@@ -355,6 +281,7 @@ export class App {
     }
 
     this.compilePreflightHandler();
+    this.register(this);
     this.server.listen(...args);
     return this.server;
   }
