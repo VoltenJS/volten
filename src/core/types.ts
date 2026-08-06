@@ -67,22 +67,31 @@ export type SendFileOptions = {
   errCallback?: ErrorHandler;
 };
 
+export type VoltenHttpsOptions = {
+  /** The full private key as a string */
+  key: string;
+  /** The full certificate as a string */
+  cert: string;
+};
+
 export type VoltenAppOptions = {
   bodyLimit?: number;
   caseInsensitive?: boolean;
   RequestPoolSize?: number;
   noLogs?: boolean;
+  https?: VoltenHttpsOptions | undefined;
 };
 
-export type RouteOptions = {
-  bodyLimit?: number | null;
-};
-
-export const DeafultVoltenOptions: Required<VoltenAppOptions> = {
+export const DefaultVoltenOptions: Required<VoltenAppOptions> = {
   bodyLimit: 1024 * 1024,
   caseInsensitive: true,
   RequestPoolSize: 2048,
   noLogs: false,
+  https: undefined,
+};
+
+export type RouteOptions = {
+  bodyLimit?: number | null;
 };
 
 export type CookieOptions = {
