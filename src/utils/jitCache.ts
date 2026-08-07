@@ -39,13 +39,6 @@ export class JitCache {
         case "object":
           if (Array.isArray(val)) {
             hash = Math.imul(hash ^ 6, 16777619);
-            const len = val.length;
-            if (len > 0 && sp < 29) {
-              const arr = val as unknown[];
-              OBJ_STACK[sp++] = arr[0];
-              if (len > 1) OBJ_STACK[sp++] = arr[len - 1];
-              if (len > 5) OBJ_STACK[sp++] = arr[len >> 1];
-            }
           } else if (val instanceof Date) {
             hash = Math.imul(hash ^ 9, 16777619);
           } else {
