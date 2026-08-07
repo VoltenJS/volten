@@ -1,6 +1,6 @@
 import type { VoltenChainHandler, VoltenHandler } from "./types.ts";
 import { RequestContext } from "../utils/requestCtx.ts";
-import { InvalidNextCallError } from "./errors.ts";
+import { InvalidNextCallError, VoltenError } from "./errors.ts";
 
 /*
 // Not used anymore. Only kept for reference
@@ -51,11 +51,20 @@ export function compileMiddlewareChain(chain: VoltenHandler[]): VoltenChainHandl
             return dispatch(i + 1);
           }),
         ).catch((err: unknown) => {
-          void ctx._app?.handleError(err, ctx);
+          process.nextTick(() => {
+            if (!ctx.sent) {
+              void ctx.app.handleError(err, ctx);
+            }
+          });
+          return Promise.reject(VoltenError.from(err));
         });
       } catch (err: unknown) {
-        void ctx._app?.handleError(err, ctx);
-        return Promise.resolve();
+        process.nextTick(() => {
+          if (!ctx.sent) {
+            void ctx.app.handleError(err, ctx);
+          }
+        });
+        return Promise.reject(VoltenError.from(err));
       }
     }
 
