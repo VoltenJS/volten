@@ -42,9 +42,9 @@ test("Volten Core Pipeline Integration", async (t) => {
   // ==========================================
 
   // Global app level middleware coverage
-  volten.use((_, next) => {
+  volten.use(async (_, next) => {
     middlewareTrace.push("global_pre");
-    next();
+    await next();
   });
 
   // 1. Basic HTTP Methods
@@ -126,7 +126,7 @@ test("Volten Core Pipeline Integration", async (t) => {
   });
   volten.get("/error/next-multiple", (_, next) => {
     next();
-    next(); // Triggers loop breach guard mechanisms
+    (next() as Promise<void>).catch(() => {}); // Triggers loop breach guard mechanisms safely
   });
   volten.get("/error/next-after-sent", async (ctx, next) => {
     ctx.text("already_sent");
