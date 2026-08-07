@@ -214,6 +214,7 @@ export class RouteTree {
     const backtrackStack: {
       node: PathNode;
       index: number;
+      paramLength: number;
     }[] = [];
 
     const paramMatches: { name: string; value: string }[] = [];
@@ -226,6 +227,7 @@ export class RouteTree {
           backtrackStack.push({
             node: currentNode,
             index: i,
+            paramLength: paramMatches.length,
           });
         }
 
@@ -259,6 +261,7 @@ export class RouteTree {
           if (fallback == null) break;
           currentNode = fallback.node;
           i = fallback.index;
+          paramMatches.length = fallback.paramLength;
           if (currentNode.paramChild !== null) {
             currentNode = currentNode.paramChild;
             let j = i;
@@ -306,6 +309,7 @@ export class RouteTree {
         if (fallback === undefined) break;
         currentNode = fallback.node;
         i = fallback.index;
+        paramMatches.length = fallback.paramLength;
         if (currentNode.paramChild != null) {
           currentNode = currentNode.paramChild;
           let j = i;
