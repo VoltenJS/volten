@@ -55,6 +55,9 @@ export class App extends Router {
   }
 
   resetCtx(ctx: RequestContext) {
+    if (!ctx.inited) {
+      return;
+    }
     ctx.reset();
     this.availableContexts.push(ctx);
   }
@@ -133,7 +136,7 @@ export class App extends Router {
           console.error(err);
         }
         status = 500;
-        body = err.message !== "" ? err.message : "Internal Server Error";
+        body = "Internal Server Error";
         headers = {
           "content-type": "text/plain; charset=utf-8",
           "content-length": Buffer.byteLength(body),
@@ -147,7 +150,6 @@ export class App extends Router {
     } else {
       res.destroy();
     }
-    this.resetCtx(ctx);
   };
 
   private preflightHandlers: PreflightHandler[] = [];
@@ -307,6 +309,9 @@ export class App extends Router {
     if (ctx === null) {
       return;
     }
+    res.on("close", () => {
+      this.resetCtx(ctx);
+    });
     this.handleRequest(ctx).catch(async (err: unknown) => {
       await this.handleError(err, ctx);
     });

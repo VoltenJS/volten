@@ -72,9 +72,6 @@ export class RequestContext {
     this._app = app;
     this._req = req;
     this._res = res;
-    this._res.on("finish", () => {
-      this._app?.resetCtx(this);
-    });
 
     this.url = urlStr;
     this.path = pathname;
