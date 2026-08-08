@@ -7,6 +7,7 @@ import { createWriteStream } from "fs";
 import { mkdir } from "fs/promises";
 import { dirname } from "path";
 import { pipeline } from "stream/promises";
+import { basename } from "path";
 
 /**
  * Standard Body Parser for JSON, Text, and URL-encoded data.
@@ -186,11 +187,10 @@ export async function* parseMultipartStream(
               }
               return Buffer.concat(chunks);
             };
-
             partQueue.push({
               isFile: true,
               name: activePartMeta.name ?? "",
-              filename: activePartMeta.filename ?? "",
+              filename: basename(activePartMeta.filename ?? ""),
               contentType: activePartMeta.contentType ?? "",
               stream: nodeCompatibleStream,
               save: saveMethod,
