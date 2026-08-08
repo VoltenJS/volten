@@ -12,12 +12,6 @@ import type {
   CookieOptions,
   MultipartPart,
 } from "../core/types.ts";
-import {
-  NOT_FOUND_BUF,
-  NOT_FOUND_HEADERS,
-  INTERNAL_SERVER_ERROR_BUF,
-  INTERNAL_SERVER_ERROR_HEADERS,
-} from "../core/types.ts";
 import { App } from "../core/server.ts";
 import { parseUrl, parseQuery } from "./parseUrl.ts";
 import { createCompiledStringifier } from "./stringifyJson.ts";
@@ -107,7 +101,7 @@ export class RequestContext {
         if (!(await isFileInFolder(staticPath, filePath))) {
           throw new BadRequest("Attempted directory traversal attack");
         }
-        this.sendFile(filePath, 200, {});
+        await this.sendFile(filePath, 200, {});
         return;
       } catch {
         const routeTree = app.getRouteTree();
@@ -277,28 +271,27 @@ export class RequestContext {
     }
   }
 
-  public sendFile(filePath: string, statusCode = this.res.statusCode, options?: SendFileOptions) {
+  public async sendFile(
+    filePath: string,
+    statusCode = this.res.statusCode,
+    options?: SendFileOptions,
+  ) {
     if (this.sent) {
       if (this._app !== null && !this._app.AppOptions.noLogs) {
         console.warn("Attempted to send file after response was sent");
       }
       return this;
     }
-
-    fs.stat(filePath, (err, stats) => {
+    try {
+      const stats = await fs.promises.stat(filePath);
       const regApp = this.app;
 
-      // 1. File Not Found Handling
-      if (err !== null || !stats.isFile()) {
-        this.res.writeHead(404, NOT_FOUND_HEADERS);
-        this.res.end(NOT_FOUND_BUF);
-
+      if (!stats.isFile()) {
+        const error = new NotFoundError("Resource Not Found");
         if (options?.errCallback !== undefined) {
-          void options.errCallback(new NotFoundError(err?.message), this);
+          void options.errCallback(error, this);
         }
-
-        regApp.resetCtx(this);
-        return;
+        throw error;
       }
 
       const ext = path.extname(filePath).toLowerCase().slice(1);
@@ -311,7 +304,6 @@ export class RequestContext {
         this.setHeader("Content-Length", stats.size);
         this.setHeader("Last-Modified", stats.mtime.toUTCString());
 
-        // 2. Fixed Content-Disposition Header Syntax
         if (options?.download !== undefined) {
           const encodedName = encodeURIComponent(options.download);
           this.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodedName}`);
@@ -322,7 +314,6 @@ export class RequestContext {
         this.res.uncork();
       }
 
-      // 3. Stream Pipeline Execution
       const stream = fs.createReadStream(filePath);
       stream.pipe(this.res);
 
@@ -336,25 +327,20 @@ export class RequestContext {
           console.error("Stream error:", streamErr);
         }
         stream.destroy();
-
         const normalizedErr = VoltenError.from(streamErr);
-        if (!this.res.headersSent) {
-          this.res.writeHead(500, INTERNAL_SERVER_ERROR_HEADERS);
-          this.res.end(INTERNAL_SERVER_ERROR_BUF);
 
-          if (options?.errCallback !== undefined) {
-            void options.errCallback(normalizedErr, this);
-          }
-
-          regApp.resetCtx(this);
-        } else {
-          if (options?.errCallback !== undefined) {
-            void options.errCallback(normalizedErr, this);
-          }
-          this.res.destroy();
+        if (options?.errCallback !== undefined) {
+          void options.errCallback(normalizedErr, this);
         }
+        void this.app.handleError(normalizedErr, this);
       });
-    });
+    } catch {
+      const error = new NotFoundError("Resource Not Found");
+      if (options?.errCallback !== undefined) {
+        void options.errCallback(error, this);
+      }
+      throw error;
+    }
 
     return this;
   }
