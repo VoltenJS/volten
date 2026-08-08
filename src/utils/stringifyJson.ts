@@ -13,8 +13,7 @@ export function compileVoltJson(sample: unknown): SerializerFn {
   function buildTemplateString(obj: unknown, path: string): string {
     if (obj === null || obj === undefined) return "null";
     const type = typeof obj;
-
-    if (type === "string") return `"\${${path}}"`;
+    if (type === "string") return `"\${${path}.replaceAll('"','\\\\"')}"`;
 
     if (type === "number" || type === "boolean" || type === "bigint") return `\${${path}}`;
 
