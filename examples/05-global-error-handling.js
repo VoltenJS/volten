@@ -1,4 +1,4 @@
-import { App } from "../dist/core/server.js";
+import { App } from "../dist/index.js";
 
 const app = new App();
 const PORT = process.env.PORT || 3000;
@@ -16,10 +16,7 @@ const PORT = process.env.PORT || 3000;
 
 app.onError((error, ctx) => {
   // 1. Log the error details for debugging and monitoring purposes
-  console.error(
-    `🚨 [Volten Engine Core Exception Intercepted]:`,
-    error.message,
-  );
+  console.error(`🚨 [Volten Engine Core Exception Intercepted]:`, error.message);
 
   // 2. Respond to the client with a clean HTTP 500 status code
   // instead of letting the connection hang or tearing down the server process.
@@ -57,13 +54,7 @@ app.get("/api/v1/explode", (ctx) => {
 });
 
 app.listen(PORT, () => {
-  console.log(
-    "Resilient Error Handling demo running on http://localhost:" + PORT,
-  );
-  console.log(
-    `Test Healthy Route (Baseline): http://localhost:${PORT}/api/v1/healthy`,
-  );
-  console.log(
-    `Test Exploded Route (Protection): http://localhost:${PORT}/api/v1/explode`,
-  );
+  console.log("Resilient Error Handling demo running on http://localhost:" + PORT);
+  console.log(`Test Healthy Route (Baseline): http://localhost:${PORT}/api/v1/healthy`);
+  console.log(`Test Exploded Route (Protection): http://localhost:${PORT}/api/v1/explode`);
 });

@@ -1,4 +1,4 @@
-import { App } from "../dist/core/server.js";
+import { App } from "../dist/index.js";
 import path from "path";
 import { fileURLToPath } from "node:url";
 
