@@ -194,7 +194,7 @@ export class RouteTree {
     const methodsToCheck = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 
     for (const m of methodsToCheck) {
-      if (this.matchPath(m, path, {} as RequestContext) !== null) {
+      if (this.matchPath(m, path, { params: {} } as RequestContext) !== null) {
         allowedMethods.push(m);
       }
     }
