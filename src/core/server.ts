@@ -1,7 +1,13 @@
 import http from "http";
 import https from "https";
 import fs from "fs";
-import type { PreflightHandler, ErrorHandler, PathData, VoltenAppOptions } from "./types.ts";
+import type {
+  PreflightHandler,
+  ErrorHandler,
+  DefaultErrorHandler,
+  PathData,
+  VoltenAppOptions,
+} from "./types.ts";
 import {
   DefaultVoltenOptions,
   SERVICE_UNAVAILABLE_BUF,
@@ -14,7 +20,7 @@ import {
 import { RouteTree } from "../utils/routeTree.ts";
 import { RequestContext } from "../utils/requestCtx.ts";
 import { JitCache } from "../utils/jitCache.ts";
-import { VoltenError } from "./errors.ts";
+import { PayloadTooLargeError, VoltenError } from "./errors.ts";
 import { parseBody, parseMultipartStream } from "../utils/bodyParser.ts";
 import { createServer } from "../utils/createServer.ts";
 import { Router } from "./router.ts";
@@ -90,7 +96,7 @@ export class App extends Router {
   //#endregion
   //#region Middleware & Internal Functions
 
-  private errorHandler: ErrorHandler = (err, ctx) => {
+  private errorHandler: DefaultErrorHandler = (err, ctx) => {
     let status = 500;
     let headers: Record<string, string | number> = {
       ...INTERNAL_SERVER_ERROR_HEADERS,
@@ -170,22 +176,22 @@ export class App extends Router {
               `[Volten Framework Warning]: Custom error handler returned without terminating the response. Falling back to default handler.`,
             );
           }
-          await this.executeFallback(error, ctx);
+          this.executeFallback(error, ctx);
         }
       } catch (customHandlerError) {
         if (!this.AppOptions.noLogs) {
           console.error("Custom error handler crashed:", customHandlerError);
         }
-        await this.executeFallback(error, ctx);
+        this.executeFallback(error, ctx);
       }
     } else {
-      await this.executeFallback(error, ctx);
+      this.executeFallback(error, ctx);
     }
   }
 
-  private async executeFallback(error: VoltenError, ctx: RequestContext): Promise<void> {
+  private executeFallback(error: VoltenError, ctx: RequestContext) {
     try {
-      await this.errorHandler(error, ctx);
+      this.errorHandler(error, ctx);
     } catch (finalError) {
       if (!this.AppOptions.noLogs) {
         console.error("Critical failure in core errorHandler:", finalError);
@@ -299,9 +305,10 @@ export class App extends Router {
       const contentLength = parseInt(clHeader, 10);
       if (contentLength > limit) {
         req.pause();
-        res.writeHead(413, PAYLOAD_TOO_LARGE_HEADERS);
-        res.end(PAYLOAD_TOO_LARGE_BUF);
-        req.socket.destroy();
+        this.errorHandler(new PayloadTooLargeError(limit.toString()), {
+          req,
+          res,
+        } as RequestContext);
         return;
       }
     }
