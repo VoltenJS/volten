@@ -41,13 +41,6 @@ export class App extends Router {
   public server: http.Server | https.Server;
   private acceptIncomming = true;
 
-  private handleUncaught = (err: unknown) => {
-    if (!this.AppOptions.noLogs) console.error(err);
-  };
-  private handleRejection = (err: unknown) => {
-    if (!this.AppOptions.noLogs) console.error(err);
-  };
-
   static(folderPath: string) {
     const absolutePath = fs.existsSync(folderPath)
       ? folderPath
@@ -81,8 +74,6 @@ export class App extends Router {
     for (let i = 0; i < this.poolSize; i++) {
       this.availableContexts.push(new RequestContext());
     }
-    process.on("uncaughtException", this.handleUncaught);
-    process.on("unhandledRejection", this.handleRejection);
   }
 
   getRoute(method: string, path: string, ctx: RequestContext): PathData | null {
@@ -326,9 +317,6 @@ export class App extends Router {
 
   public async close(...args: Parameters<http.Server["close"]>) {
     this.acceptIncomming = false;
-
-    process.off("uncaughtException", this.handleUncaught);
-    process.off("unhandledRejection", this.handleRejection);
 
     const timeoutMs = 10000;
     const startTime = Date.now();
