@@ -63,6 +63,8 @@ export class RouteTree {
       path = path.toLowerCase();
     }
 
+    const paramNames: string[] = [];
+
     const routeData: PathData = {
       method,
       bodyLimit: options.bodyLimit,
@@ -70,6 +72,7 @@ export class RouteTree {
       disableOpt: false,
       setDeOpt: () => {},
       methodStorage: new MethodStorage(),
+      paramNames,
     };
 
     let currentNode = this.root;
@@ -86,6 +89,7 @@ export class RouteTree {
 
         // Pull name parameter characters from the original path configuration string to keep variable names casing-accurate
         const name = originalPath.slice(i + 1, j);
+        paramNames.push(name);
 
         if (currentNode.paramChild === null) {
           currentNode.paramChild = new PathNode(":");
@@ -99,6 +103,7 @@ export class RouteTree {
       // Handle Wildcard Tokens
       if (charCode === 42) {
         // '*'
+        paramNames.push("*");
         if (currentNode.wildcardChild === null) {
           currentNode.wildcardChild = new PathNode("*");
         }
@@ -291,8 +296,12 @@ export class RouteTree {
       }
       const result = currentNode.methods.get(method);
       if (result !== null) {
-        for (const match of paramMatches) {
-          ctx.params[match.name] = match.value;
+        const routeParamNames = result.paramNames ?? [];
+        for (let idx = 0; idx < paramMatches.length; idx++) {
+          const match = paramMatches[idx];
+          if (match === undefined) continue;
+          const actualName = routeParamNames[idx] ?? match.name;
+          ctx.params[actualName] = match.value;
         }
 
         if (!hasParams && this.cacheSize < this.MAX_CACHE) {
