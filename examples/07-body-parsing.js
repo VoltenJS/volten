@@ -1,4 +1,4 @@
-import { App } from "../dist/core/server.js";
+import { App } from "../dist/index.js";
 
 // Global configuration: route options can pass buffer constraints down to the engine
 const API_OPTIONS = {
@@ -34,10 +34,7 @@ app.post("/api/v1/users", async (ctx) => {
 
     // Validate if the request body is empty or malformed
     if (!body || Object.keys(body).length === 0) {
-      return ctx.json(
-        { status: "error", message: "Request payload cannot be empty." },
-        400,
-      );
+      return ctx.json({ status: "error", message: "Request payload cannot be empty." }, 400);
     }
 
     const { username, email, role } = body;
@@ -70,9 +67,7 @@ app.post("/api/v1/logs/raw", async (ctx) => {
   // If no bodyLimit is specified in route options, it falls back to the system default configuration
   const rawText = await ctx.body("text");
 
-  console.log(
-    `[Inbound Plaintext Log Blob Received, length: ${rawText.length} chars]`,
-  );
+  console.log(`[Inbound Plaintext Log Blob Received, length: ${rawText.length} chars]`);
 
   ctx.json({
     status: "success",
@@ -83,18 +78,10 @@ app.post("/api/v1/logs/raw", async (ctx) => {
 });
 
 app.listen(PORT, () => {
-  console.log(
-    `Inbound Data Handling & Body Parsing demo running on http://localhost:${PORT}`,
-  );
-  console.log(
-    `Test Endpoint A (JSON): POST -> http://localhost:${PORT}/api/v1/users`,
-  );
-  console.log(
-    `Test Endpoint B (TEXT): POST -> http://localhost:${PORT}/api/v1/logs/raw`,
-  );
-  console.log(
-    `\nTEST COMMANDS (Run from your terminal to verify payload extraction):`,
-  );
+  console.log(`Inbound Data Handling & Body Parsing demo running on http://localhost:${PORT}`);
+  console.log(`Test Endpoint A (JSON): POST -> http://localhost:${PORT}/api/v1/users`);
+  console.log(`Test Endpoint B (TEXT): POST -> http://localhost:${PORT}/api/v1/logs/raw`);
+  console.log(`\nTEST COMMANDS (Run from your terminal to verify payload extraction):`);
   console.log(
     `  A [JSON Parsing]:\n  curl -X POST http://localhost:${PORT}/api/v1/users -H "Content-Type: application/json" -d '{"username":"insanerest","email":"insanerest@volten.io","role":"lead"}'\n`,
   );
