@@ -51,19 +51,9 @@ export function compileMiddlewareChain(chain: VoltenHandler[]): VoltenChainHandl
             return dispatch(i + 1);
           }),
         ).catch((err: unknown) => {
-          process.nextTick(() => {
-            if (!ctx.sent) {
-              void ctx.app.handleError(err, ctx);
-            }
-          });
           return Promise.reject(VoltenError.from(err));
         });
       } catch (err: unknown) {
-        process.nextTick(() => {
-          if (!ctx.sent) {
-            void ctx.app.handleError(err, ctx);
-          }
-        });
         return Promise.reject(VoltenError.from(err));
       }
     }
