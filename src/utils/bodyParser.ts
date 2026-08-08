@@ -1,5 +1,4 @@
 import { App } from "../core/server.ts";
-import { PAYLOAD_TOO_LARGE_BUF, PAYLOAD_TOO_LARGE_HEADERS } from "../core/types.ts";
 import { PayloadTooLargeError } from "../core/errors.ts";
 import { RequestContext } from "./requestCtx.ts";
 import type { MultipartPart } from "../core/types.ts";
@@ -19,7 +18,6 @@ export async function parseBody(
   limit = ctx._route?.bodyLimit ?? this.AppOptions.bodyLimit,
 ): Promise<unknown> {
   const req = ctx.req;
-  const res = ctx.res;
 
   const contentType = req.headers["content-type"] ?? "";
 
@@ -33,8 +31,6 @@ export async function parseBody(
   if (contentLengthHeader !== undefined) {
     const contentLength = parseInt(contentLengthHeader, 10);
     if (contentLength > limit) {
-      res.writeHead(413, PAYLOAD_TOO_LARGE_HEADERS).end(PAYLOAD_TOO_LARGE_BUF);
-      this.resetCtx(ctx);
       throw new PayloadTooLargeError(limit.toString());
     }
     if (contentLength === 0) {
@@ -51,7 +47,6 @@ export async function parseBody(
 
       if (receivedSize > limit) {
         cleanup();
-        req.destroy();
         reject(new PayloadTooLargeError(limit.toString()));
         return;
       }
