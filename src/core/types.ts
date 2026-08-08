@@ -15,6 +15,8 @@ export type PreflightHandler = (ctx: RequestContext) => Promise<void> | void;
 
 export type ErrorHandler = (err: VoltenError, ctx: RequestContext) => Promise<void> | void;
 
+export type DefaultErrorHandler = (err: VoltenError, ctx: RequestContext) => void;
+
 export type NativeErrorHandler = (
   err: VoltenError,
   req: IncomingMessage,
@@ -104,6 +106,7 @@ export type CookieOptions = {
   domain?: string;
 };
 
+export type FileController = { enqueue: (c: Uint8Array) => void; close: () => void };
 export interface MultipartFile {
   isFile: true;
   name: string;

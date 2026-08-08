@@ -1,7 +1,7 @@
 import { App } from "../core/server.ts";
 import { PayloadTooLargeError } from "../core/errors.ts";
 import { RequestContext } from "./requestCtx.ts";
-import type { MultipartPart } from "../core/types.ts";
+import type { MultipartPart, FileController } from "../core/types.ts";
 import { Readable } from "stream";
 import { createWriteStream } from "fs";
 import { mkdir } from "fs/promises";
@@ -122,10 +122,7 @@ export async function* parseMultipartStream(
   let networkError: Error | null = null;
 
   let residue = Buffer.alloc(0);
-  let currentFileController: {
-    enqueue: (c: Uint8Array) => void;
-    close: () => void;
-  } | null = null;
+  let currentFileController: FileController | null = null;
   let searchingForFirstBoundary = true;
   let inHeaderSection = false;
   let activePartMeta: {
@@ -289,47 +286,75 @@ export async function* parseMultipartStream(
     }
   };
 
-  // Bind direct event listeners to control data stream absorption independently
-  req.on("data", (chunk: Buffer) => {
+  // Dedicated handlers so they can be removed on cleanup
+  const onData = (chunk: Buffer) => {
     try {
       processChunk(chunk);
     } catch (err) {
       networkError = err as Error;
       if (resolveNextPart !== null) resolveNextPart();
     }
-  });
+  };
 
-  req.on("end", () => {
+  const onEnd = () => {
     if (currentFileController !== null) {
       currentFileController.close();
     }
     isNetworkDone = true;
     if (resolveNextPart !== null) resolveNextPart();
-  });
+  };
 
-  req.on("error", (err) => {
+  const onError = (err: Error) => {
     networkError = err;
     if (resolveNextPart !== null) resolveNextPart();
-  });
+  };
 
-  // Yield fields from our decoupled buffer queue
-  for (;;) {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition, @typescript-eslint/strict-boolean-expressions, @typescript-eslint/only-throw-error
-    if (networkError) throw networkError;
+  // Bind direct event listeners
+  req.on("data", onData);
+  req.on("end", onEnd);
+  req.on("error", onError);
 
-    if (partQueue.length > 0) {
-      const part = partQueue.shift();
-      if (part !== undefined) {
-        yield part;
+  try {
+    // Yield fields from our decoupled buffer queue
+    for (;;) {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition, @typescript-eslint/strict-boolean-expressions, @typescript-eslint/only-throw-error
+      if (networkError) throw networkError;
+
+      if (partQueue.length > 0) {
+        const part = partQueue.shift();
+        if (part !== undefined) {
+          yield part;
+        }
+        continue;
       }
-      continue;
+
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      if (isNetworkDone) break;
+
+      await new Promise<void>((resolve) => {
+        resolveNextPart = resolve;
+      });
+    }
+  } finally {
+    // 1. Remove event listeners to prevent ongoing triggers
+    req.off("data", onData);
+    req.off("end", onEnd);
+    req.off("error", onError);
+
+    // 2. Pause the incoming HTTP request stream to prevent unbuffered memory accumulation
+    if (typeof req.pause === "function") {
+      req.pause();
     }
 
+    // 3. Clean up active file streams and internal queues
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    if (isNetworkDone) break;
+    if (currentFileController !== null) {
+      (currentFileController as unknown as FileController).close();
+      currentFileController = null;
+    }
 
-    await new Promise<void>((resolve) => {
-      resolveNextPart = resolve;
-    });
+    partQueue.length = 0;
+    residue = Buffer.alloc(0);
+    resolveNextPart = null;
   }
 }
