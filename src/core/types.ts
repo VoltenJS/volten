@@ -48,6 +48,7 @@ export type PathData = {
   setDeOpt: () => void;
   disableOpt: boolean;
   methodStorage: MethodStorage;
+  paramNames?: string[];
 };
 
 export type HostData = {
