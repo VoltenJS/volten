@@ -40,27 +40,42 @@ export function parseUrl(url: string) {
     queryStr: remaining.substring(queryIndex + 1),
   };
 }
+
+function splitFirst(str: string, delimiter: string) {
+  const index = str.indexOf(delimiter);
+
+  if (index === -1) {
+    return [str, ""];
+  }
+
+  return [str.slice(0, index), str.slice(index + delimiter.length)];
+}
+
 export function parseQuery(queryStr: string): Query {
   const query: Query = {};
   if (queryStr == "") return query;
 
   const pairs = queryStr.split("&").filter(Boolean);
   for (const pairStr of pairs) {
-    const pair = pairStr.split("=");
-    const key = decodeURIComponent(pair[0] ?? "");
-    if (key === "__proto__" || key === "constructor" || key === "prototype") {
-      continue;
-    }
-    const value = pair[1] !== undefined ? decodeURIComponent(pair[1].replace(/\+/g, " ")) : "";
-
-    if (query[key] !== undefined) {
-      if (Array.isArray(query[key])) {
-        query[key].push(value);
-      } else {
-        query[key] = [query[key], value];
+    const pair = splitFirst(pairStr, "=");
+    try {
+      const key = decodeURIComponent(pair[0] ?? "");
+      if (key === "__proto__" || key === "constructor" || key === "prototype") {
+        continue;
       }
-    } else {
-      query[key] = value;
+      const value = pair[1] !== undefined ? decodeURIComponent(pair[1].replace(/\+/g, " ")) : "";
+
+      if (query[key] !== undefined) {
+        if (Array.isArray(query[key])) {
+          query[key].push(value);
+        } else {
+          query[key] = [query[key], value];
+        }
+      } else {
+        query[key] = value;
+      }
+    } catch {
+      continue;
     }
   }
   return query;
