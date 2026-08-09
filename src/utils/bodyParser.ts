@@ -9,9 +9,61 @@ import { dirname } from "path";
 import { pipeline } from "stream/promises";
 import { basename } from "path";
 
+function decodeQueryComponent(str: string): string {
+  if (!str.includes("+") && !str.includes("%")) {
+    return str; // Zero-allocation fast path for plain strings
+  }
+  try {
+    return decodeURIComponent(str.replace(/\+/g, " "));
+  } catch {
+    return str; // Fallback on malformed percent encoding
+  }
+}
+
 /**
- * Standard Body Parser for JSON, Text, and URL-encoded data.
+ * High-performance single-pass URL-encoded form parser.
+ * Handles duplicate keys by accumulating arrays and avoids unnecessary unescaping overhead.
  */
+function fastParseUrlEncoded(input: string): Record<string, unknown> {
+  const result = Object.create(null) as Record<string, unknown>;
+  const len = input.length;
+  let start = 0;
+
+  while (start < len) {
+    let nextAmp = input.indexOf("&", start);
+    if (nextAmp === -1) nextAmp = len;
+
+    const eqIdx = input.indexOf("=", start);
+    let rawKey: string, rawVal: string;
+
+    if (eqIdx !== -1 && eqIdx < nextAmp) {
+      rawKey = input.substring(start, eqIdx);
+      rawVal = input.substring(eqIdx + 1, nextAmp);
+    } else {
+      rawKey = input.substring(start, nextAmp);
+      rawVal = "";
+    }
+
+    if (rawKey.length > 0) {
+      const key = decodeQueryComponent(rawKey);
+      const val = decodeQueryComponent(rawVal);
+
+      const existing = result[key];
+      if (existing === undefined) {
+        result[key] = val;
+      } else if (Array.isArray(existing)) {
+        existing.push(val);
+      } else {
+        result[key] = [existing, val];
+      }
+    }
+
+    start = nextAmp + 1;
+  }
+
+  return result;
+}
+
 export async function parseBody(
   this: App,
   ctx: RequestContext,
@@ -65,7 +117,17 @@ export async function parseBody(
 
       const rawBody = Buffer.concat(chunks, receivedSize).toString("utf8");
 
-      if ((contentType.includes("application/json") || chunks.length > 0) && !text) {
+      if (text) {
+        resolve(rawBody);
+        return;
+      }
+
+      if (contentType.includes("application/x-www-form-urlencoded")) {
+        resolve(fastParseUrlEncoded(rawBody));
+        return;
+      }
+
+      if (contentType.includes("application/json") && chunks.length > 0) {
         try {
           resolve(JSON.parse(rawBody));
           return;
