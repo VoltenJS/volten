@@ -15,7 +15,7 @@ export function parseUrl(url: string) {
   const pathStart = start === 0 ? 0 : url.indexOf("/", start);
 
   if (pathStart === -1 && start !== 0) {
-    return { pathname: "/", queryStr: "" };
+    return { pathname: "/", queryStr: url.includes("?") ? url.slice(url.indexOf("?")) : "" };
   }
   const remaining = pathStart === -1 ? url : url.substring(pathStart);
   const queryIndex = remaining.indexOf("?");
