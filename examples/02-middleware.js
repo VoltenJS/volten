@@ -1,4 +1,4 @@
-import { App } from "../dist/core/server.js";
+import { App } from "../dist/index.js";
 const app = new App();
 const PORT = process.env.PORT || 3000;
 // =========================================================================

@@ -92,4 +92,34 @@ test("Router tests", async (t) => {
     assert.strictEqual(response.status, 200);
     assert.strictEqual(response.body, "pong");
   });
+
+  await t.test("should not shadow parameters on route path sharing", async () => {
+    const app = new App();
+    app.get("/users/:id", (ctx) => {
+      ctx.json({ id: ctx.params.id });
+    });
+    app.get("/users/:username/profile", (ctx) => {
+      ctx.json({ username: ctx.params.username });
+    });
+
+    const res1 = await requestFetch(app, "/users/123");
+    const json1 = JSON.parse(res1.body);
+    assert.strictEqual(json1.id, "123");
+
+    const res2 = await requestFetch(app, "/users/john/profile");
+    const json2 = JSON.parse(res2.body);
+    assert.strictEqual(json2.username, "john");
+  });
+
+  await t.test("should preserve parameter casing when caseInsensitive is enabled", async () => {
+    const app = new App({ caseInsensitive: true });
+    app.get("/users/:username", (ctx) => {
+      ctx.json({ username: ctx.params.username });
+    });
+
+    const response = await requestFetch(app, "/USERS/JohnDoe");
+    assert.strictEqual(response.status, 200);
+    const json = JSON.parse(response.body);
+    assert.strictEqual(json.username, "JohnDoe");
+  });
 });

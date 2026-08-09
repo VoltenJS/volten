@@ -1,4 +1,4 @@
-import { App } from "../dist/core/server.js";
+import { App } from "../dist/index.js";
 
 const app = new App();
 const PORT = process.env.PORT || 3000;
@@ -58,7 +58,5 @@ app.get("/api/v1/internal/users/:id/statistics/detailed", (ctx) => {
 
 app.listen(PORT, () => {
   console.log("Heavy JSON Response demo running on http://localhost:" + PORT);
-  console.log(
-    `Test URL: http://localhost:${PORT}/api/v1/internal/users/99/statistics/detailed`,
-  );
+  console.log(`Test URL: http://localhost:${PORT}/api/v1/internal/users/99/statistics/detailed`);
 });

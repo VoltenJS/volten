@@ -8,7 +8,7 @@ import { RequestContext } from "../../src/utils/requestCtx.ts";
 import { JitCache } from "../../src/utils/jitCache.ts";
 import { createCompiledStringifier, getShapeFingerprint } from "../../src/utils/stringifyJson.ts";
 import { request } from "../helpers.ts";
-import { VoltenError } from "../../src/core/errors.ts";
+import { NotFoundError, VoltenError } from "../../src/core/errors.ts";
 
 const TMP_BUSTER_DIR = path.resolve("./.tmp_buster_static_dir");
 
@@ -39,7 +39,7 @@ test("Volten Other Tests", async (t) => {
     cache.resetCount(finger);
     assert.equal(cache.getCount(finger), 0);
 
-    const mockCompiler = (_data: any, _ctx: any) => {};
+    const mockCompiler = (_data: any, _ctx: any) => "";
     cache.setCompiler(finger, mockCompiler);
     assert.equal(cache.getCompiler(finger), mockCompiler);
 
@@ -208,11 +208,16 @@ test("Volten Other Tests", async (t) => {
     let customCallbackHit = false;
 
     // Trigger the underlying error management callback pipeline directly using sendFile's option structures
-    ctx.sendFile("./imaginary-file-triggering-error-handler-path.css", 200, {
-      errCallback: (_err, _context) => {
-        customCallbackHit = true;
+    assert.rejects(
+      async () => {
+        await ctx.sendFile("./imaginary-file-triggering-error-handler-path.css", 200, {
+          errCallback: (_err, _context) => {
+            customCallbackHit = true;
+          },
+        });
       },
-    });
+      (err: unknown) => err instanceof NotFoundError,
+    );
 
     // Artificially trigger execution bounds to complete immediate micro-ticks smoothly
     await new Promise((resolve) => setTimeout(resolve, 10));

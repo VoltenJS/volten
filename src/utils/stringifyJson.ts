@@ -9,40 +9,18 @@ export function getShapeFingerprint(obj: unknown): number {
 
 export function compileVoltJson(sample: unknown): SerializerFn {
   const helperFns: string[] = [];
-  let helperCount = 0;
 
   function buildTemplateString(obj: unknown, path: string): string {
     if (obj === null || obj === undefined) return "null";
     const type = typeof obj;
-
-    if (type === "string") return `"\${${path}}"`;
+    if (type === "string") return `"\${${path}.replaceAll('"','\\\\"')}"`;
 
     if (type === "number" || type === "boolean" || type === "bigint") return `\${${path}}`;
 
     if (obj instanceof Date) return `"\${${path}.toISOString()}"`;
 
     if (Array.isArray(obj)) {
-      const arr = obj as unknown[];
-      const sampleItem = arr.length > 0 ? arr[0] : null;
-      if (sampleItem !== null) {
-        const arrHelperName = `_arr${String(helperCount++)}`;
-        const innerExpr = buildTemplateString(sampleItem, "v");
-        const helperCode = `
-function ${arrHelperName}(a) {
-  if (!a || !a.length) return "[]";
-  let s = "[";
-  for (let i = 0; i < a.length; i++) {
-    let v = a[i];
-    if (i > 0) s += ",";
-    s += \`${innerExpr}\`;
-  }
-  return s + "]";
-}`;
-        helperFns.push(helperCode);
-        return `\${${path} && ${path}.length ? ${arrHelperName}(${path}) : "[]"}`;
-      } else {
-        return `\${${path} && ${path}.length ? JSON.stringify(${path}) : "[]"}`;
-      }
+      return `\${${path} ? JSON.stringify(${path}) : "[]"}`;
     }
 
     if (type === "object") {

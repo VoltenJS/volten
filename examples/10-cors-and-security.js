@@ -1,4 +1,4 @@
-import { App } from "../dist/core/server.js";
+import { App } from "../dist/index.js";
 
 const app = new App();
 const PORT = process.env.PORT || 3000;
@@ -20,14 +20,8 @@ app.preflight((ctx) => {
 
   // 1. Core CORS Header Configurations
   ctx.setHeader("Access-Control-Allow-Origin", origin);
-  ctx.setHeader(
-    "Access-Control-Allow-Methods",
-    "GET, POST, PUT, DELETE, OPTIONS",
-  );
-  ctx.setHeader(
-    "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, X-Requested-With",
-  );
+  ctx.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  ctx.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
   ctx.setHeader("Access-Control-Allow-Credentials", "true");
   ctx.setHeader("Access-Control-Max-Age", "86400"); // Cache preflight results for 24 hours (in seconds)
 
@@ -54,20 +48,16 @@ app.get("/api/v1/secure-data", (ctx) => {
   return ctx.json({
     status: "success",
     layer: "security-and-cors-guard",
-    message:
-      "This payload is shielded by explicit multi-origin and security access constraints.",
+    message: "This payload is shielded by explicit multi-origin and security access constraints.",
     timestamp: new Date().toISOString(),
   });
 });
 
 app.listen(PORT, () => {
   console.log(
-    "Multi-Origin Configuration & Security Guard demo running on http://localhost:" +
-      PORT,
+    "Multi-Origin Configuration & Security Guard demo running on http://localhost:" + PORT,
   );
-  console.log(
-    `Secure API Access Endpoint: http://localhost:${PORT}/api/v1/secure-data`,
-  );
+  console.log(`Secure API Access Endpoint: http://localhost:${PORT}/api/v1/secure-data`);
   console.log(
     `\nTEST COMMANDS (Run from your terminal to verify cross-origin validation handshakes):`,
   );
