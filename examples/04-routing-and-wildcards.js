@@ -1,4 +1,4 @@
-import { App } from "../dist/core/server.js";
+import { App } from "../dist/index.js";
 
 const app = new App();
 const PORT = process.env.PORT || 3000;
@@ -75,9 +75,7 @@ app.get("/api/v1/search", (ctx) => {
 
 app.listen(PORT, () => {
   console.log("Routing & Wildcards demo running on http://localhost:" + PORT);
-  console.log(
-    `Test Parameter Routing: http://localhost:${PORT}/shop/electronics/mac-studio`,
-  );
+  console.log(`Test Parameter Routing: http://localhost:${PORT}/shop/electronics/mac-studio`);
   console.log(
     `Test Wildcard Routing:  http://localhost:${PORT}/static/images/logos/voltenLogo.png`,
   );

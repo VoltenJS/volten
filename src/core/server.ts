@@ -1,7 +1,13 @@
 import http from "http";
 import https from "https";
 import fs from "fs";
-import type { PreflightHandler, ErrorHandler, PathData, VoltenAppOptions } from "./types.ts";
+import type {
+  PreflightHandler,
+  ErrorHandler,
+  DefaultErrorHandler,
+  PathData,
+  VoltenAppOptions,
+} from "./types.ts";
 import {
   DefaultVoltenOptions,
   SERVICE_UNAVAILABLE_BUF,
@@ -14,7 +20,7 @@ import {
 import { RouteTree } from "../utils/routeTree.ts";
 import { RequestContext } from "../utils/requestCtx.ts";
 import { JitCache } from "../utils/jitCache.ts";
-import { VoltenError } from "./errors.ts";
+import { PayloadTooLargeError, VoltenError } from "./errors.ts";
 import { parseBody, parseMultipartStream } from "../utils/bodyParser.ts";
 import { createServer } from "../utils/createServer.ts";
 import { Router } from "./router.ts";
@@ -35,13 +41,6 @@ export class App extends Router {
   public server: http.Server | https.Server;
   private acceptIncomming = true;
 
-  private handleUncaught = (err: unknown) => {
-    if (!this.AppOptions.noLogs) console.error(err);
-  };
-  private handleRejection = (err: unknown) => {
-    if (!this.AppOptions.noLogs) console.error(err);
-  };
-
   static(folderPath: string) {
     const absolutePath = fs.existsSync(folderPath)
       ? folderPath
@@ -55,6 +54,9 @@ export class App extends Router {
   }
 
   resetCtx(ctx: RequestContext) {
+    if (!ctx.inited) {
+      return;
+    }
     ctx.reset();
     this.availableContexts.push(ctx);
   }
@@ -72,8 +74,6 @@ export class App extends Router {
     for (let i = 0; i < this.poolSize; i++) {
       this.availableContexts.push(new RequestContext());
     }
-    process.on("uncaughtException", this.handleUncaught);
-    process.on("unhandledRejection", this.handleRejection);
   }
 
   getRoute(method: string, path: string, ctx: RequestContext): PathData | null {
@@ -87,7 +87,7 @@ export class App extends Router {
   //#endregion
   //#region Middleware & Internal Functions
 
-  private errorHandler: ErrorHandler = (err, ctx) => {
+  private errorHandler: DefaultErrorHandler = (err, ctx) => {
     let status = 500;
     let headers: Record<string, string | number> = {
       ...INTERNAL_SERVER_ERROR_HEADERS,
@@ -133,7 +133,7 @@ export class App extends Router {
           console.error(err);
         }
         status = 500;
-        body = err.message !== "" ? err.message : "Internal Server Error";
+        body = "Internal Server Error";
         headers = {
           "content-type": "text/plain; charset=utf-8",
           "content-length": Buffer.byteLength(body),
@@ -147,7 +147,6 @@ export class App extends Router {
     } else {
       res.destroy();
     }
-    this.resetCtx(ctx);
   };
 
   private preflightHandlers: PreflightHandler[] = [];
@@ -168,22 +167,22 @@ export class App extends Router {
               `[Volten Framework Warning]: Custom error handler returned without terminating the response. Falling back to default handler.`,
             );
           }
-          await this.executeFallback(error, ctx);
+          this.executeFallback(error, ctx);
         }
       } catch (customHandlerError) {
         if (!this.AppOptions.noLogs) {
           console.error("Custom error handler crashed:", customHandlerError);
         }
-        await this.executeFallback(error, ctx);
+        this.executeFallback(error, ctx);
       }
     } else {
-      await this.executeFallback(error, ctx);
+      this.executeFallback(error, ctx);
     }
   }
 
-  private async executeFallback(error: VoltenError, ctx: RequestContext): Promise<void> {
+  private executeFallback(error: VoltenError, ctx: RequestContext) {
     try {
-      await this.errorHandler(error, ctx);
+      this.errorHandler(error, ctx);
     } catch (finalError) {
       if (!this.AppOptions.noLogs) {
         console.error("Critical failure in core errorHandler:", finalError);
@@ -280,6 +279,9 @@ export class App extends Router {
       return this.server;
     }
 
+    this.server.once("close", () => {
+      this.tree.clear();
+    });
     this.compilePreflightHandler();
     this.register(this);
     this.server.listen(...args);
@@ -297,9 +299,10 @@ export class App extends Router {
       const contentLength = parseInt(clHeader, 10);
       if (contentLength > limit) {
         req.pause();
-        res.writeHead(413, PAYLOAD_TOO_LARGE_HEADERS);
-        res.end(PAYLOAD_TOO_LARGE_BUF);
-        req.socket.destroy();
+        this.errorHandler(new PayloadTooLargeError(limit.toString()), {
+          req,
+          res,
+        } as RequestContext);
         return;
       }
     }
@@ -307,6 +310,9 @@ export class App extends Router {
     if (ctx === null) {
       return;
     }
+    res.on("close", () => {
+      this.resetCtx(ctx);
+    });
     this.handleRequest(ctx).catch(async (err: unknown) => {
       await this.handleError(err, ctx);
     });
@@ -314,9 +320,6 @@ export class App extends Router {
 
   public async close(...args: Parameters<http.Server["close"]>) {
     this.acceptIncomming = false;
-
-    process.off("uncaughtException", this.handleUncaught);
-    process.off("unhandledRejection", this.handleRejection);
 
     const timeoutMs = 10000;
     const startTime = Date.now();

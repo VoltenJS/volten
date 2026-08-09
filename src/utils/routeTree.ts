@@ -1,4 +1,5 @@
 import type { VoltenHandler, PathData, RouteOptions } from "../core/types.ts";
+import { DuplicateRouteError } from "../core/errors.ts";
 import { RequestContext } from "./requestCtx.ts";
 import { compileMiddlewareChain } from "../core/compose.ts";
 
@@ -41,6 +42,7 @@ export class PathNode {
 
 export class RouteTree {
   private root: PathNode = new PathNode("");
+  private routes: string[] = [];
   private cache: Map<string, Map<string, PathData>> = new Map();
   private cacheSize = 0;
   private caseInsensitive;
@@ -49,6 +51,19 @@ export class RouteTree {
 
   constructor(caseInsensitive: boolean) {
     this.caseInsensitive = caseInsensitive;
+    this.clear();
+  }
+
+  clear() {
+    this.root = new PathNode("");
+    this.cache.clear();
+    this.cacheSize = 0;
+  }
+
+  public checkDuplicate(method: string, path: string) {
+    const match = this.matchPath(method, path, { params: {} } as RequestContext);
+    const result = match !== null && this.routes.includes(method + path);
+    return result;
   }
 
   public addPath(
@@ -62,6 +77,12 @@ export class RouteTree {
     if (this.caseInsensitive) {
       path = path.toLowerCase();
     }
+    this.routes.push(path);
+
+    if (this.checkDuplicate(method, path)) {
+      throw new DuplicateRouteError(method, path);
+    }
+    const paramNames: string[] = [];
 
     const routeData: PathData = {
       method,
@@ -70,6 +91,7 @@ export class RouteTree {
       disableOpt: false,
       setDeOpt: () => {},
       methodStorage: new MethodStorage(),
+      paramNames,
     };
 
     let currentNode = this.root;
@@ -86,6 +108,7 @@ export class RouteTree {
 
         // Pull name parameter characters from the original path configuration string to keep variable names casing-accurate
         const name = originalPath.slice(i + 1, j);
+        paramNames.push(name);
 
         if (currentNode.paramChild === null) {
           currentNode.paramChild = new PathNode(":");
@@ -99,6 +122,7 @@ export class RouteTree {
       // Handle Wildcard Tokens
       if (charCode === 42) {
         // '*'
+        paramNames.push("*");
         if (currentNode.wildcardChild === null) {
           currentNode.wildcardChild = new PathNode("*");
         }
@@ -189,7 +213,7 @@ export class RouteTree {
     const methodsToCheck = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 
     for (const m of methodsToCheck) {
-      if (this.matchPath(m, path, {} as RequestContext) !== null) {
+      if (this.matchPath(m, path, { params: {} } as RequestContext) !== null) {
         allowedMethods.push(m);
       }
     }
@@ -197,35 +221,36 @@ export class RouteTree {
   }
 
   public matchPath(method: string, path: string, ctx: RequestContext): PathData | null {
-    if (this.caseInsensitive) {
-      path = path.toLowerCase();
-    }
+    const originalPath = path;
+    const lookupPath = this.caseInsensitive ? path.toLowerCase() : path;
 
-    const cached = this.cache.get(method)?.get(path);
+    const cached = this.cache.get(method)?.get(lookupPath);
     if (cached !== undefined) {
       return cached;
     }
 
     let currentNode = this.root;
     let i = 0;
-    const len = path.length;
+    const len = lookupPath.length;
     let hasParams = false;
 
     const backtrackStack: {
       node: PathNode;
       index: number;
+      paramLength: number;
     }[] = [];
 
     const paramMatches: { name: string; value: string }[] = [];
 
     for (;;) {
       while (i < len) {
-        const charCode = path.charCodeAt(i);
+        const charCode = lookupPath.charCodeAt(i);
         let foundStatic = false;
         if (currentNode.paramChild !== null || currentNode.wildcardChild !== null) {
           backtrackStack.push({
             node: currentNode,
             index: i,
+            paramLength: paramMatches.length,
           });
         }
 
@@ -237,7 +262,7 @@ export class RouteTree {
             if (i + pLen <= len) {
               let prefixMatch = true;
               for (let j = 1; j < pLen; j++) {
-                if (path.charCodeAt(i + j) !== prefix.charCodeAt(j)) {
+                if (lookupPath.charCodeAt(i + j) !== prefix.charCodeAt(j)) {
                   prefixMatch = false;
                   break;
                 }
@@ -259,12 +284,13 @@ export class RouteTree {
           if (fallback == null) break;
           currentNode = fallback.node;
           i = fallback.index;
+          paramMatches.length = fallback.paramLength;
           if (currentNode.paramChild !== null) {
             currentNode = currentNode.paramChild;
             let j = i;
-            while (j < len && path.charCodeAt(j) !== 47) j++;
+            while (j < len && lookupPath.charCodeAt(j) !== 47) j++;
 
-            const extractedValue = path.slice(i, j);
+            const extractedValue = originalPath.slice(i, j);
             paramMatches.push({
               name: currentNode.paramName ?? "",
               value: extractedValue,
@@ -276,7 +302,7 @@ export class RouteTree {
 
           if (currentNode.wildcardChild !== null) {
             currentNode = currentNode.wildcardChild;
-            const extractedValue = path.slice(i);
+            const extractedValue = originalPath.slice(i);
             paramMatches.push({ name: "*", value: extractedValue });
             hasParams = true;
             // eslint-disable-next-line no-useless-assignment
@@ -288,15 +314,19 @@ export class RouteTree {
       }
       const result = currentNode.methods.get(method);
       if (result !== null) {
-        for (const match of paramMatches) {
-          ctx.params[match.name] = match.value;
+        const routeParamNames = result.paramNames ?? [];
+        for (let idx = 0; idx < paramMatches.length; idx++) {
+          const match = paramMatches[idx];
+          if (match === undefined) continue;
+          const actualName = routeParamNames[idx] ?? match.name;
+          ctx.params[actualName] = match.value;
         }
 
         if (!hasParams && this.cacheSize < this.MAX_CACHE) {
           if (this.cache.get(method) === undefined) {
             this.cache.set(method, new Map());
           }
-          (this.cache.get(method) as Map<string, PathData>).set(path, result);
+          (this.cache.get(method) as Map<string, PathData>).set(lookupPath, result);
           this.cacheSize++;
         }
         return result;
@@ -306,12 +336,13 @@ export class RouteTree {
         if (fallback === undefined) break;
         currentNode = fallback.node;
         i = fallback.index;
+        paramMatches.length = fallback.paramLength;
         if (currentNode.paramChild != null) {
           currentNode = currentNode.paramChild;
           let j = i;
-          while (j < len && path.charCodeAt(j) !== 47) j++;
+          while (j < len && lookupPath.charCodeAt(j) !== 47) j++;
 
-          const extractedValue = path.slice(i, j);
+          const extractedValue = originalPath.slice(i, j);
           paramMatches.push({
             name: currentNode.paramName ?? "",
             value: extractedValue,
@@ -323,7 +354,7 @@ export class RouteTree {
 
         if (currentNode.wildcardChild != null) {
           currentNode = currentNode.wildcardChild;
-          const extractedValue = path.slice(i);
+          const extractedValue = originalPath.slice(i);
           paramMatches.push({ name: "*", value: extractedValue });
           hasParams = true;
           i = len;

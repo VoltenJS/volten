@@ -1,4 +1,4 @@
-import { App } from "../dist/core/server.js";
+import { App } from "../dist/index.js";
 
 const app = new App();
 const PORT = process.env.PORT || 3000;
@@ -43,8 +43,7 @@ app.post("/api/v1/auth/login", async (ctx) => {
 
   return ctx.json({
     status: "success",
-    message:
-      "Session token initialized. Cookie emitted safely via Set-Cookie metadata header.",
+    message: "Session token initialized. Cookie emitted safely via Set-Cookie metadata header.",
     sessionPreview: sessionId,
   });
 });
@@ -64,8 +63,7 @@ app.get("/api/v1/dashboard", (ctx) => {
       {
         status: "error",
         error: "Unauthorized",
-        message:
-          "Missing session_id token cookie. Please call the login endpoint first.",
+        message: "Missing session_id token cookie. Please call the login endpoint first.",
       },
       401,
     );
@@ -79,8 +77,7 @@ app.get("/api/v1/dashboard", (ctx) => {
       {
         status: "error",
         error: "InvalidSession",
-        message:
-          "Target token identifier is expired or removed from memory context tables.",
+        message: "Target token identifier is expired or removed from memory context tables.",
       },
       403,
     );
@@ -89,8 +86,7 @@ app.get("/api/v1/dashboard", (ctx) => {
   return ctx.json({
     status: "success",
     layer: "inbound-cookie-parser",
-    message:
-      "Welcome to your protected application metrics view dashboard panel.",
+    message: "Welcome to your protected application metrics view dashboard panel.",
     sessionContext: activeSession,
   });
 });
@@ -114,24 +110,17 @@ app.post("/api/v1/auth/logout", (ctx) => {
 
   return ctx.json({
     status: "success",
-    message:
-      "Session deleted from state store registers. Cookie storage reference wiped.",
+    message: "Session deleted from state store registers. Cookie storage reference wiped.",
   });
 });
 
 app.listen(PORT, () => {
-  console.log(
-    `State Management & Cookie Parsing demo running on http://localhost:${PORT}`,
-  );
-  console.log(
-    `Step 1 [Try Dashboard First - Blocks]: http://localhost:${PORT}/api/v1/dashboard`,
-  );
+  console.log(`State Management & Cookie Parsing demo running on http://localhost:${PORT}`);
+  console.log(`Step 1 [Try Dashboard First - Blocks]: http://localhost:${PORT}/api/v1/dashboard`);
   console.log(
     `Step 2 [Authenticate User - Login]:  POST -> http://localhost:${PORT}/api/v1/auth/login`,
   );
-  console.log(
-    `Step 3 [Access Dashboard - Success]: http://localhost:${PORT}/api/v1/dashboard`,
-  );
+  console.log(`Step 3 [Access Dashboard - Success]: http://localhost:${PORT}/api/v1/dashboard`);
   console.log(
     `Step 4 [Clear Authentication - Logout]: POST -> http://localhost:${PORT}/api/v1/auth/logout`,
   );
