@@ -110,4 +110,16 @@ test("Router tests", async (t) => {
     const json2 = JSON.parse(res2.body);
     assert.strictEqual(json2.username, "john");
   });
+
+  await t.test("should preserve parameter casing when caseInsensitive is enabled", async () => {
+    const app = new App({ caseInsensitive: true });
+    app.get("/users/:username", (ctx) => {
+      ctx.json({ username: ctx.params.username });
+    });
+
+    const response = await requestFetch(app, "/USERS/JohnDoe");
+    assert.strictEqual(response.status, 200);
+    const json = JSON.parse(response.body);
+    assert.strictEqual(json.username, "JohnDoe");
+  });
 });
