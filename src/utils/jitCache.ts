@@ -12,6 +12,11 @@ export class JitCache {
 
   private fingerprintMap = new WeakMap<object, number>();
 
+  private touch(fingerprint: number, data: FingerPrintData): void {
+    this.cache.delete(fingerprint);
+    this.cache.set(fingerprint, data);
+  }
+
   /**
    * Generates a fast, lightweight structural shape fingerprint
    * based on object keys and value types using a non-recursive stack traversal.
@@ -88,10 +93,13 @@ export class JitCache {
     return finalResult;
   }
 
-  // Optimized lookup used by server
   public get(fingerprint: number): SerializerFn | undefined {
     const data = this.cache.get(fingerprint);
-    return data?.JITcompiler ?? undefined;
+    if (data !== undefined) {
+      this.touch(fingerprint, data);
+      return data.JITcompiler ?? undefined;
+    }
+    return undefined;
   }
 
   public set(fingerprint: number, fn: SerializerFn): void {
@@ -99,13 +107,14 @@ export class JitCache {
     if (data === undefined) {
       this.create(fingerprint);
       data = this.cache.get(fingerprint);
+    } else {
+      this.touch(fingerprint, data);
     }
     if (data !== undefined) {
       data.JITcompiler = fn;
     }
   }
 
-  // Test-compatible methods
   public create(fingerprint: number) {
     if (this.cache.size >= this.maxCapacity) {
       const oldestKey = this.cache.keys().next().value;
@@ -121,14 +130,7 @@ export class JitCache {
   }
 
   public getCompiler(fingerprint: number): SerializerFn | null {
-    const data = this.cache.get(fingerprint);
-    if (data !== undefined) {
-      // Touch to refresh LRU
-      this.cache.delete(fingerprint);
-      this.cache.set(fingerprint, data);
-      return data.JITcompiler;
-    }
-    return null;
+    return this.get(fingerprint) ?? null;
   }
 
   public getCount(fingerprint: number): number {
@@ -145,6 +147,7 @@ export class JitCache {
       throw new Error("Attempting to set a compiler for a fingerprint that doesn't exist");
     }
     data.JITcompiler = fn;
+    this.touch(fingerprint, data);
   }
 
   public addCount(fingerprint: number) {
