@@ -21,7 +21,7 @@ import {
   HeadersSentError,
   NotFoundError,
   VoltenError,
-  BadRequest,
+  BadRequestError,
 } from "../core/errors.ts";
 import { getMimeType } from "./mime.ts";
 
@@ -99,7 +99,7 @@ export class RequestContext {
         }
         const filePath = path.join(staticPath, pathname);
         if (!(await isFileInFolder(staticPath, filePath))) {
-          throw new BadRequest("Attempted directory traversal attack");
+          throw new BadRequestError("Attempted directory traversal attack");
         }
         await this.sendFile(filePath, 200, {});
         return;
