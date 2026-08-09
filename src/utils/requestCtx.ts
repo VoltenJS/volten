@@ -394,7 +394,7 @@ export class RequestContext {
       this._cookiesCache = Object.freeze({});
       return this._cookiesCache;
     }
-    const parsedCookies: Record<string, string> = {};
+    const parsedCookies: Record<string, string> = Object.create(null) as Record<string, string>;
     let start = 0;
     const len = rawCookieHeader.length;
     while (start < len) {
