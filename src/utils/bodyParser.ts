@@ -1,17 +1,69 @@
 import { App } from "../core/server.ts";
-import { PAYLOAD_TOO_LARGE_BUF, PAYLOAD_TOO_LARGE_HEADERS } from "../core/types.ts";
 import { PayloadTooLargeError } from "../core/errors.ts";
 import { RequestContext } from "./requestCtx.ts";
-import type { MultipartPart } from "../core/types.ts";
+import type { MultipartPart, FileController } from "../core/types.ts";
 import { Readable } from "stream";
 import { createWriteStream } from "fs";
 import { mkdir } from "fs/promises";
 import { dirname } from "path";
 import { pipeline } from "stream/promises";
+import { basename } from "path";
+
+function decodeQueryComponent(str: string): string {
+  if (!str.includes("+") && !str.includes("%")) {
+    return str; // Zero-allocation fast path for plain strings
+  }
+  try {
+    return decodeURIComponent(str.replace(/\+/g, " "));
+  } catch {
+    return str; // Fallback on malformed percent encoding
+  }
+}
 
 /**
- * Standard Body Parser for JSON, Text, and URL-encoded data.
+ * High-performance single-pass URL-encoded form parser.
+ * Handles duplicate keys by accumulating arrays and avoids unnecessary unescaping overhead.
  */
+function fastParseUrlEncoded(input: string): Record<string, unknown> {
+  const result = Object.create(null) as Record<string, unknown>;
+  const len = input.length;
+  let start = 0;
+
+  while (start < len) {
+    let nextAmp = input.indexOf("&", start);
+    if (nextAmp === -1) nextAmp = len;
+
+    const eqIdx = input.indexOf("=", start);
+    let rawKey: string, rawVal: string;
+
+    if (eqIdx !== -1 && eqIdx < nextAmp) {
+      rawKey = input.substring(start, eqIdx);
+      rawVal = input.substring(eqIdx + 1, nextAmp);
+    } else {
+      rawKey = input.substring(start, nextAmp);
+      rawVal = "";
+    }
+
+    if (rawKey.length > 0) {
+      const key = decodeQueryComponent(rawKey);
+      const val = decodeQueryComponent(rawVal);
+
+      const existing = result[key];
+      if (existing === undefined) {
+        result[key] = val;
+      } else if (Array.isArray(existing)) {
+        existing.push(val);
+      } else {
+        result[key] = [existing, val];
+      }
+    }
+
+    start = nextAmp + 1;
+  }
+
+  return result;
+}
+
 export async function parseBody(
   this: App,
   ctx: RequestContext,
@@ -19,7 +71,6 @@ export async function parseBody(
   limit = ctx._route?.bodyLimit ?? this.AppOptions.bodyLimit,
 ): Promise<unknown> {
   const req = ctx.req;
-  const res = ctx.res;
 
   const contentType = req.headers["content-type"] ?? "";
 
@@ -33,8 +84,6 @@ export async function parseBody(
   if (contentLengthHeader !== undefined) {
     const contentLength = parseInt(contentLengthHeader, 10);
     if (contentLength > limit) {
-      res.writeHead(413, PAYLOAD_TOO_LARGE_HEADERS).end(PAYLOAD_TOO_LARGE_BUF);
-      this.resetCtx(ctx);
       throw new PayloadTooLargeError(limit.toString());
     }
     if (contentLength === 0) {
@@ -51,7 +100,6 @@ export async function parseBody(
 
       if (receivedSize > limit) {
         cleanup();
-        req.destroy();
         reject(new PayloadTooLargeError(limit.toString()));
         return;
       }
@@ -69,7 +117,17 @@ export async function parseBody(
 
       const rawBody = Buffer.concat(chunks, receivedSize).toString("utf8");
 
-      if ((contentType.includes("application/json") || chunks.length > 0) && !text) {
+      if (text) {
+        resolve(rawBody);
+        return;
+      }
+
+      if (contentType.includes("application/x-www-form-urlencoded")) {
+        resolve(fastParseUrlEncoded(rawBody));
+        return;
+      }
+
+      if (contentType.includes("application/json") && chunks.length > 0) {
         try {
           resolve(JSON.parse(rawBody));
           return;
@@ -126,10 +184,7 @@ export async function* parseMultipartStream(
   let networkError: Error | null = null;
 
   let residue = Buffer.alloc(0);
-  let currentFileController: {
-    enqueue: (c: Uint8Array) => void;
-    close: () => void;
-  } | null = null;
+  let currentFileController: FileController | null = null;
   let searchingForFirstBoundary = true;
   let inHeaderSection = false;
   let activePartMeta: {
@@ -191,11 +246,10 @@ export async function* parseMultipartStream(
               }
               return Buffer.concat(chunks);
             };
-
             partQueue.push({
               isFile: true,
               name: activePartMeta.name ?? "",
-              filename: activePartMeta.filename ?? "",
+              filename: basename(activePartMeta.filename ?? ""),
               contentType: activePartMeta.contentType ?? "",
               stream: nodeCompatibleStream,
               save: saveMethod,
@@ -294,47 +348,75 @@ export async function* parseMultipartStream(
     }
   };
 
-  // Bind direct event listeners to control data stream absorption independently
-  req.on("data", (chunk: Buffer) => {
+  // Dedicated handlers so they can be removed on cleanup
+  const onData = (chunk: Buffer) => {
     try {
       processChunk(chunk);
     } catch (err) {
       networkError = err as Error;
       if (resolveNextPart !== null) resolveNextPart();
     }
-  });
+  };
 
-  req.on("end", () => {
+  const onEnd = () => {
     if (currentFileController !== null) {
       currentFileController.close();
     }
     isNetworkDone = true;
     if (resolveNextPart !== null) resolveNextPart();
-  });
+  };
 
-  req.on("error", (err) => {
+  const onError = (err: Error) => {
     networkError = err;
     if (resolveNextPart !== null) resolveNextPart();
-  });
+  };
 
-  // Yield fields from our decoupled buffer queue
-  for (;;) {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition, @typescript-eslint/strict-boolean-expressions, @typescript-eslint/only-throw-error
-    if (networkError) throw networkError;
+  // Bind direct event listeners
+  req.on("data", onData);
+  req.on("end", onEnd);
+  req.on("error", onError);
 
-    if (partQueue.length > 0) {
-      const part = partQueue.shift();
-      if (part !== undefined) {
-        yield part;
+  try {
+    // Yield fields from our decoupled buffer queue
+    for (;;) {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition, @typescript-eslint/strict-boolean-expressions, @typescript-eslint/only-throw-error
+      if (networkError) throw networkError;
+
+      if (partQueue.length > 0) {
+        const part = partQueue.shift();
+        if (part !== undefined) {
+          yield part;
+        }
+        continue;
       }
-      continue;
+
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      if (isNetworkDone) break;
+
+      await new Promise<void>((resolve) => {
+        resolveNextPart = resolve;
+      });
+    }
+  } finally {
+    // 1. Remove event listeners to prevent ongoing triggers
+    req.off("data", onData);
+    req.off("end", onEnd);
+    req.off("error", onError);
+
+    // 2. Pause the incoming HTTP request stream to prevent unbuffered memory accumulation
+    if (typeof req.pause === "function") {
+      req.pause();
     }
 
+    // 3. Clean up active file streams and internal queues
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    if (isNetworkDone) break;
+    if (currentFileController !== null) {
+      (currentFileController as unknown as FileController).close();
+      currentFileController = null;
+    }
 
-    await new Promise<void>((resolve) => {
-      resolveNextPart = resolve;
-    });
+    partQueue.length = 0;
+    residue = Buffer.alloc(0);
+    resolveNextPart = null;
   }
 }

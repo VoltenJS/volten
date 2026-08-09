@@ -94,15 +94,10 @@ test("parseBody: returns empty object for Content-Length: 0", async () => {
 test("parseBody: rejects Content-Length above limit with 413", async () => {
   const app = new App({ noLogs: true });
   const ctx = new RequestContext();
-  let writeHeadStatus = 0;
   const res = {
     headersSent: false,
     writableEnded: false,
     destroyed: false,
-    writeHead(s: number) {
-      writeHeadStatus = s;
-      return this;
-    },
     end() {
       this.writableEnded = true;
       return this;
@@ -116,7 +111,6 @@ test("parseBody: rejects Content-Length above limit with 413", async () => {
     () => parseBody.call(app, ctx, false, 100),
     (err: unknown) => err instanceof PayloadTooLargeError,
   );
-  assert.equal(writeHeadStatus, 413);
   app.close();
 });
 
@@ -148,7 +142,7 @@ test("parseBody: parses raw text body when text=true", async () => {
   app.close();
 });
 
-test("parseBody: parses urlencoded text body (falls through JSON parse)", async () => {
+test("parseBody: parses urlencoded text body correctly (with fastParseUrlEncoded)", async () => {
   const app = new App({ noLogs: true });
   const ctx = new RequestContext();
   const { req, res } = makeReqRes({ "content-type": "application/x-www-form-urlencoded" }, [
@@ -158,8 +152,9 @@ test("parseBody: parses urlencoded text body (falls through JSON parse)", async 
   (ctx as any)._res = res as any;
   ctx._app = app;
   const body = await parseBody.call(app, ctx, false);
-  // No JSON parse succeeds so raw text is returned
-  assert.equal(body, "a=1&b=2");
+  const nullObject = Object.create(null);
+  Object.assign(nullObject, { a: "1", b: "2" });
+  assert.deepEqual(body, nullObject);
   app.close();
 });
 
@@ -255,15 +250,10 @@ test("parseBody: uses route.bodyLimit when present", async () => {
     disableOpt: false,
     methodStorage: { get: () => null, set: () => {} } as any,
   } as any;
-  let writeHeadStatus = 0;
   const res = {
     headersSent: false,
     writableEnded: false,
     destroyed: false,
-    writeHead(s: number) {
-      writeHeadStatus = s;
-      return this;
-    },
     end() {
       this.writableEnded = true;
       return this;
@@ -277,7 +267,6 @@ test("parseBody: uses route.bodyLimit when present", async () => {
     () => parseBody.call(app, ctx, false),
     (err: unknown) => err instanceof PayloadTooLargeError,
   );
-  assert.equal(writeHeadStatus, 413);
   app.close();
 });
 
