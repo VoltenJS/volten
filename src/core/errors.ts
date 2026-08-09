@@ -115,8 +115,14 @@ export class PayloadTooLargeError extends VoltenError {
   }
 }
 
-export class BadRequest extends VoltenError {
+export class BadRequestError extends VoltenError {
   constructor(message: string = "Bad Request") {
     super("ERR_BAD_REQUEST", message, 400);
+  }
+}
+
+export class DuplicateRouteError extends VoltenError {
+  constructor(method: string, path: string) {
+    super("ERR_DUPLICATE_ROUTE", `Duplicate route "${method} ${path}" detected`, 500);
   }
 }

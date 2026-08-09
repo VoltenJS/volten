@@ -279,6 +279,9 @@ export class App extends Router {
       return this.server;
     }
 
+    this.server.once("close", () => {
+      this.tree.clear();
+    });
     this.compilePreflightHandler();
     this.register(this);
     this.server.listen(...args);
