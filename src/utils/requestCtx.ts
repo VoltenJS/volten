@@ -177,32 +177,38 @@ export class RequestContext {
   }
 
   public async flush(): Promise<void> {
-    if (this.bufferOffset === 0 || this.isFlushing) return;
-
-    this.isFlushing = true;
-
-    const chunk = this.responseBuffer.subarray(0, this.bufferOffset);
-    this.bufferOffset = 0;
-
+    if ((this.bufferOffset === 0 && this.writeQueue.length === 0) || this.isFlushing) return;
     try {
-      const ready = this.res.write(chunk);
-      if (!ready) {
-        await new Promise((resolve) => this.res.once("drain", resolve));
+      this.isFlushing = true;
+      if (this.bufferOffset > 0) {
+        const chunk = this.responseBuffer.subarray(0, this.bufferOffset);
+        this.bufferOffset = 0;
+        const ready = this.res.write(chunk);
+        if (!ready) {
+          await new Promise((resolve) => this.res.once("drain", resolve));
+        }
+      }
+
+      while (this.writeQueue.length > 0) {
+        const next = this.writeQueue[0];
+        if (next === undefined) break;
+        const len = Buffer.byteLength(next.str);
+        if (this.bufferOffset + len > RequestContext.BUFFER_SIZE) {
+          const chunk = this.responseBuffer.subarray(0, this.bufferOffset);
+          this.bufferOffset = 0;
+
+          const ready = this.res.write(chunk);
+          if (!ready) {
+            await new Promise((resolve) => this.res.once("drain", resolve));
+          }
+        }
+
+        this.writeQueue.shift();
+        this.bufferOffset += this.responseBuffer.write(next.str, this.bufferOffset);
+        next.resolve();
       }
     } finally {
       this.isFlushing = false;
-    }
-
-    if (this.writeQueue.length > 0) {
-      const next = this.writeQueue.shift();
-      if (next === undefined) return;
-      const len = Buffer.byteLength(next.str);
-      if (this.bufferOffset + len > RequestContext.BUFFER_SIZE) {
-        await this.flush();
-      }
-
-      this.bufferOffset += this.responseBuffer.write(next.str, this.bufferOffset);
-      next.resolve();
     }
   }
 
