@@ -1,4 +1,5 @@
 import type { VoltenHandler, PathData, RouteOptions } from "../core/types.ts";
+import { DuplicateRouteError } from "../core/errors.ts";
 import { RequestContext } from "./requestCtx.ts";
 import { compileMiddlewareChain } from "../core/compose.ts";
 
@@ -41,6 +42,7 @@ export class PathNode {
 
 export class RouteTree {
   private root: PathNode = new PathNode("");
+  private routes: string[] = [];
   private cache: Map<string, Map<string, PathData>> = new Map();
   private cacheSize = 0;
   private caseInsensitive;
@@ -49,6 +51,19 @@ export class RouteTree {
 
   constructor(caseInsensitive: boolean) {
     this.caseInsensitive = caseInsensitive;
+    this.clear();
+  }
+
+  clear() {
+    this.root = new PathNode("");
+    this.cache.clear();
+    this.cacheSize = 0;
+  }
+
+  public checkDuplicate(method: string, path: string) {
+    const match = this.matchPath(method, path, { params: {} } as RequestContext);
+    const result = match !== null && this.routes.includes(method + path);
+    return result;
   }
 
   public addPath(
@@ -62,7 +77,11 @@ export class RouteTree {
     if (this.caseInsensitive) {
       path = path.toLowerCase();
     }
+    this.routes.push(path);
 
+    if (this.checkDuplicate(method, path)) {
+      throw new DuplicateRouteError(method, path);
+    }
     const paramNames: string[] = [];
 
     const routeData: PathData = {
