@@ -142,7 +142,7 @@ test("parseBody: parses raw text body when text=true", async () => {
   app.close();
 });
 
-test("parseBody: parses urlencoded text body (falls through JSON parse)", async () => {
+test("parseBody: parses urlencoded text body correctly (with fastParseUrlEncoded)", async () => {
   const app = new App({ noLogs: true });
   const ctx = new RequestContext();
   const { req, res } = makeReqRes({ "content-type": "application/x-www-form-urlencoded" }, [
@@ -152,8 +152,9 @@ test("parseBody: parses urlencoded text body (falls through JSON parse)", async 
   (ctx as any)._res = res as any;
   ctx._app = app;
   const body = await parseBody.call(app, ctx, false);
-  // No JSON parse succeeds so raw text is returned
-  assert.equal(body, "a=1&b=2");
+  const nullObject = Object.create(null);
+  Object.assign(nullObject, { a: "1", b: "2" });
+  assert.deepEqual(body, nullObject);
   app.close();
 });
 
