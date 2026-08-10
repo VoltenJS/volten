@@ -7,6 +7,8 @@ import type {
   DefaultErrorHandler,
   PathData,
   VoltenAppOptions,
+  Logger,
+  CustomLoggerOptions,
 } from "./types.ts";
 import {
   DefaultVoltenOptions,
@@ -24,8 +26,9 @@ import { PayloadTooLargeError, VoltenError } from "./errors.ts";
 import { parseBody, parseMultipartStream } from "../utils/bodyParser.ts";
 import { createServer } from "../utils/createServer.ts";
 import { Router } from "./router.ts";
+import { createLogger } from "../utils/logger.ts";
 
-export class App extends Router {
+export class App<CustomLevels extends string = never> extends Router {
   private availableContexts: RequestContext[];
   private poolIndex: number = 0;
   private poolSize: number = 2048;
@@ -40,6 +43,15 @@ export class App extends Router {
   public parseMultipartStream = parseMultipartStream.bind(this);
   public server: http.Server | https.Server;
   private acceptIncomming = true;
+  public logger: Logger<CustomLevels> = createLogger({ level: "warn" }) as Logger<CustomLevels>;
+
+  public configLogger<NewLevels extends string = never>(
+    options: CustomLoggerOptions<NewLevels>,
+  ): Logger<NewLevels> {
+    const newLogger = createLogger(options);
+    this.logger = newLogger as unknown as Logger<CustomLevels>;
+    return newLogger;
+  }
 
   static(folderPath: string) {
     const absolutePath = fs.existsSync(folderPath)
