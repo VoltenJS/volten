@@ -88,7 +88,7 @@ export class Router {
     this.routes.push({ method: "DELETE", path, options, handlers: handlersWithMiddleware });
   }
 
-  register(app: App, prefix: string = "", parentMiddleware: VoltenHandler[] = []) {
+  register(app: App<string>, prefix: string = "", parentMiddleware: VoltenHandler[] = []) {
     const tree = app.getRouteTree();
 
     for (const route of this.routes) {
