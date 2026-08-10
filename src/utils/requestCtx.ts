@@ -32,7 +32,7 @@ const timer = setInterval(() => {
 timer.unref();
 
 export class RequestContext {
-  public _app: App | null = null;
+  public _app: App<string> | null = null;
   private _req: http.IncomingMessage | null = null;
   private _res: http.ServerResponse | null = null;
   private _cookiesCache: Record<string, string> | null = null;
@@ -58,7 +58,7 @@ export class RequestContext {
   public responseBuffer = Buffer.allocUnsafe(RequestContext.BUFFER_SIZE);
   public bufferOffset = 0;
 
-  public init(app: App, req: http.IncomingMessage, res: http.ServerResponse) {
+  public init(app: App<string>, req: http.IncomingMessage, res: http.ServerResponse) {
     // Read on later: Could this be improved more?
     const urlStr = req.url ?? "/";
     const { pathname, queryStr } = parseUrl(urlStr);
