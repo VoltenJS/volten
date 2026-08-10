@@ -157,3 +157,34 @@ export const INTERNAL_SERVER_ERROR_HEADERS = {
   "content-type": "text/plain; charset=utf-8",
   "content-length": INTERNAL_SERVER_ERROR_BUF.length,
 };
+
+// Logger
+
+export interface LogFn {
+  (msg: unknown, ...args: unknown[]): void;
+  (obj: Record<string, unknown> | Error, msg?: string, ...args: unknown[]): void;
+}
+
+export type DefaultLevels = "fatal" | "error" | "warn" | "info" | "debug" | "trace";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type LoggerSerializerFn = (value: any) => any;
+
+export interface CustomLoggerOptions<CustomLevels extends string = never> {
+  level?: DefaultLevels | CustomLevels;
+  customLevels?: Record<CustomLevels, number>;
+  redact?: string[];
+  baseContext?: Record<string, unknown>;
+  pretty?: boolean;
+  mixin?: () => Record<string, unknown>;
+  serializers?: Record<string, LoggerSerializerFn>;
+  timestamp?: boolean | (() => string);
+}
+
+export type Logger<CustomLevels extends string = never> = {
+  [K in DefaultLevels | CustomLevels]: LogFn;
+} & {
+  level: DefaultLevels | CustomLevels;
+  child(bindings: Record<string, unknown>): Logger<CustomLevels>;
+  isLevelEnabled(level: DefaultLevels | CustomLevels): boolean;
+};
