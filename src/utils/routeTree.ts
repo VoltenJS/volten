@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/restrict-template-expressions */
 import type { VoltenHandler, PathData, RouteOptions } from "../core/types.ts";
 import { DuplicateRouteError } from "../core/errors.ts";
 import { RequestContext } from "./requestCtx.ts";
@@ -221,6 +222,10 @@ export class RouteTree {
   }
 
   public matchPath(method: string, path: string, ctx: RequestContext): PathData | null {
+    if (ctx.inited) {
+      this.createMatchPath();
+      return this.matchPath(method, path, ctx);
+    }
     const originalPath = path;
     const lookupPath = this.caseInsensitive ? path.toLowerCase() : path;
 
@@ -364,5 +369,173 @@ export class RouteTree {
       return null;
     }
     return null;
+  }
+  public createMatchPath(): void {
+    const codeLines: string[] = [];
+
+    // Fast path baseline checks
+    codeLines.push(`  const originalPath = path;`);
+    codeLines.push(`  if (this.caseInsensitive) path = path.toLowerCase();`);
+    codeLines.push(`  const cached = this.cache.get(method)?.get(path);`);
+    codeLines.push(`  if (cached) return cached;`);
+    codeLines.push(`  const len = path.length;`);
+
+    let staticRouteCounter = 0;
+    const routeDataMap: Record<string, PathData> = {};
+
+    // Track param index variables to avoid eager slicing
+    let paramCounter = 0;
+
+    const compileNode = (
+      node: PathNode,
+      currentIndent: string,
+      indexVar: string,
+      activeParams: { name: string; start: string; end: string }[],
+    ) => {
+      const indent = currentIndent + "  ";
+
+      // 1. Static Child Matching
+      let child = node.staticChild;
+      if (child !== null) {
+        codeLines.push(`${indent}if (${indexVar} < len) {`);
+        codeLines.push(`${indent}  switch (path.charCodeAt(${indexVar})) {`);
+
+        while (child !== null) {
+          codeLines.push(`${indent}    case ${child.charCode}: {`);
+
+          const pLen = child.prefix.length;
+          const nextIndexExpr = `(${indexVar} + ${pLen})`;
+          let matchCondition = "true";
+
+          if (pLen > 1) {
+            const conditions: string[] = [];
+            for (let matchI = 1; matchI < pLen; matchI++) {
+              conditions.push(
+                `path.charCodeAt(${indexVar} + ${matchI}) === ${child.prefix.charCodeAt(matchI)}`,
+              );
+            }
+            matchCondition = conditions.join(" && ");
+          }
+
+          codeLines.push(`${indent}      if (${nextIndexExpr} <= len && ${matchCondition}) {`);
+          compileNode(child, indent + "        ", nextIndexExpr, activeParams);
+          codeLines.push(`${indent}      }`);
+          codeLines.push(`${indent}      break;`);
+          codeLines.push(`${indent}    }`);
+          child = child.sibling;
+        }
+        codeLines.push(`${indent}  }`);
+        codeLines.push(`${indent}}`);
+      }
+
+      // 2. Parameter Node Matching (e.g., :param)
+      if (node.paramChild !== null) {
+        const pChild = node.paramChild;
+        const pIdx = paramCounter++;
+        const pStart = `pStart_${pIdx}`;
+        const pEnd = `pEnd_${pIdx}`;
+
+        codeLines.push(`${indent}let ${pStart} = ${indexVar};`);
+        codeLines.push(`let ${pEnd} = ${pStart};`);
+        codeLines.push(`while (${pEnd} < len && path.charCodeAt(${pEnd}) !== 47) ${pEnd}++;`);
+        codeLines.push(`if (${pEnd} > ${pStart}) {`);
+
+        const newParams = [...activeParams, { name: pChild.paramName, start: pStart, end: pEnd }];
+
+        // @ts-expect-error - paramName is guaranteed to be non-null here
+        compileNode(pChild, indent + "  ", pEnd, newParams);
+        codeLines.push(`${indent}}`);
+      }
+
+      // 3. Wildcard Node Matching (e.g., *)
+      if (node.wildcardChild !== null) {
+        const pIdx = paramCounter++;
+        const wStart = `wStart_${pIdx}`;
+
+        codeLines.push(`${indent}let ${wStart} = ${indexVar};`);
+
+        const newParams = [...activeParams, { name: "*", start: wStart, end: "len" }];
+        emitMethodResolution(node.wildcardChild, indent, newParams);
+      }
+
+      // 4. Leaf Node Endpoint Resolution
+      codeLines.push(`${indent}if (${indexVar} === len) {`);
+      emitMethodResolution(node, indent + "  ", activeParams);
+      codeLines.push(`${indent}}`);
+    };
+
+    const emitMethodResolution = (
+      node: PathNode,
+      indent: string,
+      activeParams: { name: string; start: string; end: string }[],
+    ) => {
+      const methods = ["GET", "POST", "PUT", "PATCH", "DELETE"];
+      let hasMethods: boolean = false;
+
+      methods.forEach((m) => {
+        const data = node.methods.get(m);
+        if (data !== null) {
+          if (!hasMethods) {
+            codeLines.push(`${indent}switch (method) {`);
+            hasMethods = true;
+          }
+          const routeKey = `r_${staticRouteCounter++}`;
+          routeDataMap[routeKey] = data;
+
+          codeLines.push(`${indent}  case "${m}": {`);
+
+          // Lazy String Allocation: Slice only upon a guaranteed route match
+          activeParams.forEach((p, idx) => {
+            const routeParamNames = data.paramNames ?? [];
+            const actualName = routeParamNames[idx] ?? p.name;
+            codeLines.push(
+              `${indent}    ctx.params["${actualName}"] = originalPath.slice(${p.start}, ${p.end});`,
+            );
+          });
+
+          codeLines.push(`${indent}    return externals.${routeKey};`);
+          codeLines.push(`${indent}  }`);
+        }
+      });
+
+      if (hasMethods as boolean) {
+        codeLines.push(`${indent}}`);
+      }
+    };
+
+    // Compile starting from the root
+    compileNode(this.root, "", "0", []);
+    codeLines.push("  return null;");
+
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval
+    const factory = new Function(
+      "externals",
+      `return function matchPathCompiled(method, path, ctx) {\n${codeLines.join("\n")}\n};`,
+    );
+
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+    const compiledFn = factory(routeDataMap) as (
+      method: string,
+      path: string,
+      ctx: RequestContext,
+    ) => PathData | null;
+    this.matchPath = (method: string, path: string, ctx: RequestContext) => {
+      const result = compiledFn.call(this, method, path, ctx);
+
+      if (
+        result !== null &&
+        Object.keys(ctx.params).length === 0 &&
+        this.cacheSize < this.MAX_CACHE
+      ) {
+        let methodData = this.cache.get(method);
+        if (methodData === undefined) {
+          methodData = new Map();
+          this.cache.set(method, methodData);
+        }
+        methodData.set(path, result);
+        this.cacheSize++;
+      }
+      return result;
+    };
   }
 }

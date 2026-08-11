@@ -166,8 +166,7 @@ export class RequestContext {
    * No more data can be written to the body.
    */
   get sent(): boolean {
-    // FIX: Check BOTH writableEnded and finished for maximum compatibility
-    return this.res.writableEnded;
+    return this._res === null ? true : this.res.writableEnded;
   }
 
   public get isMultipart(): boolean {

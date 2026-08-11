@@ -296,6 +296,7 @@ export class App<CustomLevels extends string = never> extends Router {
     });
     this.compilePreflightHandler();
     this.register(this);
+    this.tree.createMatchPath();
     this.server.listen(...args);
     return this.server;
   }
