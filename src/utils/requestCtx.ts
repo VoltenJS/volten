@@ -41,8 +41,7 @@ export class RequestContext {
   public method!: string;
   public url!: string;
   public path!: string;
-  public host!: string;
-  public headers: http.IncomingHttpHeaders | null = null;
+  public _headers: http.IncomingHttpHeaders | null = null;
   public state: Record<string, unknown> = {};
   public params: Params = Object.create(null) as Params;
   public inited: boolean = false;
@@ -74,8 +73,7 @@ export class RequestContext {
     this.queryValue = null;
     this.params = Object.create(null) as Params;
     const headers = req.headers;
-    this.host = headers.host ?? "";
-    this.headers = headers;
+    this._headers = headers;
     this.method = req.method ?? "GET";
 
     this._bodyPromise = undefined;
@@ -122,7 +120,7 @@ export class RequestContext {
     this._req = null;
     this._res = null;
     this._route = null;
-    this.headers = null;
+    this._headers = null;
     this.params = Object.create(null) as Params;
     this.state = {};
     this.queryValue = null;
@@ -153,6 +151,10 @@ export class RequestContext {
     return this._route;
   }
 
+  get headers() {
+    return this._headers ?? {};
+  }
+
   /**
    * Returns true if the HTTP response headers have been sent to the client.
    * At this point, status codes and headers can no longer be modified.
@@ -167,6 +169,68 @@ export class RequestContext {
    */
   get sent(): boolean {
     return this._res === null ? true : this.res.writableEnded;
+  }
+
+  /**
+   * Gets the client's real IP address.
+   *
+   * Automatically resolves reverse-proxy header chains in the following order:
+   * 1. `X-Forwarded-For` (returns the origin client IP)
+   * 2. `CF-Connecting-IP` (Cloudflare proxy fallback)
+   * 3. Underlying socket `remoteAddress`
+   *
+   * @returns {string} The client IP address, or an empty string if unresolvable.
+   *
+   * @example
+   * app.get('/me', (ctx) => {
+   *   return ctx.send(`Your IP is: ${ctx.ip}`);
+   * });
+   */
+  get ip(): string {
+    const xForwardedFor = this.headers["x-forwarded-for"];
+    if (xForwardedFor !== undefined) {
+      const commaIndex = typeof xForwardedFor === "string" ? xForwardedFor.indexOf(",") : -1;
+      return commaIndex === -1
+        ? (xForwardedFor as string).trim()
+        : (xForwardedFor as string).substring(0, commaIndex).trim();
+    }
+
+    const cfIp = this.headers["cf-connecting-ip"];
+    if (cfIp !== undefined && typeof cfIp === "string") {
+      return cfIp.trim();
+    }
+    return this.req.socket.remoteAddress ?? "";
+  }
+
+  /**
+   * Returns the hostname (without port).
+   * Handles reverse proxies (X-Forwarded-Host) automatically.
+   */
+  get hostname(): string {
+    const host = this.headers["x-forwarded-host"] ?? this.headers["host"];
+    if (host === undefined || typeof host !== "string") return "";
+
+    // Extract first host if comma-separated (proxy chain)
+    const firstHost = host.includes(",") ? (host.split(",")[0] ?? "").trim() : host;
+
+    // Strip port number if present (handling IPv6 brackets correctly)
+    const portIndex = firstHost.lastIndexOf(":");
+    const bracketIndex = firstHost.indexOf("]");
+
+    if (portIndex !== -1 && portIndex > bracketIndex) {
+      return firstHost.substring(0, portIndex);
+    }
+
+    return firstHost;
+  }
+
+  /**
+   * Returns the raw host header including port if present.
+   */
+  get host(): string {
+    const host = this.headers["x-forwarded-host"] ?? this.headers["host"];
+    if (host === undefined || typeof host !== "string") return "";
+    return host.includes(",") ? (host.split(",")[0] ?? "").trim() : host;
   }
 
   public get isMultipart(): boolean {
