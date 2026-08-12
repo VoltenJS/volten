@@ -28,8 +28,38 @@ export class Router {
     return { options, routeHandlers };
   }
 
+  /**
+   * Registers one or more middleware handlers or mounts a sub-router.
+   *
+   * Can be used to apply global middleware to the router, or mount sub-routers with a prefix path.
+   *
+   * @param {...VoltenHandler[]} fns - Middleware functions to register.
+   * @returns {this} The router instance for chaining.
+   *
+   * @example
+   * router.use(loggerMiddleware);
+   */
   use(...fns: VoltenHandler[]): this;
+  /**
+   * Mounts a sub-router at the specified prefix path.
+   *
+   * @param {string} path - The prefix path for the sub-router.
+   * @param {Router} router - The sub-router instance to mount.
+   * @returns {this} The router instance for chaining.
+   *
+   * @example
+   * router.use('/api', apiRouter);
+   */
   use(path: string, router: Router): this;
+  /**
+   * Mounts a sub-router instance directly.
+   *
+   * @param {Router} router - The sub-router instance to mount.
+   * @returns {this} The router instance for chaining.
+   *
+   * @example
+   * router.use(apiRouter);
+   */
   use(router: Router): this;
   use(...args: unknown[]): this {
     if (args.length === 1 && args[0] instanceof Router) {
@@ -48,7 +78,25 @@ export class Router {
     return this;
   }
 
+  /**
+   * Registers a GET route handler for the specified path.
+   *
+   * @param {string} path - The route path pattern (supports parameters e.g., `/user/:id`).
+   * @param {...VoltenHandler[]} handlers - One or more handler functions.
+   *
+   * @example
+   * router.get('/users', async (ctx) => {
+   *   return ctx.json({ users: [] });
+   * });
+   */
   get(path: string, ...handlers: VoltenHandler[]): void;
+  /**
+   * Registers a GET route with custom route options and handlers.
+   *
+   * @param {string} path - The route path pattern.
+   * @param {RouteOptions} options - Route options config (e.g. body limit).
+   * @param {...VoltenHandler[]} handlers - One or more handler functions.
+   */
   get(path: string, options: RouteOptions, ...handlers: VoltenHandler[]): void;
   get(path: string, arg2: RouteOptions | VoltenHandler, ...handlers: VoltenHandler[]): void {
     const { options, routeHandlers } = this.identifyParamType(arg2, ...handlers);
@@ -56,7 +104,26 @@ export class Router {
     this.routes.push({ method: "GET", path, options, handlers: handlersWithMiddleware });
   }
 
+  /**
+   * Registers a POST route handler for the specified path.
+   *
+   * @param {string} path - The route path pattern.
+   * @param {...VoltenHandler[]} handlers - One or more handler functions.
+   *
+   * @example
+   * router.post('/users', async (ctx) => {
+   *   const body = await ctx.body();
+   *   return ctx.status(201).json({ created: true });
+   * });
+   */
   post(path: string, ...handlers: VoltenHandler[]): void;
+  /**
+   * Registers a POST route with custom route options and handlers.
+   *
+   * @param {string} path - The route path pattern.
+   * @param {RouteOptions} options - Route options config (e.g. body limit).
+   * @param {...VoltenHandler[]} handlers - One or more handler functions.
+   */
   post(path: string, options: RouteOptions, ...handlers: VoltenHandler[]): void;
   post(path: string, arg2: RouteOptions | VoltenHandler, ...handlers: VoltenHandler[]): void {
     const { options, routeHandlers } = this.identifyParamType(arg2, ...handlers);
@@ -64,7 +131,25 @@ export class Router {
     this.routes.push({ method: "POST", path, options, handlers: handlersWithMiddleware });
   }
 
+  /**
+   * Registers a PATCH route handler for the specified path.
+   *
+   * @param {string} path - The route path pattern.
+   * @param {...VoltenHandler[]} handlers - One or more handler functions.
+   *
+   * @example
+   * router.patch('/users/:id', async (ctx) => {
+   *   return ctx.json({ updated: true });
+   * });
+   */
   patch(path: string, ...handlers: VoltenHandler[]): void;
+  /**
+   * Registers a PATCH route with custom route options and handlers.
+   *
+   * @param {string} path - The route path pattern.
+   * @param {RouteOptions} options - Route options config (e.g. body limit).
+   * @param {...VoltenHandler[]} handlers - One or more handler functions.
+   */
   patch(path: string, options: RouteOptions, ...handlers: VoltenHandler[]): void;
   patch(path: string, arg2: RouteOptions | VoltenHandler, ...handlers: VoltenHandler[]): void {
     const { options, routeHandlers } = this.identifyParamType(arg2, ...handlers);
@@ -72,7 +157,25 @@ export class Router {
     this.routes.push({ method: "PATCH", path, options, handlers: handlersWithMiddleware });
   }
 
+  /**
+   * Registers a PUT route handler for the specified path.
+   *
+   * @param {string} path - The route path pattern.
+   * @param {...VoltenHandler[]} handlers - One or more handler functions.
+   *
+   * @example
+   * router.put('/users/:id', async (ctx) => {
+   *   return ctx.json({ replaced: true });
+   * });
+   */
   put(path: string, ...handlers: VoltenHandler[]): void;
+  /**
+   * Registers a PUT route with custom route options and handlers.
+   *
+   * @param {string} path - The route path pattern.
+   * @param {RouteOptions} options - Route options config (e.g. body limit).
+   * @param {...VoltenHandler[]} handlers - One or more handler functions.
+   */
   put(path: string, options: RouteOptions, ...handlers: VoltenHandler[]): void;
   put(path: string, arg2: RouteOptions | VoltenHandler, ...handlers: VoltenHandler[]): void {
     const { options, routeHandlers } = this.identifyParamType(arg2, ...handlers);
@@ -80,7 +183,25 @@ export class Router {
     this.routes.push({ method: "PUT", path, options, handlers: handlersWithMiddleware });
   }
 
+  /**
+   * Registers a DELETE route handler for the specified path.
+   *
+   * @param {string} path - The route path pattern.
+   * @param {...VoltenHandler[]} handlers - One or more handler functions.
+   *
+   * @example
+   * router.delete('/users/:id', async (ctx) => {
+   *   return ctx.json({ deleted: true });
+   * });
+   */
   delete(path: string, ...handlers: VoltenHandler[]): void;
+  /**
+   * Registers a DELETE route with custom route options and handlers.
+   *
+   * @param {string} path - The route path pattern.
+   * @param {RouteOptions} options - Route options config.
+   * @param {...VoltenHandler[]} handlers - One or more handler functions.
+   */
   delete(path: string, options: RouteOptions, ...handlers: VoltenHandler[]): void;
   delete(path: string, arg2: RouteOptions | VoltenHandler, ...handlers: VoltenHandler[]): void {
     const { options, routeHandlers } = this.identifyParamType(arg2, ...handlers);
@@ -88,6 +209,16 @@ export class Router {
     this.routes.push({ method: "DELETE", path, options, handlers: handlersWithMiddleware });
   }
 
+  /**
+   * Registers all routes and sub-routers defined on this Router instance with the main Volten App.
+   *
+   * @param {App<string>} app - The main Volten application instance.
+   * @param {string} [prefix=""] - A path prefix to prepend to all route paths.
+   * @param {VoltenHandler[]} [parentMiddleware=[]] - Middleware inherited from parent routers.
+   *
+   * @example
+   * router.register(app, '/api');
+   */
   register(app: App<string>, prefix: string = "", parentMiddleware: VoltenHandler[] = []) {
     const tree = app.getRouteTree();
 
