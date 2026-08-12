@@ -243,7 +243,7 @@ export class RequestContext {
     res.setHeader("Connection", "keep-alive");
     res.setHeader("Date", DATE_HEADER_BUF);
 
-    if (this.route.disableOpt) {
+    if (this._route === null || this.route.disableOpt) {
       const body = JSON.stringify(data);
       this.setHeader("Content-Length", Buffer.byteLength(body));
       res.end(body);
@@ -517,6 +517,20 @@ export class RequestContext {
       this.json(data, statusCode);
     }
     return this;
+  }
+
+  public getHeaders() {
+    return this.res.getHeaders();
+  }
+
+  public getHeader(header: string): string | undefined {
+    const raw = this.res.getHeader(header);
+    if (raw === undefined) return undefined;
+    return Array.isArray(raw) ? raw.join(", ") : String(raw);
+  }
+
+  public getRawHeader(header: string) {
+    return this.res.getHeader(header);
   }
 
   public setHeader(key: string, value: string | number | readonly string[]): this {

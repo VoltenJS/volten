@@ -43,7 +43,7 @@ export class App<CustomLevels extends string = never> extends Router {
   public parseMultipartStream = parseMultipartStream.bind(this);
   public server: http.Server | https.Server;
   private acceptIncomming = true;
-  public logger: Logger<CustomLevels> = createLogger({ level: "warn" }) as Logger<CustomLevels>;
+  public logger: Logger<CustomLevels>;
 
   public configLogger<NewLevels extends string = never>(
     options: CustomLoggerOptions<NewLevels>,
@@ -73,7 +73,7 @@ export class App<CustomLevels extends string = never> extends Router {
     this.availableContexts.push(ctx);
   }
 
-  constructor(options: VoltenAppOptions = {}) {
+  constructor(options: VoltenAppOptions<CustomLevels> = {}) {
     super();
     Object.assign(this.AppOptions, options);
     const serverOptions =
@@ -82,6 +82,7 @@ export class App<CustomLevels extends string = never> extends Router {
     this.poolSize = this.AppOptions.RequestPoolSize;
     this.tree = new RouteTree(this.AppOptions.caseInsensitive);
     this.onRequest = this.onRequest.bind(this);
+    this.logger = createLogger(this.AppOptions.loggerOptions) as Logger<CustomLevels>;
     this.availableContexts = [];
     for (let i = 0; i < this.poolSize; i++) {
       this.availableContexts.push(new RequestContext());

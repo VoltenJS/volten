@@ -77,12 +77,13 @@ export type VoltenHttpsOptions = {
   cert: string;
 };
 
-export type VoltenAppOptions = {
+export type VoltenAppOptions<CustomLevels extends string = never> = {
   bodyLimit?: number;
   caseInsensitive?: boolean;
   RequestPoolSize?: number;
   noLogs?: boolean;
   https?: VoltenHttpsOptions | undefined;
+  loggerOptions?: CustomLoggerOptions<CustomLevels>;
 };
 
 export const DefaultVoltenOptions: Required<VoltenAppOptions> = {
@@ -91,6 +92,9 @@ export const DefaultVoltenOptions: Required<VoltenAppOptions> = {
   RequestPoolSize: 2048,
   noLogs: false,
   https: undefined,
+  loggerOptions: {
+    level: "warn",
+  },
 };
 
 export type RouteOptions = {
