@@ -17,13 +17,13 @@
 ## Features
 
 - **Zero runtime dependencies** — only the Node.js core API.
-- **Trie-based router** — dynamic params (`/users/:id`), wildcards, and per-host routing.
-- **Middleware chain** — global, per-host, and per-route, with cascading composition.
+- **Trie-based router** — dynamic params (`/users/:id`) and wildcards.
+- **Middleware chain** — global, and per-route, with cascading composition.
 - **Native body parsing** — JSON, form-urlencoded, text, raw, and streaming multipart.
 - **Streaming responses** — first-class backpressure-aware write/stream API on `ctx`.
 - **Cookies and sessions** — built-in `ctx.cookies` helpers.
-- **Static file serving** — host-bound, path-traversal-safe file delivery.
-- **Error handling** — global, per-host, and custom error handlers with safe fallbacks.
+- **Static file serving** — path-traversal-safe file delivery.
+- **Error handling** — global and custom error handlers with safe fallbacks.
 - **Context pooling** — reusable `RequestContext` objects to reduce allocation overhead.
 
 ```text
@@ -93,7 +93,7 @@ The [`examples/`](./examples) directory contains runnable, self-contained sample
 | 01  | `01-hello-world.js`           | Minimal server and route registration |
 | 02  | `02-middleware.js`            | Global and per-route middleware       |
 | 03  | `03-json-response.js`         | JSON responses with `ctx.json`        |
-| 04  | `04-routing-and-wildcards.js` | Dynamic params and wildcard hosts     |
+| 04  | `04-routing-and-wildcards.js` | Dynamic params and wildcards          |
 | 05  | `05-global-error-handling.js` | Centralized error handling            |
 | 06  | `06-static-file-serving.js`   | Static files via `volten.static()`    |
 | 07  | `07-body-parsing.js`          | JSON, form, and text body parsing     |
@@ -105,7 +105,7 @@ The [`examples/`](./examples) directory contains runnable, self-contained sample
 
 ## Architecture Notes
 
-- **Routing:** Implemented as a per-host trie (`RouteTree`). Match cost is proportional to path depth, not to the number of registered routes.
+- **Routing:** Implemented as a trie (`RouteTree`). Match cost is proportional to path depth, not to the number of registered routes.
 - **Context:** `RequestContext` objects are pooled (default pool size: 2048) and reset between requests to minimize GC pressure.
 - **Streaming:** Responses use Node's native `ServerResponse` directly. `ctx.write`, `ctx.end`, and `ctx.stream` handle backpressure correctly.
 

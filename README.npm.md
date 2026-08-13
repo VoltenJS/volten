@@ -9,7 +9,7 @@
 ## Why Volten?
 
 - **Zero Runtime Dependencies:** No supply-chain bloat, no nested `node_modules`, and zero risk of sudden security deprecations in third-party packages.
-- **Ultra-Fast Trie Router:** Match cost scales with path depth (`/users/:id`), not total route count. Supports dynamic parameters, wildcards, and per-host routing.
+- **Ultra-Fast Trie Router:** Match cost scales with path depth (`/users/:id`), not total route count. Supports dynamic parameters and wildcards.
 - **Built-in Performance:** `RequestContext` objects are pooled (default pool size: 2048) and reused across requests to minimize Garbage Collection (GC) overhead.
 - **Native Utility Suite:** Full-featured body parsing (JSON, form-urlencoded, text, raw, streaming multipart), cookie management, and static file serving without external modules.
 - **First-Class Streaming:** Direct access to Node's `ServerResponse` with backpressure-aware `ctx.write`, `ctx.stream`, and `ctx.end` APIs.
@@ -61,14 +61,14 @@ app.listen(3000, () => {
 
 ## Key Features at a Glance
 
-| Feature            | Description                                                                |
-| :----------------- | :------------------------------------------------------------------------- |
-| **Routing**        | Trie-based path matching, path traversal protection, wildcard host support |
-| **Middleware**     | Cascading composition across global, per-host, and per-route scopes        |
-| **Body Parsing**   | Async `ctx.body()` for JSON, forms, raw buffers, and multipart uploads     |
-| **Cookies**        | Native `ctx.cookies` parsing and serialization helpers                     |
-| **Static Files**   | Safe, host-bound static asset serving (`volten.static()`)                  |
-| **Error Handling** | Cascading error fallbacks with custom global and host-bound handlers       |
+| Feature            | Description                                                              |
+| :----------------- | :----------------------------------------------------------------------- |
+| **Routing**        | Trie-based path matching, path traversal protection and wildcard support |
+| **Middleware**     | Cascading composition across global and per-route scopes                 |
+| **Body Parsing**   | Async `ctx.body()` for JSON, forms, raw buffers, and multipart uploads   |
+| **Cookies**        | Native `ctx.cookies` parsing and serialization helpers                   |
+| **Static Files**   | Safe, static asset serving (`volten.static()`)                           |
+| **Error Handling** | Cascading error fallbacks with custom global handlers                    |
 
 ---
 

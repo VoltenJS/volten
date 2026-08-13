@@ -1,5 +1,4 @@
 import { IncomingMessage, ServerResponse } from "http";
-import { RouteTree } from "../utils/routeTree.ts";
 import { RequestContext } from "../utils/requestCtx.ts";
 import { MethodStorage } from "../utils/routeTree.ts";
 import { VoltenError } from "./errors.ts";
@@ -49,13 +48,6 @@ export type PathData = {
   disableOpt: boolean;
   methodStorage: MethodStorage;
   paramNames?: string[];
-};
-
-export type HostData = {
-  tree: RouteTree;
-  middleware: VoltenHandler[];
-  immediate: Map<string, string>;
-  hostOptions: Required<VoltenAppOptions>;
 };
 
 export type HTTPMethodParams = [path: string, ...handlers: VoltenHandler[]];

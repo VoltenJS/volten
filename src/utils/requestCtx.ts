@@ -116,7 +116,7 @@ export class RequestContext {
       try {
         const staticPath = app.serverStaticMap;
         if (staticPath === null) {
-          throw new Error("No static path configured for host");
+          throw new Error("No static path configured");
         }
         const filePath = path.join(staticPath, pathname);
         if (!(await isFileInFolder(staticPath, filePath))) {
