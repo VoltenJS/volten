@@ -18,18 +18,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 11
           run_install: false
 
-      - name: Enable Cache
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -52,17 +46,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
         with:
-          node-version: ${{ matrix.node-version }}
+          run_install: false
 
-      - name: Enable Corepack & Install pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@latest-11 --activate
-
-      - name: Enable Cache
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
@@ -82,18 +71,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 11
           run_install: false
 
-      - name: Enable Cache
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
