@@ -29,7 +29,7 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "check": "pnpm run lint && pnpm run format",
     "clear": "rm -rf dist/*",
-    "prepack": "pnpm run build"
+    "pack:npm": "node scripts/pack.js"
   },
   "keywords": [
     "web",
