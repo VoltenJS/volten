@@ -1,11 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { execFileSync as exec } from "node:child_process";
 import Logger, { ansi } from "./logger.js";
 import { ESLint } from "eslint";
 import { create } from "tar";
 
-const PROJECT_ROOT = process.cwd();
+const PROJECT_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const STAGING_DIR = path.join(PROJECT_ROOT, ".pack-staging", "package");
 const OUTPUT_DIR = PROJECT_ROOT;
 
@@ -25,11 +26,11 @@ const pkg = JSON.parse(await fs.readFile(pkgPath, "utf8"));
 mainLogger.meta(`Packing ${pkg.name}@${pkg.version}...`);
 
 async function checkCode() {
-  const execOptions = { stdio: "pipe", encoding: "utf8" };
+  const execOptions = { stdio: "pipe", encoding: "utf8", cwd: PROJECT_ROOT };
 
   try {
     checksLogger.info("Running Linting");
-    const eslint = new ESLint();
+    const eslint = new ESLint({ cwd: PROJECT_ROOT });
     const results = await eslint.lintFiles("src/**/*.ts");
     const formatter = await eslint.loadFormatter("stylish");
     const resultText = formatter.format(results);
@@ -63,7 +64,7 @@ async function checkCode() {
 
   try {
     checksLogger.info("Building");
-    exec("pnpm", ["clear"], execOptions);
+    await fs.rm(path.join(PROJECT_ROOT, "dist"), { recursive: true, force: true });
     exec("pnpm", ["tsup"], execOptions);
     checksLogger.success("Building Succeeded");
   } catch (e) {

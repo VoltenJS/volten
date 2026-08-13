@@ -1,24 +1,34 @@
 {
   "name": "volten",
   "packageManager": "pnpm@11.0.0",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "A 0-dependency Node.js HTTP framework that is simple, modern, and fast.",
   "author": "insanerx",
   "license": "MIT",
   "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     }
   },
   "files": [
     "dist",
     "README.md",
+    "README.npm.md",
     "LICENSE"
   ],
   "scripts": {
@@ -29,8 +39,8 @@
     "lint": "eslint src/**/*.ts",
     "format": "prettier --write \"src/**/*.ts\"",
     "check": "pnpm run lint && pnpm run format",
-    "clear": "rm -rf dist/*",
-    "pack:npm": "node scripts/pack.js"
+    "pack:npm": "node scripts/pack.js",
+    "release": "node scripts/release.js"
   },
   "keywords": [
     "web",
