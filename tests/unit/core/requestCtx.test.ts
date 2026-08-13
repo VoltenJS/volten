@@ -15,7 +15,7 @@ test("RequestContext: default field values are uninitialized", () => {
   assert.equal((ctx as any)._req, null);
   assert.equal((ctx as any)._res, null);
   assert.equal(ctx._route, null);
-  assert.equal(ctx.headers, null);
+  assert.deepEqual(ctx.headers, {});
   assert.equal(ctx.inited, false);
   assert.deepEqual(ctx.state, {});
   // params is an object with no prototype
@@ -33,7 +33,7 @@ test("RequestContext: reset() clears all per-request state", () => {
   (ctx as any)._req = { sentinel: true };
   (ctx as any)._res = { sentinel: true };
   ctx._route = { sentinel: true } as any;
-  ctx.headers = { sentinel: true } as any;
+  ctx._headers = { sentinel: true } as any;
   ctx.inited = true;
   ctx.state["foo"] = "bar";
   ctx.state["nested"] = { x: 1 };
@@ -41,7 +41,6 @@ test("RequestContext: reset() clears all per-request state", () => {
   ctx.method = "POST";
   ctx.url = "/x";
   ctx.path = "/x";
-  ctx.host = "example.com";
   ctx._bodyPromise = Promise.resolve();
   ctx.bufferOffset = 1234;
   (ctx as any).isFlushing = true;
@@ -53,7 +52,7 @@ test("RequestContext: reset() clears all per-request state", () => {
   assert.equal((ctx as any)._req, null);
   assert.equal((ctx as any)._res, null);
   assert.equal(ctx._route, null);
-  assert.equal(ctx.headers, null);
+  assert.deepEqual(ctx.headers, {});
   assert.equal(ctx.inited, false);
   assert.deepEqual(ctx.state, {});
   assert.deepEqual(ctx.params, Object.create(null));

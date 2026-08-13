@@ -38,9 +38,7 @@ const fileTests = {
   },
 
   "04-routing-and-wildcards.js": async (port) => {
-    const resParam = await fetch(
-      `http://localhost:${port}/shop/electronics/mac-studio`,
-    );
+    const resParam = await fetch(`http://localhost:${port}/shop/electronics/mac-studio`);
     assert.equal(resParam.status, 200);
 
     const resQuery = await fetch(
@@ -105,20 +103,14 @@ const fileTests = {
   },
 
   "10-cors-and-security.js": async (port) => {
-    const preflightRes = await fetch(
-      `http://localhost:${port}/api/v1/secure-data`,
-      {
-        method: "OPTIONS",
-        headers: {
-          Origin: "http://localhost:5173",
-          "Access-Control-Request-Method": "GET",
-        },
+    const preflightRes = await fetch(`http://localhost:${port}/api/v1/secure-data`, {
+      method: "OPTIONS",
+      headers: {
+        Origin: "http://localhost:5173",
+        "Access-Control-Request-Method": "GET",
       },
-    );
-    assert.equal(
-      preflightRes.headers.get("access-control-allow-origin"),
-      "http://localhost:5173",
-    );
+    });
+    assert.equal(preflightRes.headers.get("access-control-allow-origin"), "http://localhost:5173");
 
     const dataRes = await fetch(`http://localhost:${port}/api/v1/secure-data`, {
       headers: { Origin: "http://localhost:5173" },
@@ -133,10 +125,11 @@ function runServerAndTest(file, port) {
     console.log(`[Master] Booting server: ${file} on port ${port}`);
 
     // Inject PORT variable so the server file knows where to listen
-    const child = fork(`./${file}`, [], {
-      stdio: "inherit",
+    const child = fork(`${import.meta.dirname}/${file}`, [], {
+      stdio: "pipe",
       env: { ...process.env, PORT: port.toString() },
     });
+    child.tested = false;
     let testStarted = false;
 
     async function handleExecuteTest() {
@@ -162,6 +155,7 @@ function runServerAndTest(file, port) {
           error: err.message,
         });
       } finally {
+        child.tested = true;
         child.kill();
         resolve();
       }
@@ -175,7 +169,10 @@ function runServerAndTest(file, port) {
       await handleExecuteTest();
     }, 1500);
 
-    child.on("exit", () => {
+    child.on("exit", async () => {
+      if (!child.tested) {
+        return;
+      }
       clearTimeout(fallbackBootTimer);
       resolve();
     });
@@ -193,9 +190,7 @@ async function startQueue() {
       .filter((file) => extname(file) === ".js" && file !== currentScript)
       .sort();
 
-    console.log(
-      `Found ${jsFiles.length} servers. Starting concurrent execution sequence...`,
-    );
+    console.log(`Found ${jsFiles.length} servers. Starting concurrent execution sequence...`);
 
     // BASE_PORT acts as the starting range for our concurrent channels
     const BASE_PORT = 3000;
@@ -219,8 +214,12 @@ async function startQueue() {
 
     testSummary.details.forEach((item) => {
       const badge = item.status === "PASSED" ? "✅" : "❌";
+      if (item.error) {
+        console.error(`${badge} ${item.file.padEnd(30)} -> ${item.status}`);
+        console.error(`   └─ Error: ${item.error}`);
+        return;
+      }
       console.log(`${badge} ${item.file.padEnd(30)} -> ${item.status}`);
-      if (item.error) console.log(`   └─ Error: ${item.error}`);
     });
     console.log("---------------------------------------------");
     console.log(

@@ -28,6 +28,14 @@ import { createServer } from "../utils/createServer.ts";
 import { Router } from "./router.ts";
 import { createLogger } from "../utils/logger.ts";
 
+/**
+ * The main Volten Application class.
+ *
+ * Inherits routing capabilities from the `Router` class and manages the HTTP/HTTPS server,
+ * request pool, error handling, JIT response compilation/serialization caching, and logging.
+ *
+ * @template CustomLevels - Type defining custom logger levels.
+ */
 export class App<CustomLevels extends string = never> extends Router {
   private availableContexts: RequestContext[];
   private poolIndex: number = 0;
@@ -43,8 +51,20 @@ export class App<CustomLevels extends string = never> extends Router {
   public parseMultipartStream = parseMultipartStream.bind(this);
   public server: http.Server | https.Server;
   private acceptIncomming = true;
-  public logger: Logger<CustomLevels> = createLogger({ level: "warn" }) as Logger<CustomLevels>;
+  public logger: Logger<CustomLevels>;
 
+  /**
+   * Configures a custom logger with the specified levels and formats.
+   *
+   * @param {CustomLoggerOptions<NewLevels>} options - Configuration options for the new logger.
+   * @returns {Logger<NewLevels>} The newly configured logger instance.
+   *
+   * @example
+   * app.configLogger({
+   *   levels: { debug: 0, info: 1 },
+   *   // ...
+   * });
+   */
   public configLogger<NewLevels extends string = never>(
     options: CustomLoggerOptions<NewLevels>,
   ): Logger<NewLevels> {
@@ -53,6 +73,14 @@ export class App<CustomLevels extends string = never> extends Router {
     return newLogger;
   }
 
+  /**
+   * Configures a directory for serving static files.
+   *
+   * @param {string} folderPath - The directory path (absolute or relative to project root) to serve files from.
+   *
+   * @example
+   * app.static('public');
+   */
   static(folderPath: string) {
     const absolutePath = fs.existsSync(folderPath)
       ? folderPath
@@ -73,7 +101,12 @@ export class App<CustomLevels extends string = never> extends Router {
     this.availableContexts.push(ctx);
   }
 
-  constructor(options: VoltenAppOptions = {}) {
+  /**
+   * Creates an instance of the Volten application.
+   *
+   * @param {VoltenAppOptions<CustomLevels>} [options={}] - App options including port, SSL certs, pool size, body limit, and logging configs.
+   */
+  constructor(options: VoltenAppOptions<CustomLevels> = {}) {
     super();
     Object.assign(this.AppOptions, options);
     const serverOptions =
@@ -82,16 +115,30 @@ export class App<CustomLevels extends string = never> extends Router {
     this.poolSize = this.AppOptions.RequestPoolSize;
     this.tree = new RouteTree(this.AppOptions.caseInsensitive);
     this.onRequest = this.onRequest.bind(this);
+    this.logger = createLogger(this.AppOptions.loggerOptions) as Logger<CustomLevels>;
     this.availableContexts = [];
     for (let i = 0; i < this.poolSize; i++) {
       this.availableContexts.push(new RequestContext());
     }
   }
 
+  /**
+   * Matches the incoming HTTP method and path against the route tree to find a matching route.
+   *
+   * @param {string} method - HTTP request method (e.g. 'GET', 'POST').
+   * @param {string} path - The request path.
+   * @param {RequestContext} ctx - The current request context.
+   * @returns {PathData | null} The matched route metadata, or null if no route matches.
+   */
   getRoute(method: string, path: string, ctx: RequestContext): PathData | null {
     return this.tree.matchPath(method, path, ctx);
   }
 
+  /**
+   * Gets the underlying route tree structure containing all registered route paths.
+   *
+   * @returns {RouteTree} The RouteTree instance.
+   */
   getRouteTree(): RouteTree {
     return this.tree;
   }
@@ -164,6 +211,15 @@ export class App<CustomLevels extends string = never> extends Router {
   private preflightHandlers: PreflightHandler[] = [];
   private preflightHandler: PreflightHandler | null = null;
 
+  /**
+   * Handles errors thrown during request preprocessing, routing, or middleware execution.
+   *
+   * Falls back to the custom error handler if registered; otherwise, executes the default handler.
+   *
+   * @param {unknown} err - The error instance.
+   * @param {RequestContext} ctx - The associated request context.
+   * @returns {Promise<void>} A promise resolving when the error is handled.
+   */
   public async handleError(err: unknown, ctx: RequestContext): Promise<void> {
     const error = err instanceof VoltenError ? err : VoltenError.from(err);
     const res = ctx.res;
@@ -210,14 +266,39 @@ export class App<CustomLevels extends string = never> extends Router {
     return this.preflightHandler;
   }
 
+  /**
+   * Registers a custom application-wide error handler.
+   *
+   * @param {ErrorHandler} fn - Custom error handler function.
+   *
+   * @example
+   * app.onError((err, ctx) => {
+   *   ctx.status(500).json({ error: err.message });
+   * });
+   */
   public onError(fn: ErrorHandler) {
     this.customErrorHandler = fn;
   }
 
+  /**
+   * Clears the registered custom error handler, falling back to the default handler.
+   */
   public clearErrorHandler() {
     this.customErrorHandler = null;
   }
 
+  /**
+   * Registers a preflight request handler.
+   *
+   * Preflight handlers run sequentially before any routing occurs for every incoming request.
+   *
+   * @param {PreflightHandler} fn - Preflight handler function.
+   *
+   * @example
+   * app.preflight(async (ctx) => {
+   *   ctx.setHeader('X-Response-Time', Date.now().toString());
+   * });
+   */
   public preflight(fn: PreflightHandler) {
     this.preflightHandlers.push(fn);
   }
@@ -280,6 +361,19 @@ export class App<CustomLevels extends string = never> extends Router {
     }
   }
 
+  /**
+   * Starts the HTTP/HTTPS server listening for incoming connections.
+   *
+   * Compiles registered route trees, preflight pipelines, and binds to the specified port.
+   *
+   * @param {...any[]} args - Arguments passed directly to the underlying Node.js server `listen` method.
+   * @returns {http.Server | https.Server} The underlying Node.js Server instance.
+   *
+   * @example
+   * app.listen(3000, () => {
+   *   console.log('Server is running on port 3000');
+   * });
+   */
   listen(...args: Parameters<http.Server["listen"]>): http.Server {
     if (this.server.listening) {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
@@ -331,6 +425,18 @@ export class App<CustomLevels extends string = never> extends Router {
     });
   }
 
+  /**
+   * Gracefully shuts down the HTTP/HTTPS server.
+   *
+   * Stops accepting new connections, waits for active connections in the request pool to complete
+   * (up to a timeout limit), and closes the server.
+   *
+   * @param {...any[]} args - Arguments passed directly to the underlying Node.js server `close` method.
+   * @returns {Promise<void>} A promise resolving when the server has successfully closed.
+   *
+   * @example
+   * await app.close();
+   */
   public async close(...args: Parameters<http.Server["close"]>) {
     this.acceptIncomming = false;
 

@@ -1,6 +1,36 @@
 {
   "name": "volten",
+  "version": "0.1.0",
   "description": "A 0-dependency Node.js HTTP framework that is simple, modern, and fast.",
+  "author": "insanerx",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "start": "node dist/app.js",
+    "dev": "nodemon",
+    "test": "tsx tests/run.ts",
+    "lint": "eslint src/**/*.ts",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "check": "pnpm run lint && pnpm run format",
+    "clear": "rm -rf dist/*",
+    "pack:npm": "node scripts/pack.js"
+  },
   "keywords": [
     "web",
     "framework",
@@ -12,22 +42,8 @@
     "performance",
     "modern",
     "simple",
-    "fast"
+    "jit"
   ],
-  "version": "0.0.1",
-  "author": "insanerx",
-  "type": "module",
-  "main": "examples/01-hello-world.js",
-  "scripts": {
-    "build": "tsup",
-    "start": "node dist/app.js",
-    "dev": "nodemon",
-    "test": "tsx tests/run.ts",
-    "lint": "eslint src/**/*.ts",
-    "format": "prettier --write \"src/**/*.ts\"",
-    "check": "pnpm run lint && pnpm run format",
-    "clear": "rm -rf dist/*"
-  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^25.5.2",
@@ -36,6 +52,7 @@
     "eslint-plugin-security": "^4.0.1",
     "nodemon": "^3.1.14",
     "prettier": "^3.8.3",
+    "tar": "^7.5.22",
     "tsup": "^8.5.1",
     "tsx": "^4.22.5",
     "typescript": "^6.0.2",

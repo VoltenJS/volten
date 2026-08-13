@@ -134,9 +134,6 @@ export async function request(
         headers: mixedHeaders,
         agent: false, // Disable connection pooling to prevent dangling sockets
       };
-      /*console.log(
-        `${reqOptions.method} ${reqOptions.hostname}:${reqOptions.port}${reqOptions.path}`,
-      );*/
 
       // 5. Execute the low-level HTTP request
       const req = http.request(reqOptions, (res) => {
