@@ -6,7 +6,7 @@ import pluginSecurity from "eslint-plugin-security";
 
 export default defineConfig([
   {
-    ignores: ["eslint.config.js", "tests"],
+    ignores: ["eslint.config.js", "tests", "scripts", "examples"],
   },
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
@@ -23,7 +23,7 @@ export default defineConfig([
       "no-unused-vars": "off",
 
       "@typescript-eslint/no-unused-vars": [
-        "warn",
+        "error",
         {
           argsIgnorePattern: "^_",
           varsIgnorePattern: "^_",
@@ -48,7 +48,7 @@ export default defineConfig([
       "@typescript-eslint/no-floating-promises": "error",
       "@typescript-eslint/switch-exhaustiveness-check": "error",
 
-      "no-console": ["warn", { allow: ["warn", "error", "info"] }],
+      "no-console": ["error", { allow: ["warn", "error", "info"] }],
       "security/detect-object-injection": "off",
       "security/detect-non-literal-fs-filename": "off",
     },
