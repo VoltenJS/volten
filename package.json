@@ -1,5 +1,6 @@
 {
   "name": "volten",
+  "packageManager": "pnpm@11.0.0",
   "version": "0.1.0",
   "description": "A 0-dependency Node.js HTTP framework that is simple, modern, and fast.",
   "author": "insanerx",
