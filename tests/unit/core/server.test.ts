@@ -22,7 +22,7 @@ function captureLogs(fn: () => void): any[] {
 
 test("App logger: default logger works and logs warn level by default", () => {
   const app = new App();
-  
+
   const logs = captureLogs(() => {
     app.logger.info("should not log");
     app.logger.warn("this is a warning");

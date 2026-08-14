@@ -6,15 +6,42 @@ import { Readable } from "stream";
 
 export type Next = () => Promise<void> | void;
 
-export type VoltenHandler = (ctx: RequestContext, next: Next) => Promise<void> | void;
+type ExtractParamKeys<T extends string> = T extends `${string}:${infer Param}/${infer Rest}`
+  ? Param | ExtractParamKeys<Rest>
+  : T extends `${string}:${infer Param}`
+    ? Param
+    : T extends `${string}*${infer Rest}`
+      ? "*" | ExtractParamKeys<Rest>
+      : never;
 
-export type VoltenChainHandler = (ctx: RequestContext) => Promise<void> | void;
+export type ExtractParams<T extends string> = string extends T
+  ? Record<string, string>
+  : [ExtractParamKeys<T>] extends [never]
+    ? Record<string, never>
+    : { [K in ExtractParamKeys<T>]: string };
 
-export type PreflightHandler = (ctx: RequestContext) => Promise<void> | void;
+export type VoltenHandler<P extends string = string> = (
+  ctx: RequestContext<P>,
+  next: Next,
+) => Promise<void> | void;
 
-export type ErrorHandler = (err: VoltenError, ctx: RequestContext) => Promise<void> | void;
+export type VoltenChainHandler<P extends string = string> = (
+  ctx: RequestContext<P>,
+) => Promise<void> | void;
 
-export type DefaultErrorHandler = (err: VoltenError, ctx: RequestContext) => void;
+export type PreflightHandler<P extends string = string> = (
+  ctx: RequestContext<P>,
+) => Promise<void> | void;
+
+export type ErrorHandler<P extends string = string> = (
+  err: VoltenError,
+  ctx: RequestContext<P>,
+) => Promise<void> | void;
+
+export type DefaultErrorHandler<P extends string = string> = (
+  err: VoltenError,
+  ctx: RequestContext<P>,
+) => void;
 
 export type NativeErrorHandler = (
   err: VoltenError,
@@ -22,7 +49,7 @@ export type NativeErrorHandler = (
   res: ServerResponse,
 ) => Promise<void> | void;
 
-export type Params = Record<string, unknown>;
+export type Params = Record<string, string>;
 export type Query = Record<string, string | string[]>;
 
 export type SerializerFn = (data: unknown, ctx?: unknown) => string;

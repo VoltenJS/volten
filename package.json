@@ -1,7 +1,7 @@
 {
   "name": "volten",
   "packageManager": "pnpm@11.0.0",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "A 0-dependency Node.js HTTP framework that is simple, modern, and fast.",
   "author": "insanerx",
   "license": "MIT",
@@ -37,7 +37,7 @@
     "dev": "nodemon",
     "test": "tsx tests/run.ts",
     "lint": "eslint src/**/*.ts",
-    "format": "prettier --write \"src/**/*.ts\"",
+    "format": "prettier --write \"{src,tests}/**/*.ts\"",
     "check": "pnpm run lint && pnpm run format",
     "pack:npm": "node scripts/pack.js",
     "release": "node scripts/release.js"

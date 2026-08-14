@@ -89,7 +89,7 @@ export class Router {
    *   return ctx.json({ users: [] });
    * });
    */
-  get(path: string, ...handlers: VoltenHandler[]): void;
+  get<P extends string>(path: P, ...handlers: VoltenHandler<P>[]): void;
   /**
    * Registers a GET route with custom route options and handlers.
    *
@@ -97,9 +97,16 @@ export class Router {
    * @param {RouteOptions} options - Route options config (e.g. body limit).
    * @param {...VoltenHandler[]} handlers - One or more handler functions.
    */
-  get(path: string, options: RouteOptions, ...handlers: VoltenHandler[]): void;
-  get(path: string, arg2: RouteOptions | VoltenHandler, ...handlers: VoltenHandler[]): void {
-    const { options, routeHandlers } = this.identifyParamType(arg2, ...handlers);
+  get<P extends string>(path: P, options: RouteOptions, ...handlers: VoltenHandler<P>[]): void;
+  get<P extends string>(
+    path: P,
+    arg2: RouteOptions | VoltenHandler<P>,
+    ...handlers: VoltenHandler<P>[]
+  ): void {
+    const { options, routeHandlers } = this.identifyParamType(
+      arg2 as RouteOptions | VoltenHandler,
+      ...(handlers as unknown as VoltenHandler[]),
+    );
     const handlersWithMiddleware = [...this.middleware, ...routeHandlers];
     this.routes.push({ method: "GET", path, options, handlers: handlersWithMiddleware });
   }
@@ -116,7 +123,7 @@ export class Router {
    *   return ctx.status(201).json({ created: true });
    * });
    */
-  post(path: string, ...handlers: VoltenHandler[]): void;
+  post<P extends string>(path: P, ...handlers: VoltenHandler<P>[]): void;
   /**
    * Registers a POST route with custom route options and handlers.
    *
@@ -124,9 +131,16 @@ export class Router {
    * @param {RouteOptions} options - Route options config (e.g. body limit).
    * @param {...VoltenHandler[]} handlers - One or more handler functions.
    */
-  post(path: string, options: RouteOptions, ...handlers: VoltenHandler[]): void;
-  post(path: string, arg2: RouteOptions | VoltenHandler, ...handlers: VoltenHandler[]): void {
-    const { options, routeHandlers } = this.identifyParamType(arg2, ...handlers);
+  post<P extends string>(path: P, options: RouteOptions, ...handlers: VoltenHandler<P>[]): void;
+  post<P extends string>(
+    path: P,
+    arg2: RouteOptions | VoltenHandler<P>,
+    ...handlers: VoltenHandler<P>[]
+  ): void {
+    const { options, routeHandlers } = this.identifyParamType(
+      arg2 as RouteOptions | VoltenHandler,
+      ...(handlers as unknown as VoltenHandler[]),
+    );
     const handlersWithMiddleware = [...this.middleware, ...routeHandlers];
     this.routes.push({ method: "POST", path, options, handlers: handlersWithMiddleware });
   }
@@ -142,7 +156,7 @@ export class Router {
    *   return ctx.json({ updated: true });
    * });
    */
-  patch(path: string, ...handlers: VoltenHandler[]): void;
+  patch<P extends string>(path: P, ...handlers: VoltenHandler<P>[]): void;
   /**
    * Registers a PATCH route with custom route options and handlers.
    *
@@ -150,9 +164,16 @@ export class Router {
    * @param {RouteOptions} options - Route options config (e.g. body limit).
    * @param {...VoltenHandler[]} handlers - One or more handler functions.
    */
-  patch(path: string, options: RouteOptions, ...handlers: VoltenHandler[]): void;
-  patch(path: string, arg2: RouteOptions | VoltenHandler, ...handlers: VoltenHandler[]): void {
-    const { options, routeHandlers } = this.identifyParamType(arg2, ...handlers);
+  patch<P extends string>(path: P, options: RouteOptions, ...handlers: VoltenHandler<P>[]): void;
+  patch<P extends string>(
+    path: P,
+    arg2: RouteOptions | VoltenHandler<P>,
+    ...handlers: VoltenHandler<P>[]
+  ): void {
+    const { options, routeHandlers } = this.identifyParamType(
+      arg2 as RouteOptions | VoltenHandler,
+      ...(handlers as unknown as VoltenHandler[]),
+    );
     const handlersWithMiddleware = [...this.middleware, ...routeHandlers];
     this.routes.push({ method: "PATCH", path, options, handlers: handlersWithMiddleware });
   }
@@ -168,7 +189,7 @@ export class Router {
    *   return ctx.json({ replaced: true });
    * });
    */
-  put(path: string, ...handlers: VoltenHandler[]): void;
+  put<P extends string>(path: P, ...handlers: VoltenHandler<P>[]): void;
   /**
    * Registers a PUT route with custom route options and handlers.
    *
@@ -176,9 +197,16 @@ export class Router {
    * @param {RouteOptions} options - Route options config (e.g. body limit).
    * @param {...VoltenHandler[]} handlers - One or more handler functions.
    */
-  put(path: string, options: RouteOptions, ...handlers: VoltenHandler[]): void;
-  put(path: string, arg2: RouteOptions | VoltenHandler, ...handlers: VoltenHandler[]): void {
-    const { options, routeHandlers } = this.identifyParamType(arg2, ...handlers);
+  put<P extends string>(path: P, options: RouteOptions, ...handlers: VoltenHandler<P>[]): void;
+  put<P extends string>(
+    path: P,
+    arg2: RouteOptions | VoltenHandler<P>,
+    ...handlers: VoltenHandler<P>[]
+  ): void {
+    const { options, routeHandlers } = this.identifyParamType(
+      arg2 as RouteOptions | VoltenHandler,
+      ...(handlers as unknown as VoltenHandler[]),
+    );
     const handlersWithMiddleware = [...this.middleware, ...routeHandlers];
     this.routes.push({ method: "PUT", path, options, handlers: handlersWithMiddleware });
   }
@@ -194,7 +222,7 @@ export class Router {
    *   return ctx.json({ deleted: true });
    * });
    */
-  delete(path: string, ...handlers: VoltenHandler[]): void;
+  delete<P extends string>(path: P, ...handlers: VoltenHandler<P>[]): void;
   /**
    * Registers a DELETE route with custom route options and handlers.
    *
@@ -202,9 +230,16 @@ export class Router {
    * @param {RouteOptions} options - Route options config.
    * @param {...VoltenHandler[]} handlers - One or more handler functions.
    */
-  delete(path: string, options: RouteOptions, ...handlers: VoltenHandler[]): void;
-  delete(path: string, arg2: RouteOptions | VoltenHandler, ...handlers: VoltenHandler[]): void {
-    const { options, routeHandlers } = this.identifyParamType(arg2, ...handlers);
+  delete<P extends string>(path: P, options: RouteOptions, ...handlers: VoltenHandler<P>[]): void;
+  delete<P extends string>(
+    path: P,
+    arg2: RouteOptions | VoltenHandler<P>,
+    ...handlers: VoltenHandler<P>[]
+  ): void {
+    const { options, routeHandlers } = this.identifyParamType(
+      arg2 as RouteOptions | VoltenHandler,
+      ...(handlers as unknown as VoltenHandler[]),
+    );
     const handlersWithMiddleware = [...this.middleware, ...routeHandlers];
     this.routes.push({ method: "DELETE", path, options, handlers: handlersWithMiddleware });
   }
