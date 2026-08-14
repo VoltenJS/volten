@@ -11,7 +11,6 @@ export default defineConfig({
   },
   clean: true,
   splitting: false,
-  minify: true,
   sourcemap: true,
   target: "node24",
 });
