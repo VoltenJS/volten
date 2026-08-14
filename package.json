@@ -37,7 +37,7 @@
     "dev": "nodemon",
     "test": "tsx tests/run.ts",
     "lint": "eslint src/**/*.ts",
-    "format": "prettier --write \"src/**/*.ts\"",
+    "format": "prettier --write \"{src,tests}/**/*.ts\"",
     "check": "pnpm run lint && pnpm run format",
     "pack:npm": "node scripts/pack.js",
     "release": "node scripts/release.js"

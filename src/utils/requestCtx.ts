@@ -7,10 +7,10 @@ import type {
   PathData,
   JSONResponseOptions,
   SendFileOptions,
-  Params,
   ErrorHandler,
   CookieOptions,
   MultipartPart,
+  ExtractParams,
 } from "../core/types.ts";
 import { App } from "../core/server.ts";
 import { parseUrl, parseQuery } from "./parseUrl.ts";
@@ -31,7 +31,7 @@ const timer = setInterval(() => {
 }, 1000);
 timer.unref();
 
-export class RequestContext {
+export class RequestContext<P extends string = string> {
   public _app: App<string> | null = null;
   private _req: http.IncomingMessage | null = null;
   private _res: http.ServerResponse | null = null;
@@ -43,7 +43,7 @@ export class RequestContext {
   public path!: string;
   public _headers: http.IncomingHttpHeaders | null = null;
   public state: Record<string, unknown> = {};
-  public params: Params = Object.create(null) as Params;
+  public params: ExtractParams<P> = Object.create(null) as ExtractParams<P>;
   public inited: boolean = false;
 
   private queryString!: string;
@@ -83,7 +83,7 @@ export class RequestContext {
     this.queryString = queryStr;
 
     this.queryValue = null;
-    this.params = Object.create(null) as Params;
+    this.params = Object.create(null) as ExtractParams<P>;
     const headers = req.headers;
     this._headers = headers;
     this.method = req.method ?? "GET";
@@ -152,7 +152,7 @@ export class RequestContext {
     this._res = null;
     this._route = null;
     this._headers = null;
-    this.params = Object.create(null) as Params;
+    this.params = Object.create(null) as ExtractParams<P>;
     this.state = {};
     this.queryValue = null;
     this._bodyPromise = undefined;
