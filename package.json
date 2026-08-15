@@ -1,7 +1,7 @@
 {
   "name": "volten",
   "packageManager": "pnpm@11.0.0",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "A 0-dependency Node.js HTTP framework that is simple, modern, and fast.",
   "repository": {
     "type": "git",
