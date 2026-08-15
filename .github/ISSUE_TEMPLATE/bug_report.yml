@@ -1,0 +1,89 @@
+name: Bug Report
+description: Report an issue, unexpected behavior, or context lifecycle anomaly in the framework.
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a report! Please provide detailed technical context to help reproduce and isolate the issue.
+
+  - type: textarea
+    id: overview
+    attributes:
+      label: High-Level Overview
+      description: A clear, concise narrative describing the bug and where it occurred.
+      placeholder: "e.g., Calling ctx.headers on an uninitialized request context causes..."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: affected_module
+    attributes:
+      label: Affected Component / Module
+      description: Which part of the framework is impacted?
+      options:
+        - Core Engine / Server
+        - Router
+        - Request Context
+        - Packaging / ESM-CJS Exports
+        - Tooling / Scripts
+        - Documentation / JSDoc
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce & Code Example
+      description: Provide a minimal, reproducible code snippet or clear steps to trigger the bug.
+      render: typescript
+      placeholder: |
+        import { App } from 'volten';
+
+        const app = new App();
+        // ... minimal reproduction code
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_vs_actual
+    attributes:
+      label: Expected vs. Actual Behavior
+      description: What did you expect to happen, and what happened instead?
+      placeholder: |
+        Expected: ctx.headers returns an empty object {}
+        Actual: ctx.headers throws TypeError or returns null
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment Details
+      description: Node/Bun/Deno version, package manager, OS, and framework version.
+      placeholder: "Node v20.11.0, pnpm v9.0, macOS Sonoma"
+    validations:
+      required: true
+
+  - type: input
+    id: contact
+    attributes:
+      label: Contact / Follow-Up (Optional)
+      description: Provide an email, Discord handle, or preferred channel if you're open to real-time debugging follow-ups.
+      placeholder: "e.g., username@domain.com or Discord: @username"
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Validation Checklist
+      options:
+        - label: I have verified this issue exists on the latest release/main branch.
+          required: true
+        - label: I checked existing issues and pull requests to avoid duplicates.
+          required: true
+        - label: I am willing to submit a PR to resolve this issue (optional).
+          required: false
