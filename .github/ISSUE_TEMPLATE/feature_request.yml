@@ -1,0 +1,46 @@
+name: Feature Request & API Proposal
+description: Propose a new feature, architecture refactor, or API enhancement.
+title: "[Feat]: "
+labels: ["enhancement", "discussion"]
+body:
+  - type: textarea
+    id: proposal_overview
+    attributes:
+      label: High-Level Overview & Motivation
+      description: Explain the problem this feature solves and why it belongs in the core framework.
+      placeholder: "Describe the use case and technical problem..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_api
+    attributes:
+      label: Proposed API & Technical Changes
+      description: Detail proposed class/function signatures, parameter changes, or architectural layout.
+      render: typescript
+      placeholder: |
+        // Example of intended API usage
+        app.use(async (ctx, next) => {
+          // ...
+        });
+    validations:
+      required: true
+
+  - type: textarea
+    id: breaking_changes
+    attributes:
+      label: Breaking Changes Assessment
+      description: Does this alter public method signatures, package exports, or runtime behavior?
+      placeholder: "None, or describe impacted components/deprecations..."
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Proposal Checklist
+      options:
+        - label: I have verified this capability does not already exist in the API.
+          required: true
+        - label: I have outlined potential breaking changes and upgrade paths.
+          required: true
