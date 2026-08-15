@@ -3,6 +3,14 @@
   "packageManager": "pnpm@11.0.0",
   "version": "0.0.3",
   "description": "A 0-dependency Node.js HTTP framework that is simple, modern, and fast.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/VoltenJS/volten.git"
+  },
+  "bugs": {
+    "url": "https://github.com/VoltenJS/volten/issues"
+  },
+  "homepage": "https://github.com/VoltenJS/volten#readme",
   "author": "insanerx",
   "license": "MIT",
   "type": "module",
