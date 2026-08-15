@@ -27,12 +27,12 @@ npm install volten
 ### Basic Example
 
 ```javascript
-const { App } = require("volten");
+import { App } from "volten";
 const app = new App();
 
 // Global middleware
 app.use((ctx, next) => {
-  console.log(`[${new Date().toISOString()}] ${ctx.method}${ctx.url}`);
+  console.log(`[${new Date().toISOString()}] ${ctx.method} ${ctx.url}`);
   next();
 });
 

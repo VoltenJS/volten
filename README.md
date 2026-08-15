@@ -37,23 +37,19 @@ volten/
 
 ## Quick Start
 
-### 1. Build from source
+### 1. Install from npm registry
 
-Volten is in active development. Install it locally from the repo:
+Volten is oublic on npm. Install it with any package manager:
 
 ```bash
-git clone https://github.com/VoltenJS/volten.git
-cd volten
-
-# Install dependencies (pnpm is recommended)
-pnpm install
+pnpm add volten
 pnpm run build
 ```
 
 ### 2. Create a server
 
 ```javascript
-const { App } = require("./dist/core/server.js");
+import { App } from "volten";
 const app = new App();
 
 // Global middleware — runs on every request
