@@ -20,7 +20,7 @@ import {
   PAYLOAD_TOO_LARGE_HEADERS,
 } from "./types.ts";
 import { RouteTree } from "../utils/routeTree.ts";
-import { RequestContext } from "../utils/requestCtx.ts";
+import { RequestContext, NodeRequestContext, EdgeRequestContext } from "../utils/requestCtx.ts";
 import { JitCache } from "../utils/jitCache.ts";
 import { PayloadTooLargeError, VoltenError } from "./errors.ts";
 import { parseBody, parseMultipartStream } from "../utils/bodyParser.ts";
@@ -37,7 +37,8 @@ import { createLogger } from "../utils/logger.ts";
  * @template CustomLevels - Type defining custom logger levels.
  */
 export class App<CustomLevels extends string = never> extends Router {
-  private availableContexts: RequestContext[];
+  private availableContexts: NodeRequestContext[];
+  private availableEdgeContexts: EdgeRequestContext[];
   private poolIndex: number = 0;
   private poolSize: number = 2048;
   public JITCache: JitCache = new JitCache();
@@ -93,12 +94,20 @@ export class App<CustomLevels extends string = never> extends Router {
     this.serverStaticMap = absolutePath;
   }
 
-  resetCtx(ctx: RequestContext) {
+  resetCtx(ctx: NodeRequestContext) {
     if (!ctx.inited) {
       return;
     }
     ctx.reset();
     this.availableContexts.push(ctx);
+  }
+
+  resetEdgeCtx(ctx: EdgeRequestContext) {
+    if (!ctx.inited) {
+      return;
+    }
+    ctx.reset();
+    this.availableEdgeContexts.push(ctx);
   }
 
   /**
@@ -117,8 +126,10 @@ export class App<CustomLevels extends string = never> extends Router {
     this.onRequest = this.onRequest.bind(this);
     this.logger = createLogger(this.AppOptions.loggerOptions) as Logger<CustomLevels>;
     this.availableContexts = [];
+    this.availableEdgeContexts = [];
     for (let i = 0; i < this.poolSize; i++) {
-      this.availableContexts.push(new RequestContext());
+      this.availableContexts.push(new NodeRequestContext());
+      this.availableEdgeContexts.push(new EdgeRequestContext());
     }
   }
 
@@ -152,7 +163,6 @@ export class App<CustomLevels extends string = never> extends Router {
       ...INTERNAL_SERVER_ERROR_HEADERS,
     };
     let body: string | Buffer = INTERNAL_SERVER_ERROR_BUF;
-    const res = ctx.res;
     switch (err.code) {
       case "ERR_PAYLOAD_TOO_LARGE":
         status = 413;
@@ -184,8 +194,14 @@ export class App<CustomLevels extends string = never> extends Router {
         };
         break;
       case "ERR_HEADERS_SENT":
-        ctx.res.destroy();
-        ctx.req.socket.destroy();
+        if (ctx.runtime === "node") {
+          const res = ctx.res;
+          if (res !== null) {
+            res.destroy();
+          }
+          const reqNode = ctx.req as http.IncomingMessage;
+          reqNode.socket.destroy();
+        }
         break;
       default:
         if (!this.AppOptions.noLogs) {
@@ -200,11 +216,25 @@ export class App<CustomLevels extends string = never> extends Router {
         break;
     }
 
-    if (!ctx.headersSent) {
-      res.writeHead(status, headers);
-      res.end(body);
+    if (ctx.runtime === "node") {
+      const res = ctx.res;
+      if (res !== null) {
+        if (!ctx.headersSent) {
+          res.writeHead(status, headers);
+          res.end(body);
+        } else {
+          res.destroy();
+        }
+      }
     } else {
-      res.destroy();
+      const edgeCtx = ctx as EdgeRequestContext;
+      if (!edgeCtx.headersSent) {
+        edgeCtx.statusCode = status;
+        for (const [key, value] of Object.entries(headers)) {
+          edgeCtx.setHeader(key, String(value));
+        }
+        edgeCtx.send(body);
+      }
     }
   };
 
@@ -222,14 +252,17 @@ export class App<CustomLevels extends string = never> extends Router {
    */
   public async handleError(err: unknown, ctx: RequestContext): Promise<void> {
     const error = err instanceof VoltenError ? err : VoltenError.from(err);
-    const res = ctx.res;
-
     const customHandler = this.customErrorHandler;
 
     if (customHandler !== null) {
       try {
         await customHandler(error, ctx);
-        if (!res.writableEnded && !res.destroyed) {
+        const isNotEnded =
+          ctx.runtime === "node"
+            ? ctx.res !== null && !ctx.res.writableEnded && !ctx.res.destroyed
+            : !ctx.sent;
+
+        if (isNotEnded) {
           if (!this.AppOptions.noLogs) {
             console.warn(
               `[Volten Framework Warning]: Custom error handler returned without terminating the response. Falling back to default handler.`,
@@ -255,9 +288,17 @@ export class App<CustomLevels extends string = never> extends Router {
       if (!this.AppOptions.noLogs) {
         console.error("Critical failure in core errorHandler:", finalError);
       }
-      if (!ctx.res.destroyed) {
-        ctx.res.destroy();
-        this.resetCtx(ctx);
+      if (ctx.runtime === "node") {
+        const res = ctx.res;
+        if (res !== null && !res.destroyed) {
+          res.destroy();
+          this.resetCtx(ctx);
+        }
+      } else {
+        const edgeCtx = ctx as EdgeRequestContext;
+        if (!edgeCtx.sent) {
+          edgeCtx.send("Internal Server Error", 500);
+        }
       }
     }
   }
@@ -318,7 +359,10 @@ export class App<CustomLevels extends string = never> extends Router {
     };
   }
 
-  private createCtx(req: http.IncomingMessage, res: http.ServerResponse): RequestContext | null {
+  private createCtx(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+  ): NodeRequestContext | null {
     const ctx = this.availableContexts.pop();
     if (ctx == undefined) {
       res.setHeader("Connection", "close");
@@ -376,10 +420,8 @@ export class App<CustomLevels extends string = never> extends Router {
    */
   listen(...args: Parameters<http.Server["listen"]>): http.Server {
     if (this.server.listening) {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-      const lastArg = args[args.length - 1];
+      const lastArg = args[args.length - 1] as unknown;
       if (typeof lastArg === "function") {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
         process.nextTick(lastArg);
       }
       return this.server;
@@ -393,6 +435,74 @@ export class App<CustomLevels extends string = never> extends Router {
     this.tree.createMatchPath();
     this.server.listen(...args);
     return this.server;
+  }
+
+  /**
+   * Returns a fetch handler compatible with Web Fetch API / Edge environments.
+   *
+   * @returns {(request: Request, env?: unknown, executionCtx?: unknown) => Promise<Response>} The native fetch handler.
+   */
+  public createFetch(): (
+    request: Request,
+    env?: unknown,
+    executionCtx?: unknown,
+  ) => Promise<Response> {
+    this.compilePreflightHandler();
+    this.register(this);
+    this.tree.createMatchPath();
+
+    return async (request: Request, env?: unknown, executionCtx?: unknown): Promise<Response> => {
+      let ctx = this.availableEdgeContexts.pop();
+      if (ctx === undefined) {
+        ctx = new EdgeRequestContext();
+      }
+
+      ctx.init(this, request, env, executionCtx);
+
+      try {
+        const preflightHandler = this.getPreflightHandler();
+        if (preflightHandler !== null) {
+          const result = preflightHandler(ctx);
+          if (result instanceof Promise) {
+            await result.catch((err: unknown) => this.handleError(err, ctx));
+          }
+          if (ctx.sent) {
+            return await ctx._edgeResponsePromise;
+          }
+        }
+
+        await ctx.routePath().catch((err: unknown) => {
+          void this.handleError(err, ctx);
+        });
+
+        if (ctx.sent) {
+          return await ctx._edgeResponsePromise;
+        }
+
+        const route = ctx._route;
+        if (route === null) {
+          return new Response("Not Found", { status: 404 });
+        }
+
+        const handlerChain = route.composeChain;
+        const result = handlerChain(ctx);
+        if (result instanceof Promise) {
+          await result.catch((err: unknown) => this.handleError(err, ctx));
+        }
+
+        const resObj = await ctx._edgeResponsePromise;
+        return resObj;
+      } catch (err) {
+        await this.handleError(err, ctx);
+        return await ctx._edgeResponsePromise;
+      } finally {
+        if (ctx._edgeBody instanceof ReadableStream) {
+          // Do not recycle immediately if body is a readable stream to allow deferred reading
+        } else {
+          this.resetEdgeCtx(ctx);
+        }
+      }
+    };
   }
 
   private onRequest(req: http.IncomingMessage, res: http.ServerResponse) {
@@ -409,6 +519,7 @@ export class App<CustomLevels extends string = never> extends Router {
         this.errorHandler(new PayloadTooLargeError(limit.toString()), {
           req,
           res,
+          runtime: "node",
         } as RequestContext);
         return;
       }

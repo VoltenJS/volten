@@ -136,7 +136,7 @@ export interface MultipartFile {
   name: string;
   filename: string;
   contentType?: string;
-  stream: Readable;
+  stream: Readable | ReadableStream;
   /** Saves the file to disk. Automatically creates missing directories. */
   save: (targetPath: string) => Promise<void>;
   /** Materializes the stream completely into a Buffer */
@@ -190,8 +190,7 @@ export interface LogFn {
 
 export type DefaultLevels = "fatal" | "error" | "warn" | "info" | "debug" | "trace";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type LoggerSerializerFn = (value: any) => any;
+export type LoggerSerializerFn = (value: unknown) => unknown;
 
 export interface CustomLoggerOptions<CustomLevels extends string = never> {
   level?: DefaultLevels | CustomLevels;

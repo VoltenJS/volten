@@ -8,22 +8,19 @@ import { mkdir } from "fs/promises";
 import { dirname } from "path";
 import { pipeline } from "stream/promises";
 import { basename } from "path";
+import * as http from "http";
 
 function decodeQueryComponent(str: string): string {
   if (!str.includes("+") && !str.includes("%")) {
-    return str; // Zero-allocation fast path for plain strings
+    return str;
   }
   try {
     return decodeURIComponent(str.replace(/\+/g, " "));
   } catch {
-    return str; // Fallback on malformed percent encoding
+    return str;
   }
 }
 
-/**
- * High-performance single-pass URL-encoded form parser.
- * Handles duplicate keys by accumulating arrays and avoids unnecessary unescaping overhead.
- */
 function fastParseUrlEncoded(input: string): Record<string, unknown> {
   const result = Object.create(null) as Record<string, unknown>;
   const len = input.length;
@@ -70,7 +67,7 @@ export async function parseBody(
   text: boolean = false,
   limit = ctx._route?.bodyLimit ?? this.AppOptions.bodyLimit,
 ): Promise<unknown> {
-  const req = ctx.req;
+  const req = ctx.req as http.IncomingMessage;
 
   const contentType = req.headers["content-type"] ?? "";
 
@@ -157,14 +154,10 @@ export async function parseBody(
   });
 }
 
-/**
- * Native, zero-dependency streaming multipart parser.
- * Driven via a decoupled async event processor to prevent generator deadlocks.
- */
 export async function* parseMultipartStream(
   ctx: RequestContext,
 ): AsyncGenerator<MultipartPart, void, unknown> {
-  const req = ctx.req;
+  const req = ctx.req as http.IncomingMessage;
   const contentTypeHeader = req.headers["content-type"] ?? "";
 
   const boundaryMatch = contentTypeHeader.match(/boundary=(?:"([^"]+)"|([^;]+))/);
@@ -177,10 +170,9 @@ export async function* parseMultipartStream(
   const boundaryLength = boundaryBuffer.length;
   const endBoundaryBuffer = Buffer.from(boundaryStr + "--");
 
-  // Queue system to decouple incoming data execution from generator consumption
   const partQueue: MultipartPart[] = [];
   let resolveNextPart: (() => void) | null = null;
-  let isNetworkDone = false;
+  let isNetworkDone: boolean = false;
   let networkError: Error | null = null;
 
   let residue = Buffer.alloc(0);
@@ -193,7 +185,6 @@ export async function* parseMultipartStream(
     contentType?: string;
   } | null = null;
 
-  // Process incoming network data completely out-of-band
   const processChunk = (chunk: Buffer) => {
     residue = Buffer.concat([residue, chunk]);
 
@@ -241,8 +232,7 @@ export async function* parseMultipartStream(
             const bufferMethod = async (): Promise<Buffer> => {
               const chunks: Uint8Array[] = [];
               for await (const chunk of nodeCompatibleStream) {
-                // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-                chunks.push(chunk);
+                chunks.push(chunk as Uint8Array);
               }
               return Buffer.concat(chunks);
             };
@@ -348,7 +338,6 @@ export async function* parseMultipartStream(
     }
   };
 
-  // Dedicated handlers so they can be removed on cleanup
   const onData = (chunk: Buffer) => {
     try {
       processChunk(chunk);
@@ -371,16 +360,13 @@ export async function* parseMultipartStream(
     if (resolveNextPart !== null) resolveNextPart();
   };
 
-  // Bind direct event listeners
   req.on("data", onData);
   req.on("end", onEnd);
   req.on("error", onError);
 
   try {
-    // Yield fields from our decoupled buffer queue
     for (;;) {
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition, @typescript-eslint/strict-boolean-expressions, @typescript-eslint/only-throw-error
-      if (networkError) throw networkError;
+      if ((networkError as Error | null) !== null) throw networkError as unknown as Error;
 
       if (partQueue.length > 0) {
         const part = partQueue.shift();
@@ -390,28 +376,24 @@ export async function* parseMultipartStream(
         continue;
       }
 
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-      if (isNetworkDone) break;
+      if (isNetworkDone as boolean) break;
 
       await new Promise<void>((resolve) => {
         resolveNextPart = resolve;
       });
     }
   } finally {
-    // 1. Remove event listeners to prevent ongoing triggers
     req.off("data", onData);
     req.off("end", onEnd);
     req.off("error", onError);
 
-    // 2. Pause the incoming HTTP request stream to prevent unbuffered memory accumulation
     if (typeof req.pause === "function") {
       req.pause();
     }
 
-    // 3. Clean up active file streams and internal queues
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (currentFileController !== null) {
-      (currentFileController as unknown as FileController).close();
+      (currentFileController as FileController).close();
       currentFileController = null;
     }
 
