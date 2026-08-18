@@ -195,7 +195,7 @@ export class App<CustomLevels extends string = never> extends Router {
         break;
       case "ERR_HEADERS_SENT":
         if (ctx.runtime === "node") {
-          const res = ctx.res as http.ServerResponse | null;
+          const res = ctx.res;
           if (res !== null) {
             res.destroy();
           }
@@ -217,7 +217,7 @@ export class App<CustomLevels extends string = never> extends Router {
     }
 
     if (ctx.runtime === "node") {
-      const res = ctx.res as http.ServerResponse | null;
+      const res = ctx.res;
       if (res !== null) {
         if (!ctx.headersSent) {
           res.writeHead(status, headers);
