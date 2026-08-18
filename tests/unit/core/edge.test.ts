@@ -105,7 +105,7 @@ test("Edge runtime: attaches env and executionCtx to context", async () => {
   const res = await fetchHandler(
     new Request("https://example.com/bindings"),
     { MY_KV: "kv-val" },
-    { mockCtx: true }
+    { mockCtx: true },
   );
   assert.equal(res.status, 200);
   assert.equal(await res.text(), "bindings validated");
@@ -122,11 +122,11 @@ test("Edge runtime: cookie handling and multiple Set-Cookie headers", async () =
 
   const fetchHandler = app.createFetch();
   const req = new Request("https://example.com/cookies", {
-    headers: { Cookie: "session=xyz" }
+    headers: { Cookie: "session=xyz" },
   });
   const res = await fetchHandler(req);
   assert.equal(res.status, 200);
-  
+
   // Web Headers object returns comma-separated or multiple Set-Cookie headers
   // Headers.get() normally combines them or gets the first, but let's check
   const setCookie = res.headers.get("Set-Cookie");
