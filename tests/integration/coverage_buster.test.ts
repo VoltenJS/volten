@@ -261,4 +261,57 @@ test("Volten Other Tests", async (t) => {
     assert.equal(missingMatch, null);
     busterApp.close();
   });
+
+  await t.test(
+    "Matrix 10: Server Correctly Sends Content-Length Header Based on Byte Length",
+    () => {
+      const jitcache = new JitCache();
+      let headers: Record<string, unknown> = {};
+      let response = "";
+
+      function clear() {
+        headers = {};
+        response = "";
+      }
+
+      const ctx = new RequestContext();
+      (ctx._res as any) = {
+        setHeader: (k: string, v: unknown) => {
+          headers[k.toLowerCase()] = v;
+        },
+        end: (text: string) => {
+          response += text;
+        },
+        uncork: () => {},
+      };
+
+      ctx.json({
+        "†¨†¥¨†˚˜˚˜©¨¥†¨√¥†∂¨®¥∂ßπæ˚˙ˆ¨˙©§∫˜µ∫µ˜": "¡™£¢§¶•∞•¶ªº•º••ˆ˙∫µ∫˜ç≈",
+      });
+      assert.equal(Buffer.byteLength(response), headers["content-length"]);
+
+      (ctx._route as any) = {};
+      (ctx._app as any) = {
+        JITCache: jitcache,
+      };
+
+      clear();
+      ctx.json({
+        "†¨†¥¨†˚˜˚˜©¨¥†¨√¥†∂¨®¥∂ßπæ˚˙ˆ¨˙©§∫˜µ∫µ˜": "¡™£¢§¶•∞•¶ªº•º••ˆ˙∫µ∫˜ç≈",
+      });
+      assert.equal(Buffer.byteLength(response), headers["content-length"]);
+
+      (ctx._route as any).serializer = 123;
+
+      clear();
+      ctx.json({
+        "†¨†¥¨†˚˜˚˜©¨¥†¨√¥†∂¨®¥∂ßπæ˚˙ˆ¨˙©§∫˜µ∫µ˜": "¡™£¢§¶•∞•¶ªº•º••ˆ˙∫µ∫˜ç≈",
+      });
+      assert.equal(Buffer.byteLength(response), headers["content-length"]);
+
+      clear();
+      ctx.text("†¨†¥¨†˚˜˚˜©¨¥†¨√¥†∂¨®¥∂ßπæ˚˙ˆ¨˙©§∫˜µ∫µ˜¡™£¢§¶•∞•¶ªº•º••ˆ˙∫µ∫˜ç≈");
+      assert.equal(Buffer.byteLength(response), headers["content-length"]);
+    },
+  );
 });
