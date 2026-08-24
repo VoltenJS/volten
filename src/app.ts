@@ -1,5 +1,6 @@
 import { App } from "./core/server.ts";
 const app = new App();
+const PORT = process.env["PORT"] ?? 3000;
 
 app.get("/", (ctx) => {
   ctx.send("Hello World!");
@@ -15,6 +16,6 @@ app.post("/data", async (ctx) => {
   ctx.json({ received: data });
 });
 
-app.listen(3000, () => {
-  console.info("Server is running on port 3000 at: http://localhost:3000");
+app.listen(PORT, () => {
+  console.info(`Server is running on port ${String(PORT)} at: http://localhost:${String(PORT)}`);
 });
