@@ -408,7 +408,7 @@ export class RequestContext<P extends string = string> {
         this.route.serializer = serializer;
       }
       const body = serializer(data);
-      this.setHeader("Content-Length", body.length);
+      this.setHeader("Content-Length", Buffer.byteLength(body));
       resObj.end(body);
       resObj.uncork();
       return this;
