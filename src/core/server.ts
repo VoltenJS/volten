@@ -508,9 +508,9 @@ export class App<CustomLevels extends string = never> extends Router {
   private onRequest(req: http.IncomingMessage, res: http.ServerResponse) {
     if (!this.acceptIncomming) {
       req.socket.destroy();
+      return;
     }
     const limit = this.AppOptions.bodyLimit;
-
     const clHeader = req.headers["content-length"];
     if (clHeader !== undefined) {
       const contentLength = parseInt(clHeader, 10);
