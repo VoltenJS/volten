@@ -34,10 +34,12 @@ export class AdaptiveEngine {
   private initSensor(): void {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const perf_hooks = (require("perf_hooks") as unknown) as PerfHooks;
-      
+      const perf_hooks = require("perf_hooks") as unknown as PerfHooks;
+
       if (typeof perf_hooks.monitorEventLoopDelay === "function") {
-        this.histogram = perf_hooks.monitorEventLoopDelay({ resolution: this.options.resolutionMs });
+        this.histogram = perf_hooks.monitorEventLoopDelay({
+          resolution: this.options.resolutionMs,
+        });
         this.histogram.enable();
 
         this.intervalTimer = setInterval(() => {
@@ -51,7 +53,9 @@ export class AdaptiveEngine {
       // Edge runtime or perf_hooks unavailable
       // In Edge (like Workers), CPU time is limited per request, so event loop delay isn't a direct analog.
       // We gracefully fallback to NORMAL state permanently if perf_hooks isn't available.
-      console.warn("[Volten] Adaptive Triage is enabled but perf_hooks is not available in this environment. Running in fallback mode.");
+      console.warn(
+        "[Volten] Adaptive Triage is enabled but perf_hooks is not available in this environment. Running in fallback mode.",
+      );
     }
   }
 
@@ -73,11 +77,11 @@ export class AdaptiveEngine {
 
   public shouldDrop(priority: "critical" | "normal" | "low" | undefined): boolean {
     if (!this.options.enabled || this.state === "NORMAL") return false;
-    
+
     const p = priority ?? "normal";
     if (this.state === "WARNING" && p === "low") return true;
     if (this.state === "CRITICAL" && p !== "critical") return true;
-    
+
     return false;
   }
 

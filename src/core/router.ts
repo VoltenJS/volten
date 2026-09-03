@@ -21,7 +21,7 @@ export class Router {
   ): { options: Required<RouteOptions>; routeHandlers: VoltenHandler[] } {
     const isOptions = typeof arg2 === "object";
     const rawOptions = isOptions ? { ...arg2 } : {};
-    
+
     const options: Required<RouteOptions> = {
       bodyLimit: rawOptions.bodyLimit ?? null,
       priority: rawOptions.priority ?? "normal",
