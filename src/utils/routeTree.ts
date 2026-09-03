@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/restrict-template-expressions */
-import type { VoltenHandler, PathData, RouteOptions } from "../core/types.ts";
+import type { VoltenHandler, PathData, RouteOptions, RoutePriority } from "../core/types.ts";
 import { DuplicateRouteError } from "../core/errors.ts";
 import { RequestContext } from "./requestCtx.ts";
 import { compileMiddlewareChain } from "../core/compose.ts";
@@ -88,6 +88,7 @@ export class RouteTree {
     const routeData: PathData = {
       method,
       bodyLimit: options.bodyLimit,
+      priority: options.priority,
       composeChain,
       disableOpt: false,
       setDeOpt: () => {},
@@ -219,6 +220,12 @@ export class RouteTree {
       }
     }
     return allowedMethods;
+  }
+
+  public getRoutePriority(method: string, path: string): RoutePriority {
+    const dummyCtx = { params: {} } as RequestContext;
+    const route = this.matchPath(method, path, dummyCtx);
+    return route !== null ? route.priority : "normal";
   }
 
   public matchPath(method: string, path: string, ctx: RequestContext): PathData | null {
