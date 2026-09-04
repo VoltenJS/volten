@@ -1,20 +1,10 @@
 import type { AdaptiveTriageOptions } from "../core/types.ts";
-
-interface EventLoopDelayMonitor {
-  enable(): boolean;
-  disable(): boolean;
-  reset(): void;
-  percentile(percentile: number): number;
-}
-
-interface PerfHooks {
-  monitorEventLoopDelay?: (options?: { resolution?: number }) => EventLoopDelayMonitor;
-}
+import type { IntervalHistogram } from "node:perf_hooks";
 
 export class AdaptiveEngine {
   public state: "NORMAL" | "WARNING" | "CRITICAL" = "NORMAL";
   private options: Required<AdaptiveTriageOptions>;
-  private histogram: EventLoopDelayMonitor | null = null;
+  private histogram: IntervalHistogram | null = null;
   private intervalTimer: NodeJS.Timeout | null = null;
 
   constructor(options: AdaptiveTriageOptions) {
@@ -27,14 +17,18 @@ export class AdaptiveEngine {
     };
 
     if (this.options.enabled) {
-      this.initSensor();
+      // Background initialization
+      this.initSensor().catch(() => {});
     }
   }
 
-  private initSensor(): void {
+  public get enabled(): boolean {
+    return this.options.enabled;
+  }
+
+  private async initSensor(): Promise<void> {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const perf_hooks = require("perf_hooks") as unknown as PerfHooks;
+      const perf_hooks = await import("node:perf_hooks");
 
       if (typeof perf_hooks.monitorEventLoopDelay === "function") {
         this.histogram = perf_hooks.monitorEventLoopDelay({
@@ -46,15 +40,11 @@ export class AdaptiveEngine {
           this.tick();
         }, this.options.checkIntervalMs);
 
-        // Don't keep the event loop alive just for this interval
         this.intervalTimer.unref();
       }
     } catch {
-      // Edge runtime or perf_hooks unavailable
-      // In Edge (like Workers), CPU time is limited per request, so event loop delay isn't a direct analog.
-      // We gracefully fallback to NORMAL state permanently if perf_hooks isn't available.
       console.warn(
-        "[Volten] Adaptive Triage is enabled but perf_hooks is not available in this environment. Running in fallback mode.",
+        "[Volten] Adaptive Triage is enabled but node:perf_hooks is not available in this environment. Running in fallback mode.",
       );
     }
   }
@@ -62,13 +52,13 @@ export class AdaptiveEngine {
   private tick(): void {
     if (this.histogram === null) return;
 
-    // Convert nanoseconds to milliseconds
-    const p99 = this.histogram.percentile(99) / 1e6;
+    // Convert nanoseconds to milliseconds using max to catch single-spike lags
+    const maxMs = this.histogram.max / 1e6;
     this.histogram.reset();
 
-    if (p99 > this.options.criticalThresholdMs) {
+    if (maxMs > this.options.criticalThresholdMs) {
       this.state = "CRITICAL";
-    } else if (p99 > this.options.warningThresholdMs) {
+    } else if (maxMs > this.options.warningThresholdMs) {
       this.state = "WARNING";
     } else {
       this.state = "NORMAL";
@@ -76,7 +66,18 @@ export class AdaptiveEngine {
   }
 
   public shouldDrop(priority: "critical" | "normal" | "low" | undefined): boolean {
-    if (!this.options.enabled || this.state === "NORMAL") return false;
+    if (!this.options.enabled) return false;
+
+    if (this.histogram !== null) {
+      const currentMaxMs = this.histogram.max / 1e6;
+      if (currentMaxMs > this.options.criticalThresholdMs) {
+        this.state = "CRITICAL";
+      } else if (currentMaxMs > this.options.warningThresholdMs) {
+        this.state = "WARNING";
+      }
+    }
+
+    if (this.state === "NORMAL") return false;
 
     const p = priority ?? "normal";
     if (this.state === "WARNING" && p === "low") return true;

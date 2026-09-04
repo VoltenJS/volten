@@ -455,7 +455,7 @@ export class App<CustomLevels extends string = never> extends Router {
     this.tree.createMatchPath();
 
     return async (request: Request, env?: unknown, executionCtx?: unknown): Promise<Response> => {
-      if (this.adaptiveEngine.state !== "NORMAL") {
+      if (this.adaptiveEngine.enabled) {
         let urlPath = request.url;
         try {
           const parsed = new URL(request.url);
@@ -532,7 +532,7 @@ export class App<CustomLevels extends string = never> extends Router {
       return;
     }
 
-    if (this.adaptiveEngine.state !== "NORMAL") {
+    if (this.adaptiveEngine.enabled) {
       let urlPath = req.url ?? "/";
       const qIndex = urlPath.indexOf("?");
       if (qIndex !== -1) {
