@@ -65,9 +65,7 @@ export class AdaptiveEngine {
     }
   }
 
-  public shouldDrop(priority: "critical" | "normal" | "low" | undefined): boolean {
-    if (!this.options.enabled) return false;
-
+  public evaluateState(): void {
     if (this.histogram !== null) {
       const currentMaxMs = this.histogram.max / 1e6;
       if (currentMaxMs > this.options.criticalThresholdMs) {
@@ -76,6 +74,12 @@ export class AdaptiveEngine {
         this.state = "WARNING";
       }
     }
+  }
+
+  public shouldDrop(priority: "critical" | "normal" | "low" | undefined): boolean {
+    if (!this.options.enabled) return false;
+
+    this.evaluateState();
 
     if (this.state === "NORMAL") return false;
 

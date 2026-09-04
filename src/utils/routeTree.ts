@@ -210,12 +210,14 @@ export class RouteTree {
     }
   }
 
+  private static readonly SHARED_DUMMY_CTX = { params: {} } as RequestContext;
+
   public checkMethodAllowed(path: string): string[] {
     const allowedMethods: string[] = [];
     const methodsToCheck = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 
     for (const m of methodsToCheck) {
-      if (this.matchPath(m, path, { params: {} } as RequestContext) !== null) {
+      if (this.matchPath(m, path, RouteTree.SHARED_DUMMY_CTX) !== null) {
         allowedMethods.push(m);
       }
     }
@@ -223,8 +225,7 @@ export class RouteTree {
   }
 
   public getRoutePriority(method: string, path: string): RoutePriority {
-    const dummyCtx = { params: {} } as RequestContext;
-    const route = this.matchPath(method, path, dummyCtx);
+    const route = this.matchPath(method, path, RouteTree.SHARED_DUMMY_CTX);
     return route !== null ? route.priority : "normal";
   }
 

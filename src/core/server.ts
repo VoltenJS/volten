@@ -456,20 +456,23 @@ export class App<CustomLevels extends string = never> extends Router {
 
     return async (request: Request, env?: unknown, executionCtx?: unknown): Promise<Response> => {
       if (this.adaptiveEngine.enabled) {
-        let urlPath = request.url;
-        try {
-          const parsed = new URL(request.url);
-          urlPath = parsed.pathname;
-        } catch {
-          const qIndex = urlPath.indexOf("?");
-          if (qIndex !== -1) urlPath = urlPath.substring(0, qIndex);
-        }
-        const priority = this.tree.getRoutePriority(request.method, urlPath);
-        if (this.adaptiveEngine.shouldDrop(priority)) {
-          return new Response("503 Service Unavailable: Server at capacity", {
-            status: 503,
-            headers: { "Content-Type": "text/plain; charset=utf-8" },
-          });
+        this.adaptiveEngine.evaluateState();
+        if (this.adaptiveEngine.state !== "NORMAL") {
+          let urlPath = request.url;
+          try {
+            const parsed = new URL(request.url);
+            urlPath = parsed.pathname;
+          } catch {
+            const qIndex = urlPath.indexOf("?");
+            if (qIndex !== -1) urlPath = urlPath.substring(0, qIndex);
+          }
+          const priority = this.tree.getRoutePriority(request.method, urlPath);
+          if (this.adaptiveEngine.shouldDrop(priority)) {
+            return new Response("503 Service Unavailable: Server at capacity", {
+              status: 503,
+              headers: { "Content-Type": "text/plain; charset=utf-8" },
+            });
+          }
         }
       }
 
@@ -533,20 +536,23 @@ export class App<CustomLevels extends string = never> extends Router {
     }
 
     if (this.adaptiveEngine.enabled) {
-      let urlPath = req.url ?? "/";
-      const qIndex = urlPath.indexOf("?");
-      if (qIndex !== -1) {
-        urlPath = urlPath.substring(0, qIndex);
-      }
-      const priority = this.tree.getRoutePriority(req.method ?? "GET", urlPath);
-      if (this.adaptiveEngine.shouldDrop(priority)) {
-        res.writeHead(503, {
-          "Content-Type": "text/plain; charset=utf-8",
-          Connection: "close",
-        });
-        res.end("503 Service Unavailable: Server at capacity");
-        req.socket.destroy();
-        return;
+      this.adaptiveEngine.evaluateState();
+      if (this.adaptiveEngine.state !== "NORMAL") {
+        let urlPath = req.url ?? "/";
+        const qIndex = urlPath.indexOf("?");
+        if (qIndex !== -1) {
+          urlPath = urlPath.substring(0, qIndex);
+        }
+        const priority = this.tree.getRoutePriority(req.method ?? "GET", urlPath);
+        if (this.adaptiveEngine.shouldDrop(priority)) {
+          res.writeHead(503, {
+            "Content-Type": "text/plain; charset=utf-8",
+            Connection: "close",
+          });
+          res.end("503 Service Unavailable: Server at capacity");
+          req.socket.destroy();
+          return;
+        }
       }
     }
     const limit = this.AppOptions.bodyLimit;
