@@ -75,6 +75,7 @@ On Node.js, Volten pre-allocates a pool of `NodeRequestContext` objects (default
 
 - **Zero runtime dependencies** — only the Node.js core API (or the Web platform API on edge).
 - **Dual runtime** — `app.listen()` for Node, `app.createFetch()` for Cloudflare Workers / Bun / Deno / WinterCG.
+- **Adaptive Traffic Triage** — Event-loop immune routing that automatically drops low-priority requests at the socket level when Node is under stress.
 - **Trie-based router** — dynamic params (`/users/:id`) and wildcards.
 - **Middleware chain** — global and per-route, with cascading composition. Works identically on both runtimes.
 - **Native body parsing** — JSON, form-urlencoded, text, raw, and streaming multipart.

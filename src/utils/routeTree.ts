@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/restrict-template-expressions */
-import type { VoltenHandler, PathData, RouteOptions } from "../core/types.ts";
+import type { VoltenHandler, PathData, RouteOptions, RoutePriority } from "../core/types.ts";
 import { DuplicateRouteError } from "../core/errors.ts";
 import { RequestContext } from "./requestCtx.ts";
 import { compileMiddlewareChain } from "../core/compose.ts";
@@ -88,6 +88,7 @@ export class RouteTree {
     const routeData: PathData = {
       method,
       bodyLimit: options.bodyLimit,
+      priority: options.priority,
       composeChain,
       disableOpt: false,
       setDeOpt: () => {},
@@ -209,16 +210,23 @@ export class RouteTree {
     }
   }
 
+  private static readonly SHARED_DUMMY_CTX = { params: {} } as RequestContext;
+
   public checkMethodAllowed(path: string): string[] {
     const allowedMethods: string[] = [];
     const methodsToCheck = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 
     for (const m of methodsToCheck) {
-      if (this.matchPath(m, path, { params: {} } as RequestContext) !== null) {
+      if (this.matchPath(m, path, RouteTree.SHARED_DUMMY_CTX) !== null) {
         allowedMethods.push(m);
       }
     }
     return allowedMethods;
+  }
+
+  public getRoutePriority(method: string, path: string): RoutePriority {
+    const route = this.matchPath(method, path, RouteTree.SHARED_DUMMY_CTX);
+    return route !== null ? route.priority : "normal";
   }
 
   public matchPath(method: string, path: string, ctx: RequestContext): PathData | null {

@@ -66,9 +66,20 @@ export type RouteData = [
   options: Required<RouteOptions>,
 ];
 
+export type RoutePriority = "critical" | "normal" | "low";
+
+export type AdaptiveTriageOptions = {
+  enabled?: boolean;
+  warningThresholdMs?: number;
+  criticalThresholdMs?: number;
+  resolutionMs?: number;
+  checkIntervalMs?: number;
+};
+
 export type PathData = {
   method: string;
   bodyLimit: number | null;
+  priority: RoutePriority;
   composeChain: VoltenChainHandler;
   serializer?: (data: unknown) => string;
   setDeOpt: () => void;
@@ -103,6 +114,7 @@ export type VoltenAppOptions<CustomLevels extends string = never> = {
   noLogs?: boolean;
   https?: VoltenHttpsOptions | undefined;
   loggerOptions?: CustomLoggerOptions<CustomLevels>;
+  adaptiveTriage?: AdaptiveTriageOptions;
 };
 
 export const DefaultVoltenOptions: Required<VoltenAppOptions> = {
@@ -114,10 +126,18 @@ export const DefaultVoltenOptions: Required<VoltenAppOptions> = {
   loggerOptions: {
     level: "warn",
   },
+  adaptiveTriage: {
+    enabled: false,
+    warningThresholdMs: 40,
+    criticalThresholdMs: 100,
+    resolutionMs: 10,
+    checkIntervalMs: 500,
+  },
 };
 
 export type RouteOptions = {
   bodyLimit?: number | null;
+  priority?: RoutePriority;
 };
 
 export type CookieOptions = {
