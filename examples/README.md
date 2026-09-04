@@ -20,6 +20,7 @@ All examples are written using modern JavaScript/Node.js, are completely zero-de
 | **[`08-cookies-and-sessions.js`](./08-cookies-and-sessions.js)**   | State Management Lifecycle | High-speed, single-pass inline cookie parsing and secure imperative `Set-Cookie` header emission.  |
 | **[`09-stream-responses.js`](./09-stream-responses.js)**           | Backpressure Streaming     | Chunked transfer encodings, Server-Sent Events (SSE), and unblocking the primary V8 event loop.    |
 | **[`10-cors-and-security.js`](./10-cors-and-security.js)**         | Multi-Origin Shields       | The high-performance `preflight()` hook for routing-bypass loops and OWASP header compliance.      |
+| **[`11-traffic-triage.js`](./11-traffic-triage.js)**               | Event-Loop Immune Routing  | Adaptive load shedding via `perf_hooks` and priority-based request dropping (The Socket Guillotine). Tested via `11-traffic-triage-test.js`. |
 
 ---
 
