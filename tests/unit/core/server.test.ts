@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { App } from "../../../src/core/server.ts";
+import { NodeRequestContext, EdgeRequestContext } from "../../../src/utils/requestCtx.ts";
 
 function captureLogs(fn: () => void): any[] {
   const originalInfo = console.info;
@@ -72,4 +73,27 @@ test("App logger: configLogger configures new custom levels and changes settings
 
   assert.equal(logs[2].level, "info");
   assert.equal(logs[2].msg, "Hello info");
+});
+
+test("App: getRoute and getRouteTree return route metadata and tree instance", () => {
+  const app = new App();
+  app.get("/hello", (ctx) => ctx.send("hi"));
+  (app as any).register(app);
+
+  const tree = app.getRouteTree();
+  assert.ok(tree !== null);
+
+  const dummyCtx = { inited: false, params: {} } as any;
+  const route = app.getRoute("GET", "/hello", dummyCtx);
+  assert.ok(route !== null);
+});
+
+test("App: resetCtx and resetEdgeCtx ignore uninitialized context", () => {
+  const app = new App();
+  const nodeCtx = new NodeRequestContext();
+  const edgeCtx = new EdgeRequestContext();
+
+  // inited is false, reset calls should return safely without pushing to pool
+  app.resetCtx(nodeCtx);
+  app.resetEdgeCtx(edgeCtx);
 });

@@ -1,5 +1,6 @@
 import { JitCache } from "./jitCache.ts";
 import type { SerializerFn } from "../core/types.ts";
+import { isEdge } from "./isEdge.ts";
 const globalVoltCache = new JitCache(2000);
 
 export const createCompiledStringifier = compileVoltJson;
@@ -8,6 +9,9 @@ export function getShapeFingerprint(obj: unknown): number {
 }
 
 export function compileVoltJson(sample: unknown): SerializerFn {
+  if (isEdge()) {
+    return (d: unknown) => JSON.stringify(d);
+  }
   const helperFns: string[] = [];
 
   function buildTemplateString(obj: unknown, path: string): string {
@@ -57,8 +61,7 @@ return \`${templateStr}\`;
   try {
     // eslint-disable-next-line @typescript-eslint/no-implied-eval
     return new Function("d", fnBody) as SerializerFn;
-  } catch (err) {
-    console.error("JIT Error:", err);
+  } catch {
     return (d: unknown) => JSON.stringify(d);
   }
 }
@@ -87,7 +90,7 @@ const serializerWeakMap = new WeakMap<object, SerializerFn>();
  */
 export function voltJson(data: unknown): string {
   // eslint-disable-next-line @typescript-eslint/strict-boolean-expressions
-  if (!data) return JSON.stringify(data);
+  if (!data || isEdge()) return JSON.stringify(data);
 
   let compiledSerializer: SerializerFn | undefined;
 
