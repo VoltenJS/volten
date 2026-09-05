@@ -3,6 +3,7 @@ import type { VoltenHandler, PathData, RouteOptions, RoutePriority } from "../co
 import { DuplicateRouteError } from "../core/errors.ts";
 import { RequestContext } from "./requestCtx.ts";
 import { compileMiddlewareChain } from "../core/compose.ts";
+import { isEdge } from "./isEdge.ts";
 
 export class MethodStorage {
   public GET: PathData | null = null;
@@ -43,10 +44,12 @@ export class PathNode {
 
 export class RouteTree {
   private root: PathNode = new PathNode("");
-  private routes: string[] = [];
+  public routes: string[] = [];
   private cache: Map<string, Map<string, PathData>> = new Map();
   private cacheSize = 0;
   private caseInsensitive;
+  private compiled = false;
+  private isMatchPathCompiled = false;
   // To-Do: make this more customizable by dev
   private readonly MAX_CACHE = 10000;
 
@@ -57,14 +60,17 @@ export class RouteTree {
 
   clear() {
     this.root = new PathNode("");
+    this.routes = [];
     this.cache.clear();
     this.cacheSize = 0;
+    this.compiled = false;
+    this.isMatchPathCompiled = false;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+    delete (this as any).matchPath;
   }
 
   public checkDuplicate(method: string, path: string) {
-    const match = this.matchPath(method, path, { params: {} } as RequestContext);
-    const result = match !== null && this.routes.includes(method + path);
-    return result;
+    return this.routes.includes(method + path);
   }
 
   public addPath(
@@ -78,11 +84,10 @@ export class RouteTree {
     if (this.caseInsensitive) {
       path = path.toLowerCase();
     }
-    this.routes.push(path);
-
     if (this.checkDuplicate(method, path)) {
       throw new DuplicateRouteError(method, path);
     }
+    this.routes.push(method + path);
     const paramNames: string[] = [];
 
     const routeData: PathData = {
@@ -230,9 +235,11 @@ export class RouteTree {
   }
 
   public matchPath(method: string, path: string, ctx: RequestContext): PathData | null {
-    if (ctx.inited) {
+    if (!this.compiled && !isEdge() && ctx.inited) {
       this.createMatchPath();
-      return this.matchPath(method, path, ctx);
+      if (this.isMatchPathCompiled) {
+        return this.matchPath(method, path, ctx);
+      }
     }
     const originalPath = path;
     const lookupPath = this.caseInsensitive ? path.toLowerCase() : path;
@@ -379,6 +386,13 @@ export class RouteTree {
     return null;
   }
   public createMatchPath(): void {
+    if (this.compiled) {
+      return;
+    }
+    this.compiled = true;
+    if (isEdge()) {
+      return;
+    }
     const codeLines: string[] = [];
 
     // Fast path baseline checks
@@ -515,35 +529,41 @@ export class RouteTree {
     compileNode(this.root, "", "0", []);
     codeLines.push("  return null;");
 
-    // eslint-disable-next-line @typescript-eslint/no-implied-eval
-    const factory = new Function(
-      "externals",
-      `return function matchPathCompiled(method, path, ctx) {\n${codeLines.join("\n")}\n};`,
-    );
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-implied-eval
+      const factory = new Function(
+        "externals",
+        `return function matchPathCompiled(method, path, ctx) {\n${codeLines.join("\n")}\n};`,
+      );
 
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-    const compiledFn = factory(routeDataMap) as (
-      method: string,
-      path: string,
-      ctx: RequestContext,
-    ) => PathData | null;
-    this.matchPath = (method: string, path: string, ctx: RequestContext) => {
-      const result = compiledFn.call(this, method, path, ctx);
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+      const compiledFn = factory(routeDataMap) as (
+        method: string,
+        path: string,
+        ctx: RequestContext,
+      ) => PathData | null;
+      this.matchPath = (method: string, path: string, ctx: RequestContext) => {
+        const result = compiledFn.call(this, method, path, ctx);
 
-      if (
-        result !== null &&
-        Object.keys(ctx.params).length === 0 &&
-        this.cacheSize < this.MAX_CACHE
-      ) {
-        let methodData = this.cache.get(method);
-        if (methodData === undefined) {
-          methodData = new Map();
-          this.cache.set(method, methodData);
+        if (
+          result !== null &&
+          Object.keys(ctx.params).length === 0 &&
+          this.cacheSize < this.MAX_CACHE
+        ) {
+          let methodData = this.cache.get(method);
+          if (methodData === undefined) {
+            methodData = new Map();
+            this.cache.set(method, methodData);
+          }
+          methodData.set(path, result);
+          this.cacheSize++;
         }
-        methodData.set(path, result);
-        this.cacheSize++;
-      }
-      return result;
-    };
+        return result;
+      };
+      this.isMatchPathCompiled = true;
+    } catch {
+      // Fallback: leave this.matchPath pointing to the uncompiled radix tree traversal
+      return;
+    }
   }
 }

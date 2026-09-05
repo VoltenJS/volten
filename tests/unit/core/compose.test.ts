@@ -120,3 +120,76 @@ test("compose: an async rejection inside a handler is routed through ctx._app.ha
   assert.ok(caught instanceof Error);
   assert.equal((caught as Error).message, "async boom");
 });
+
+test("compose: handleHandlerResult handles Web Response in Node runtime", async () => {
+  let sentData: unknown = null;
+  let headersSet: Record<string, string> = {};
+  let statusCodeSet = 200;
+
+  const mockRes = {
+    write(chunk: unknown) {
+      sentData = chunk;
+    },
+    end() {},
+  };
+
+  const ctx = makeCtx();
+  ctx.runtime = "node";
+  ctx._res = mockRes as any;
+  Object.defineProperty(ctx, "statusCode", {
+    set(code: number) {
+      statusCodeSet = code;
+    },
+    get() {
+      return statusCodeSet;
+    },
+  });
+  ctx.setHeader = (key: string, val: any) => {
+    headersSet[key] = String(val);
+  };
+  Object.defineProperty(ctx, "sent", {
+    get: () => false,
+  });
+
+  const webRes = new Response("web response body", {
+    status: 201,
+    headers: { "x-test-header": "test-val" },
+  });
+
+  const chain = compileMiddlewareChain([
+    async () => {
+      return webRes;
+    },
+  ]);
+
+  await chain(ctx);
+  assert.equal(statusCodeSet, 201);
+  assert.equal(headersSet["x-test-header"], "test-val");
+});
+
+test("compose: handleHandlerResult handles Web Response in Edge runtime", async () => {
+  let edgeResolved: Response | null = null;
+  let bodySent = false;
+
+  const ctx = makeCtx();
+  ctx.runtime = "edge";
+  (ctx as any)._edgeBodySent = false;
+  (ctx as any)._resolveEdgeResponse = (res: Response) => {
+    edgeResolved = res;
+  };
+  Object.defineProperty(ctx, "sent", {
+    get: () => false,
+  });
+
+  const webRes = new Response("edge web response", { status: 202 });
+
+  const chain = compileMiddlewareChain([
+    () => {
+      return webRes;
+    },
+  ]);
+
+  await chain(ctx);
+  assert.equal((ctx as any)._edgeBodySent, true);
+  assert.equal(edgeResolved, webRes);
+});
