@@ -17,7 +17,6 @@ app.get("/user/:id", (ctx) => {
 
 app.post("/data", async (ctx) => {
   await ctx.body();
-  throw new Error("This is a test error");
 });
 
 app.get("/error", () => {
