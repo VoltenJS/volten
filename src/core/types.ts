@@ -230,3 +230,35 @@ export type Logger<CustomLevels extends string = never> = {
   child(bindings: Record<string, unknown>): Logger<CustomLevels>;
   isLevelEnabled(level: DefaultLevels | CustomLevels): boolean;
 };
+
+// DRR Types
+
+export interface SnapshotPayload {
+  method: string;
+  url: string;
+  headers: Record<string, string | string[] | undefined>;
+  body: Buffer;
+  routeData?: {
+    path?: string;
+  };
+}
+
+export interface DRRConfig {
+  /** Maximum bytes to buffer for the body snapshot. Defaults to 2MB. */
+  maxBodySize?: number;
+  /** Directory to write .vltn files automatically. */
+  outDir?: string;
+  /** Callback fired when a snapshot is generated. If defined, the file is not written automatically. */
+  onSnapshot?: (
+    snapshotBuffer: Buffer,
+    metadata: { method: string; url: string; error: VoltenError },
+  ) => void | Promise<void>;
+  /** Hook to sanitize the snapshot payload (e.g. redact PII) before compression and persistence. */
+  beforeSnapshot?: (payload: SnapshotPayload) => SnapshotPayload | Promise<SnapshotPayload>;
+}
+
+export interface DRRPlugin {
+  tee(ctx: RequestContext, chunk: Buffer): void;
+  onCrash(ctx: RequestContext, error: VoltenError): Promise<void>;
+  onReset(ctx: RequestContext): void;
+}

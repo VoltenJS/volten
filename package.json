@@ -21,6 +21,9 @@
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "volten": "./dist/cli/index.js"
+  },
   "exports": {
     ".": {
       "import": {
@@ -30,6 +33,26 @@
       "require": {
         "types": "./dist/index.d.cts",
         "default": "./dist/index.cjs"
+      }
+    },
+    "./drr": {
+      "import": {
+        "types": "./dist/tools/drr/index.d.ts",
+        "default": "./dist/tools/drr/index.js"
+      },
+      "require": {
+        "types": "./dist/tools/drr/index.d.cts",
+        "default": "./dist/tools/drr/index.cjs"
+      }
+    },
+    "./drr/replay": {
+      "import": {
+        "types": "./dist/tools/drr/replay.d.ts",
+        "default": "./dist/tools/drr/replay.js"
+      },
+      "require": {
+        "types": "./dist/tools/drr/replay.d.cts",
+        "default": "./dist/tools/drr/replay.cjs"
       }
     }
   },
@@ -44,7 +67,7 @@
     "start": "node dist/app.js",
     "dev": "nodemon",
     "test": "tsx tests/run.ts",
-    "lint": "eslint src/**/*.ts",
+    "lint": "eslint \"src/**/*.ts\"",
     "format": "prettier --write \"{src,tests}/**/*.ts\"",
     "check": "pnpm run lint && pnpm run format",
     "pack:npm": "node scripts/pack.js",

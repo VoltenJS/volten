@@ -2,6 +2,8 @@ import http from "http";
 import https from "https";
 import fs from "fs";
 import type {
+  DRRConfig,
+  DRRPlugin,
   PreflightHandler,
   ErrorHandler,
   DefaultErrorHandler,
@@ -55,6 +57,17 @@ export class App<CustomLevels extends string = never> extends Router {
   private acceptIncomming = true;
   public logger: Logger<CustomLevels>;
   public adaptiveEngine: AdaptiveEngine;
+  public drrEngine: DRRPlugin | null = null;
+
+  public enableDrr(
+    plugin: { drr: DRRPlugin; setDRRConfig?: (config: DRRConfig) => void },
+    config: DRRConfig,
+  ) {
+    this.drrEngine = plugin.drr;
+    if (plugin.setDRRConfig !== undefined) {
+      plugin.setDRRConfig(config);
+    }
+  }
 
   /**
    * Configures a custom logger with the specified levels and formats.
@@ -255,6 +268,9 @@ export class App<CustomLevels extends string = never> extends Router {
    */
   public async handleError(err: unknown, ctx: RequestContext): Promise<void> {
     const error = err instanceof VoltenError ? err : VoltenError.from(err);
+    if (this.drrEngine !== null) {
+      this.drrEngine.onCrash(ctx, error).catch(console.error);
+    }
     const customHandler = this.customErrorHandler;
 
     if (customHandler !== null) {

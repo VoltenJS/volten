@@ -2,7 +2,7 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig({
-  entry: ["src/index.ts"],
+  entry: ["src/index.ts", "src/tools/drr/index.ts", "src/tools/drr/replay.ts"],
   format: ["cjs", "esm"],
   dts: {
     compilerOptions: {
@@ -13,4 +13,5 @@ export default defineConfig({
   splitting: false,
   sourcemap: true,
   target: "node24",
+  metafile: true,
 });
