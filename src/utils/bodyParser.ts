@@ -93,6 +93,10 @@ export async function parseBody(
     const chunks: Buffer[] = [];
 
     const onData = (chunk: Buffer) => {
+      // eslint-disable-next-line
+      if (ctx._app !== null && ctx._app.drrEngine) {
+        ctx._app.drrEngine.tee(ctx, chunk);
+      }
       receivedSize += chunk.length;
 
       if (receivedSize > limit) {
@@ -339,6 +343,10 @@ export async function* parseMultipartStream(
   };
 
   const onData = (chunk: Buffer) => {
+    // eslint-disable-next-line
+    if (ctx._app !== null && ctx._app.drrEngine) {
+      ctx._app.drrEngine.tee(ctx, chunk);
+    }
     try {
       processChunk(chunk);
     } catch (err) {

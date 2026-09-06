@@ -3,6 +3,7 @@ import { InvalidNextCallError, VoltenError } from "./errors.ts";
 
 import type { RequestContext, EdgeRequestContext } from "../utils/requestCtx.ts";
 import { isEdge } from "../utils/isEdge.ts";
+import { traceMiddleware } from "../tools/drr/tracer.ts";
 
 async function writeWebResponseToNode(webRes: Response, ctx: RequestContext) {
   ctx.statusCode = webRes.status;
@@ -91,18 +92,28 @@ export function createDynamicMiddlewareChain(chain: VoltenHandler[]): VoltenChai
       if (ctx.sent) {
         throw new InvalidNextCallError();
       }
-      return handleHandlerResult(
-        chain[i](ctx, () => dispatch(i + 1)),
-        ctx,
-      ) as Promise<void> | void;
+      const handler = () =>
+        handleHandlerResult(
+          chain[i](ctx, () => dispatch(i + 1)),
+          ctx,
+        ) as Promise<void> | void;
+      if (process.env.VOLTEN_DRR_REPLAY === "1") {
+        return traceMiddleware(ctx, chain[i].name, handler) as Promise<void> | void;
+      }
+      return handler();
     };
 
     try {
       index = 0;
-      const res = handleHandlerResult(
-        chain[0](ctx, () => dispatch(1)),
-        ctx,
-      );
+      const handler_0 = () =>
+        handleHandlerResult(
+          chain[0](ctx, () => dispatch(1)),
+          ctx,
+        );
+      const res =
+        process.env.VOLTEN_DRR_REPLAY === "1"
+          ? traceMiddleware(ctx, chain[0].name, handler_0)
+          : handler_0();
       if (res !== null && typeof res === "object" && "then" in res) {
         const thenable = res as { catch: (cb: (err: unknown) => unknown) => Promise<unknown> };
         if (typeof thenable.catch === "function") {
@@ -157,15 +168,27 @@ export function compileMiddlewareChain(chain: VoltenHandler[]): VoltenChainHandl
       lines.push(`    if (ctx.sent) {`);
       lines.push(`      throw new InvalidNextCallError();`);
       lines.push(`    }`);
+
       lines.push(
-        `    return handleHandlerResult(chain[${String(i)}](ctx, next_${String(i + 1)}), ctx);`,
+        `    const handler = () => handleHandlerResult(chain[${String(i)}](ctx, next_${String(i + 1)}), ctx);`,
       );
+      lines.push(
+        `    if (process.env.VOLTEN_DRR_REPLAY === "1" && typeof traceMiddleware === "function") {`,
+      );
+      lines.push(`      return traceMiddleware(ctx, chain[${String(i)}].name, handler);`);
+      lines.push(`    }`);
+      lines.push(`    return handler();`);
       lines.push(`  };`);
     }
 
     lines.push("  try {");
     lines.push("    index = 0;");
-    lines.push("    const res = handleHandlerResult(chain[0](ctx, next_1), ctx);");
+    lines.push("    const handler_0 = () => handleHandlerResult(chain[0](ctx, next_1), ctx);");
+    lines.push(
+      '    const res = (process.env.VOLTEN_DRR_REPLAY === "1" && typeof traceMiddleware === "function")',
+    );
+    lines.push("      ? traceMiddleware(ctx, chain[0].name, handler_0)");
+    lines.push("      : handler_0();");
     lines.push('    if (res && typeof res.then === "function") {');
     lines.push("      return res.catch(function(err) {");
     lines.push("        if (ctx._app !== null) {");
@@ -188,6 +211,7 @@ export function compileMiddlewareChain(chain: VoltenHandler[]): VoltenChainHandl
       "InvalidNextCallError",
       "VoltenError",
       "handleHandlerResult",
+      "traceMiddleware",
       lines.join("\n"),
     );
     /* eslint-disable @typescript-eslint/no-unsafe-call */
@@ -196,6 +220,7 @@ export function compileMiddlewareChain(chain: VoltenHandler[]): VoltenChainHandl
       InvalidNextCallError,
       VoltenError,
       handleHandlerResult,
+      traceMiddleware,
     ) as VoltenChainHandler;
   } catch {
     return createDynamicMiddlewareChain(chain);

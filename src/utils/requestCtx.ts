@@ -299,6 +299,10 @@ export class RequestContext<P extends string = string> {
   }
 
   reset() {
+    // eslint-disable-next-line
+    if (this._app !== null && this._app.drrEngine) {
+      this._app.drrEngine.onReset(this);
+    }
     this.inited = false;
     this._app = null;
     this._req = null;
