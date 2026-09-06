@@ -1,5 +1,9 @@
 import { App } from "./core/server.ts";
-const app = new App();
+import { drr, setDRRConfig } from "./tools/drr/index.ts";
+
+export const app = new App({ bodyLimit: 1024 * 1024 * 1024 * 5 });
+
+app.enableDrr({ drr, setDRRConfig }, { outDir: "./crashes" });
 const PORT = process.env["PORT"] ?? 3000;
 
 app.get("/", (ctx) => {
@@ -12,8 +16,12 @@ app.get("/user/:id", (ctx) => {
 });
 
 app.post("/data", async (ctx) => {
-  const data = await ctx.body();
-  ctx.json({ received: data });
+  await ctx.body();
+  throw new Error("This is a test error");
+});
+
+app.get("/error", () => {
+  throw new Error("This is a test error");
 });
 
 app.listen(PORT, () => {
