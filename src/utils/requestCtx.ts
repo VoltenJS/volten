@@ -18,7 +18,6 @@ import {
   HeadersSentError,
   NotFoundError,
   VoltenError,
-  BadRequestError,
 } from "../core/errors.ts";
 import { getMimeType } from "./mime.ts";
 
@@ -282,11 +281,14 @@ export class RequestContext<P extends string = string> {
         const pathModule = await import("path");
         const filePath = pathModule.join(staticPath, pathname);
         if (!(await isFileInFolder(staticPath, filePath))) {
-          throw new BadRequestError("Attempted directory traversal attack");
+          throw new NotFoundError("Route Not Found");
         }
         await this.sendFile(filePath, 200, {});
         return;
-      } catch {
+      } catch (err: unknown) {
+        if (err instanceof NotFoundError) {
+          throw err;
+        }
         const routeTree = app.getRouteTree();
         const methodsAllowed = routeTree.checkMethodAllowed(pathname);
         if (methodsAllowed.length > 0) {
