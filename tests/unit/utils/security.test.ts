@@ -37,67 +37,72 @@ async function makeTree(): Promise<{
   };
 }
 
-test("isFileInFolder: file inside folder is allowed", async (t) => {
-  const { root, cleanup } = await makeTree();
-  t.after(cleanup);
-  assert.equal(
-    await isFileInFolder(path.join(root, "public"), path.join(root, "public", "file.txt")),
-    true,
-  );
-});
+test("Security Unit Tests", async (t) => {
+  await t.test("file inside folder is allowed", async (t) => {
+    const { root, cleanup } = await makeTree();
+    t.after(cleanup);
+    assert.equal(
+      await isFileInFolder(path.join(root, "public"), path.join(root, "public", "file.txt")),
+      true,
+    );
+  });
 
-test("isFileInFolder: file in nested subfolder is allowed", async (t) => {
-  const { root, cleanup } = await makeTree();
-  t.after(cleanup);
-  assert.equal(
-    await isFileInFolder(path.join(root, "public"), path.join(root, "public", "sub", "file.txt")),
-    true,
-  );
-});
+  await t.test("file in nested subfolder is allowed", async (t) => {
+    const { root, cleanup } = await makeTree();
+    t.after(cleanup);
+    assert.equal(
+      await isFileInFolder(path.join(root, "public"), path.join(root, "public", "sub", "file.txt")),
+      true,
+    );
+  });
 
-test("isFileInFolder: relative paths inside the folder are allowed", async (t) => {
-  const { root, cleanup } = await makeTree();
-  t.after(cleanup);
-  assert.equal(await isFileInFolder(path.join(root, "public"), "sub/file.txt"), true);
-});
+  await t.test("relative paths inside the folder are allowed", async (t) => {
+    const { root, cleanup } = await makeTree();
+    t.after(cleanup);
+    assert.equal(await isFileInFolder(path.join(root, "public"), "sub/file.txt"), true);
+  });
 
-test("isFileInFolder: directory-traversal escape is blocked", async (t) => {
-  const { root, cleanup } = await makeTree();
-  t.after(cleanup);
-  // path.resolve would normalize this and make it land outside
-  assert.equal(
-    await isFileInFolder(path.join(root, "public"), path.join(root, "public", "..", "secret.txt")),
-    false,
-  );
-});
+  await t.test("directory-traversal escape is blocked", async (t) => {
+    const { root, cleanup } = await makeTree();
+    t.after(cleanup);
+    // path.resolve would normalize this and make it land outside
+    assert.equal(
+      await isFileInFolder(
+        path.join(root, "public"),
+        path.join(root, "public", "..", "secret.txt"),
+      ),
+      false,
+    );
+  });
 
-test("isFileInFolder: completely different folder is blocked", async (t) => {
-  const { root, cleanup } = await makeTree();
-  t.after(cleanup);
-  assert.equal(
-    await isFileInFolder(path.join(root, "public"), path.join(root, "secret.txt")),
-    false,
-  );
-});
+  await t.test("completely different folder is blocked", async (t) => {
+    const { root, cleanup } = await makeTree();
+    t.after(cleanup);
+    assert.equal(
+      await isFileInFolder(path.join(root, "public"), path.join(root, "secret.txt")),
+      false,
+    );
+  });
 
-test("isFileInFolder: same prefix but different folder is blocked", async (t) => {
-  const { root, cleanup } = await makeTree();
-  t.after(cleanup);
-  // public-evil must not be considered inside public
-  assert.equal(
-    await isFileInFolder(path.join(root, "public"), path.join(root, "public-evil", "file.txt")),
-    false,
-  );
-});
+  await t.test("same prefix but different folder is blocked", async (t) => {
+    const { root, cleanup } = await makeTree();
+    t.after(cleanup);
+    // public-evil must not be considered inside public
+    assert.equal(
+      await isFileInFolder(path.join(root, "public"), path.join(root, "public-evil", "file.txt")),
+      false,
+    );
+  });
 
-test("isFileInFolder: non-existent file returns false (realpath throws)", async (t) => {
-  const { root, cleanup } = await makeTree();
-  t.after(cleanup);
-  assert.equal(
-    await isFileInFolder(
-      path.join(root, "public"),
-      path.join(root, "public", "does-not-exist.txt"),
-    ),
-    false,
-  );
+  await t.test("non-existent file returns false (realpath throws)", async (t) => {
+    const { root, cleanup } = await makeTree();
+    t.after(cleanup);
+    assert.equal(
+      await isFileInFolder(
+        path.join(root, "public"),
+        path.join(root, "public", "does-not-exist.txt"),
+      ),
+      false,
+    );
+  });
 });

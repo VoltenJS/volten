@@ -25,7 +25,7 @@ after(() => {
   } catch {}
 });
 
-test("Volten Core Pipeline Integration", async (t) => {
+test("Router & Core Integration", async (t) => {
   // Initialize instance with explicitly small pool sizes to stress-test exhaustion/fallback states
   const volten = new App({
     RequestPoolSize: 2,
@@ -158,7 +158,7 @@ test("Volten Core Pipeline Integration", async (t) => {
   // EXECUTING THE TESTS MATRIX (100+ assertions)
   // ==========================================
 
-  await t.test("Matrix 1: Method Distribution Routing Logic Validation", async () => {
+  await t.test("Correctly distributes HTTP methods", async () => {
     const verbs = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
     for (const m of verbs) {
       middlewareTrace = [];
@@ -172,7 +172,7 @@ test("Volten Core Pipeline Integration", async (t) => {
     }
   });
 
-  await t.test("Matrix 2: Radix Path Matching, Splitting Nodes and Deep Backtracks", async () => {
+  await t.test("Matches static and dynamic paths accurately", async () => {
     // Exact Static Route Node Hit
     let res = await request(volten, "/route/static-segment");
     assert.equal(res.status, 200);
@@ -204,7 +204,7 @@ test("Volten Core Pipeline Integration", async (t) => {
     assert.equal(res.body, "static");
   });
 
-  await t.test("Matrix 3: Input Payload, Payload Bounds Violation Controls", async () => {
+  await t.test("Enforces payload size limits", async () => {
     // Basic body serialization verification targets
     let res = await request(volten, "/limit/empty", {
       method: "POST",
@@ -219,156 +219,141 @@ test("Volten Core Pipeline Integration", async (t) => {
     assert.equal(res.status, 200);
   });
 
-  await t.test(
-    "Matrix 4: State Serialization, Header Composition & Cookie Processing Engine",
-    async () => {
-      let res = await request(volten, "/cookies/set");
+  await t.test("Handles cookies and state serialization properly", async () => {
+    let res = await request(volten, "/cookies/set");
+    assert.equal(res.status, 200);
+    const setCookies = res.headers["set-cookie"];
+    assert.ok(Array.isArray(setCookies) || typeof setCookies === "string");
+
+    const cookieStr = Array.isArray(setCookies) ? setCookies.join("; ") : setCookies || "";
+    assert.ok(cookieStr.includes("session=abc"));
+    assert.ok(cookieStr.includes("HttpOnly"));
+    assert.ok(cookieStr.includes("Secure"));
+    assert.ok(cookieStr.includes("SameSite=Strict"));
+    assert.ok(cookieStr.includes("theme=dark"));
+    assert.ok(cookieStr.includes("Domain=volten.local"));
+
+    // Echo parsing framework checks
+    res = await request(volten, "/cookies/read", {
+      headers: { cookie: "user=admin; pass=123; malformed%2" },
+    });
+    const parsed = res.json<Record<string, string>>();
+    assert.equal(parsed["user"], "admin");
+    assert.equal(parsed["pass"], "123");
+  });
+
+  await t.test("Safely handles errors and multiple next() calls", async () => {
+    // Synchronous crash middleware interception loops
+    let res = await request(volten, "/error/sync");
+    assert.equal(res.status, 500);
+
+    // Asynchronous reject processing operations
+    res = await request(volten, "/error/async");
+    assert.equal(res.status, 500);
+
+    // Multiple next call detection system verification
+    res = await request(volten, "/error/next-multiple");
+    // Should trigger error containment structures
+    assert.ok(res.status === 500 || res.status === 200);
+
+    // Post response serialization pipeline calls
+    res = await request(volten, "/error/next-after-sent");
+    assert.equal(res.status, 200);
+    assert.equal(res.body, "already_sent");
+  });
+
+  await t.test("Optimizes JSON serialization natively", async () => {
+    // Buffer serialization streams
+    let res = await request(volten, "/response/buffer");
+    assert.equal(res.status, 200);
+    assert.equal(res.body, "buffer_payload");
+
+    // Empty element responses
+    res = await request(volten, "/response/empty-string");
+    assert.equal(res.status, 200);
+    assert.equal(res.body, "");
+
+    // Header mutation manipulations post serialization states
+    res = await request(volten, "/response/remove-header");
+    assert.equal(res.status, 200);
+    assert.equal(res.headers["x-remove-me"], undefined);
+
+    // JIT compilation optimization path exercises
+    // Run multiple iterative invocations to force shape stabilization thresholds inside caching units
+    for (let i = 0; i < 15; i++) {
+      res = await request(volten, "/response/json-jit");
       assert.equal(res.status, 200);
-      const setCookies = res.headers["set-cookie"];
-      assert.ok(Array.isArray(setCookies) || typeof setCookies === "string");
+      const data = res.json<{ active: boolean }>();
+      assert.equal(data.active, true);
+    }
+  });
 
-      const cookieStr = Array.isArray(setCookies) ? setCookies.join("; ") : setCookies || "";
-      assert.ok(cookieStr.includes("session=abc"));
-      assert.ok(cookieStr.includes("HttpOnly"));
-      assert.ok(cookieStr.includes("Secure"));
-      assert.ok(cookieStr.includes("SameSite=Strict"));
-      assert.ok(cookieStr.includes("theme=dark"));
-      assert.ok(cookieStr.includes("Domain=volten.local"));
+  await t.test("Safely serves static files and prevents traversal", async () => {
+    // Regular asset delivery checks
+    let res = await request(volten, "/asset.txt");
+    assert.equal(res.status, 200);
+    assert.equal(res.body, "Volten Framework Asset Payload Data");
+    assert.equal(res.headers["content-type"], "text/plain; charset=utf-8");
 
-      // Echo parsing framework checks
-      res = await request(volten, "/cookies/read", {
-        headers: { cookie: "user=admin; pass=123; malformed%2" },
+    // Nested directory targets verification path
+    res = await request(volten, "/secure_folder/nested.json");
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.json(), { secure: true });
+
+    // Missing targeted file allocations fallback paths gracefully
+    res = await request(volten, "/missing-file-target.css");
+    assert.equal(res.status, 404);
+
+    // Malicious directory relative transversal attempts containment checking bounds
+    res = await request(volten, "/../package.json");
+    assert.equal(res.status, 404);
+
+    res = await request(volten, "/secure_folder/../../src/core/server.ts");
+    assert.equal(res.status, 404);
+  });
+
+  await t.test("Correctly resolves dynamic URLs under load", async () => {
+    // 1. Validate the standard router parameter resolution safely
+    let res = await request(volten, "/methods?key=val&multi=a&multi=b+c");
+    assert.equal(res.status, 200);
+    const isolatedApp = new App({
+      RequestPoolSize: 2,
+      bodyLimit: 1024,
+    });
+    isolatedApp.get("/sluggish-node", async (ctx) => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      ctx.text("OK");
+    });
+
+    const contentionServer = isolatedApp.listen(0);
+    const assignedPort = await new Promise<number>((resolve) => {
+      contentionServer.on("listening", () => {
+        const addr = contentionServer.address() as AddressInfo;
+        resolve(addr.port);
       });
-      const parsed = res.json<Record<string, string>>();
-      assert.equal(parsed["user"], "admin");
-      assert.equal(parsed["pass"], "123");
-    },
-  );
+    });
 
-  await t.test(
-    "Matrix 5: Fault Pipelines, Multiple Chain Executions and Pipeline Guard rails",
-    async () => {
-      // Synchronous crash middleware interception loops
-      let res = await request(volten, "/error/sync");
-      assert.equal(res.status, 500);
+    const targetUrl = `http://127.0.0.1:${assignedPort}/sluggish-node`;
+    const burstPromises: Promise<Response>[] = [];
+    for (let i = 0; i < 6; i++) {
+      burstPromises.push(fetch(targetUrl, { headers: { Connection: "close" } }));
+    }
 
-      // Asynchronous reject processing operations
-      res = await request(volten, "/error/async");
-      assert.equal(res.status, 500);
+    const networkOutcomes = await Promise.all(burstPromises);
+    const codeList = networkOutcomes.map((r) => r.status);
 
-      // Multiple next call detection system verification
-      res = await request(volten, "/error/next-multiple");
-      // Should trigger error containment structures
-      assert.ok(res.status === 500 || res.status === 200);
-
-      // Post response serialization pipeline calls
-      res = await request(volten, "/error/next-after-sent");
-      assert.equal(res.status, 200);
-      assert.equal(res.body, "already_sent");
-    },
-  );
-
-  await t.test(
-    "Matrix 6: Response Body Types, JIT Fingerprinting Optimization Iterations",
-    async () => {
-      // Buffer serialization streams
-      let res = await request(volten, "/response/buffer");
-      assert.equal(res.status, 200);
-      assert.equal(res.body, "buffer_payload");
-
-      // Empty element responses
-      res = await request(volten, "/response/empty-string");
-      assert.equal(res.status, 200);
-      assert.equal(res.body, "");
-
-      // Header mutation manipulations post serialization states
-      res = await request(volten, "/response/remove-header");
-      assert.equal(res.status, 200);
-      assert.equal(res.headers["x-remove-me"], undefined);
-
-      // JIT compilation optimization path exercises
-      // Run multiple iterative invocations to force shape stabilization thresholds inside caching units
-      for (let i = 0; i < 15; i++) {
-        res = await request(volten, "/response/json-jit");
-        assert.equal(res.status, 200);
-        const data = res.json<{ active: boolean }>();
-        assert.equal(data.active, true);
+    await new Promise<void>((resolve) => {
+      if (typeof contentionServer.closeAllConnections === "function") {
+        contentionServer.closeAllConnections();
       }
-    },
-  );
+      contentionServer.close(() => resolve());
+    });
 
-  await t.test(
-    "Matrix 7: Static Target Resolution, Access Bounds, Directory Traversals",
-    async () => {
-      // Regular asset delivery checks
-      let res = await request(volten, "/asset.txt");
-      assert.equal(res.status, 200);
-      assert.equal(res.body, "Volten Framework Asset Payload Data");
-      assert.equal(res.headers["content-type"], "text/plain; charset=utf-8");
+    const has200 = codeList.includes(200);
+    const has503 = codeList.includes(503);
 
-      // Nested directory targets verification path
-      res = await request(volten, "/secure_folder/nested.json");
-      assert.equal(res.status, 200);
-      assert.deepEqual(res.json(), { secure: true });
-
-      // Missing targeted file allocations fallback paths gracefully
-      res = await request(volten, "/missing-file-target.css");
-      assert.equal(res.status, 404);
-
-      // Malicious directory relative transversal attempts containment checking bounds
-      res = await request(volten, "/../package.json");
-      assert.equal(res.status, 404);
-
-      res = await request(volten, "/secure_folder/../../src/core/server.ts");
-      assert.equal(res.status, 404);
-    },
-  );
-
-  await t.test(
-    "Matrix 8: Server Pool Contention States & Dynamic URL Resolution Edge-cases",
-    async () => {
-      // 1. Validate the standard router parameter resolution safely
-      let res = await request(volten, "/methods?key=val&multi=a&multi=b+c");
-      assert.equal(res.status, 200);
-      const isolatedApp = new App({
-        RequestPoolSize: 2,
-        bodyLimit: 1024,
-      });
-      isolatedApp.get("/sluggish-node", async (ctx) => {
-        await new Promise((resolve) => setTimeout(resolve, 20));
-        ctx.text("OK");
-      });
-
-      const contentionServer = isolatedApp.listen(0);
-      const assignedPort = await new Promise<number>((resolve) => {
-        contentionServer.on("listening", () => {
-          const addr = contentionServer.address() as AddressInfo;
-          resolve(addr.port);
-        });
-      });
-
-      const targetUrl = `http://127.0.0.1:${assignedPort}/sluggish-node`;
-      const burstPromises: Promise<Response>[] = [];
-      for (let i = 0; i < 6; i++) {
-        burstPromises.push(fetch(targetUrl, { headers: { Connection: "close" } }));
-      }
-
-      const networkOutcomes = await Promise.all(burstPromises);
-      const codeList = networkOutcomes.map((r) => r.status);
-
-      await new Promise<void>((resolve) => {
-        if (typeof contentionServer.closeAllConnections === "function") {
-          contentionServer.closeAllConnections();
-        }
-        contentionServer.close(() => resolve());
-      });
-
-      const has200 = codeList.includes(200);
-      const has503 = codeList.includes(503);
-
-      assert.ok(has200, "Isolated pool failed to process baseline valid items.");
-      assert.ok(has503, "Starvation protective barrier failed to yield a 503 status.");
-    },
-  );
+    assert.ok(has200, "Isolated pool failed to process baseline valid items.");
+    assert.ok(has503, "Starvation protective barrier failed to yield a 503 status.");
+  });
   volten.close();
 });
