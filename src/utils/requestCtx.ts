@@ -743,6 +743,9 @@ export class RequestContext<P extends string = string> {
           void options.errCallback(normalizedErr, this);
         }
         void this.app.handleError(normalizedErr, this);
+        if (!resObj.headersSent && this instanceof NodeRequestContext) {
+          regApp.resetCtx(this);
+        }
       });
     } catch {
       const error = new NotFoundError("Resource Not Found");
