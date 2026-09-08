@@ -1,3 +1,4 @@
+import { Writable } from "stream";
 import { App } from "./core/server.ts";
 import fs from "fs";
 const app = new App();
@@ -14,12 +15,9 @@ app.get("/user/:id", (ctx) => {
 
 app.post("/data", async (ctx) => {
   const readable = ctx.bodyStream;
-  if (!readable) {
-    ctx.status(400).text("Bad Request");
-    return;
-  }
   const writable = fs.createWriteStream("test.mp4");
-  readable.pipe(writable);
+  await readable.pipeTo(Writable.toWeb(writable));
+  ctx.send("Success");
 });
 
 app.listen(PORT, () => {
