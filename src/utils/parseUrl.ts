@@ -1,5 +1,13 @@
 import type { Query } from "../core/types.ts";
 
+function safeDecode(str: string): string {
+  try {
+    return decodeURIComponent(str);
+  } catch {
+    return str;
+  }
+}
+
 export function parseUrl(url: string) {
   let start = 0;
 
@@ -21,10 +29,11 @@ export function parseUrl(url: string) {
   const queryIndex = remaining.indexOf("?");
 
   if (queryIndex === -1) {
+    const pathname =
+      // eslint-disable-next-line @typescript-eslint/strict-boolean-expressions
+      remaining.endsWith("/") && remaining.length > 1 ? remaining.slice(0, -1) : remaining || "/";
     return {
-      pathname:
-        // eslint-disable-next-line @typescript-eslint/strict-boolean-expressions
-        remaining.endsWith("/") && remaining.length > 1 ? remaining.slice(0, -1) : remaining || "/",
+      pathname: safeDecode(pathname),
       queryStr: "",
     };
   }
@@ -36,7 +45,7 @@ export function parseUrl(url: string) {
   }
 
   return {
-    pathname,
+    pathname: safeDecode(pathname),
     queryStr: remaining.substring(queryIndex + 1),
   };
 }
