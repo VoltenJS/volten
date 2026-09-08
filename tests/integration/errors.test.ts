@@ -19,7 +19,7 @@ after(() => {
   } catch {}
 });
 
-test("Volten Server Core Error Pipeline & Boundary Constraints Matrix", async (t) => {
+test("Error Pipeline & Boundary Constraints", async (t) => {
   let volten: App;
 
   let customGlobalErrorHit = false;
@@ -83,25 +83,19 @@ test("Volten Server Core Error Pipeline & Boundary Constraints Matrix", async (t
   // EXECUTION SUITE MATRIX (10 Advanced Integration Matrices)
   // =========================================================================
 
-  await t.test(
-    "Matrix 1: Synchronous Micro-Task Exception Interception & Serialization",
-    async () => {
-      await resetErrorMetrics();
-      const res = await request(volten, "/error/sync-crash");
-      assert.equal(res.status, 500);
-    },
-  );
+  await t.test("Intercepts and serializes synchronous exceptions", async () => {
+    await resetErrorMetrics();
+    const res = await request(volten, "/error/sync-crash");
+    assert.equal(res.status, 500);
+  });
 
-  await t.test(
-    "Matrix 2: Asynchronous Promise Rejection Interception & Pipeline Preservation",
-    async () => {
-      await resetErrorMetrics();
-      const res = await request(volten, "/error/async-crash");
-      assert.equal(res.status, 500);
-    },
-  );
+  await t.test("Intercepts asynchronous promise rejections", async () => {
+    await resetErrorMetrics();
+    const res = await request(volten, "/error/async-crash");
+    assert.equal(res.status, 500);
+  });
 
-  await t.test("Matrix 3: Inbound Content-Length Validation Overflow Protection", async () => {
+  await t.test("Validates inbound Content-Length against overflow", async () => {
     await resetErrorMetrics();
     const heavyPayload = "X".repeat(512);
 
@@ -122,7 +116,7 @@ test("Volten Server Core Error Pipeline & Boundary Constraints Matrix", async (t
     }
   });
 
-  await t.test("Matrix 4: Dynamic Stream Chunk Collector Limit Exceedance Handling", async () => {
+  await t.test("Handles stream payload limit exceedance", async () => {
     await resetErrorMetrics();
 
     try {
@@ -141,7 +135,7 @@ test("Volten Server Core Error Pipeline & Boundary Constraints Matrix", async (t
     }
   });
 
-  await t.test("Matrix 5: Global Application Fallback Error Middleware Overrides", async () => {
+  await t.test("Allows overriding the global error handler", async () => {
     await resetErrorMetrics();
 
     volten.onError((err, ctx) => {
@@ -154,26 +148,20 @@ test("Volten Server Core Error Pipeline & Boundary Constraints Matrix", async (t
     assert.equal(customGlobalErrorHit, true);
   });
 
-  await t.test(
-    "Matrix 6: Mid-Pipeline Next-Call Iteration Loop Breaches (Compose Safety)",
-    async () => {
-      await resetErrorMetrics();
-      const res = await requestFetch(volten, "/error/pipeline-breach");
-      assert.ok(res.status === 500);
-    },
-  );
+  await t.test("Ensures compose safety on next() loop breaches", async () => {
+    await resetErrorMetrics();
+    const res = await requestFetch(volten, "/error/pipeline-breach");
+    assert.ok(res.status === 500);
+  });
 
-  await t.test(
-    "Matrix 7: Next-Call Invocation Post Response Stream Serialization Traps",
-    async () => {
-      await resetErrorMetrics();
-      const res = await request(volten, "/error/next-after-send");
-      assert.equal(res.status, 200);
-      assert.equal(res.body, "already_finalized");
-    },
-  );
+  await t.test("Traps next() calls after response sent", async () => {
+    await resetErrorMetrics();
+    const res = await request(volten, "/error/next-after-send");
+    assert.equal(res.status, 200);
+    assert.equal(res.body, "already_finalized");
+  });
 
-  await t.test("Matrix 8: Invalid Header Modification & Flush Actions Guardrail", async () => {
+  await t.test("Prevents header modification after flush", async () => {
     await resetErrorMetrics();
     try {
       await request(volten, "/error/double-header-flush");
@@ -184,18 +172,15 @@ test("Volten Server Core Error Pipeline & Boundary Constraints Matrix", async (t
     }
   });
 
-  await t.test(
-    "Matrix 9: Static Resolution Directory Traversal Access Block Constraints",
-    async () => {
-      await resetErrorMetrics();
-      volten.static(TMP_ERR_DIR);
+  await t.test("Blocks directory traversal attempts securely", async () => {
+    await resetErrorMetrics();
+    volten.static(TMP_ERR_DIR);
 
-      const resTraversal = await request(volten, "/../../secret.txt");
-      assert.equal(resTraversal.status, 404);
+    const resTraversal = await request(volten, "/../../secret.txt");
+    assert.equal(resTraversal.status, 404);
 
-      const resGetBody = await request(volten, "/error/read-body-on-get");
-      assert.equal(resGetBody.status, 200);
-      assert.ok(resGetBody.body.includes("body_was"));
-    },
-  );
+    const resGetBody = await request(volten, "/error/read-body-on-get");
+    assert.equal(resGetBody.status, 200);
+    assert.ok(resGetBody.body.includes("body_was"));
+  });
 });

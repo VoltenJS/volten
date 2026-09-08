@@ -1,4 +1,6 @@
+import { Writable } from "stream";
 import { App } from "./core/server.ts";
+import fs from "fs";
 const app = new App();
 const PORT = process.env["PORT"] ?? 3000;
 
@@ -12,8 +14,10 @@ app.get("/user/:id", (ctx) => {
 });
 
 app.post("/data", async (ctx) => {
-  const data = await ctx.body();
-  ctx.json({ received: data });
+  const readable = ctx.bodyStream;
+  const writable = fs.createWriteStream("test.mp4");
+  await readable.pipeTo(Writable.toWeb(writable));
+  ctx.send("Success");
 });
 
 app.listen(PORT, () => {

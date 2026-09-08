@@ -5,7 +5,7 @@ import { RequestContext } from "../../src/utils/requestCtx.ts";
 import type { Next } from "../../src/core/types.ts";
 import { request } from "../helpers.ts";
 
-test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
+test("Middleware Execution Pipeline & Lifecycle", async (t) => {
   const volten = new App({
     RequestPoolSize: 10,
     bodyLimit: 4096,
@@ -203,24 +203,21 @@ test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
   // EXECUTION MATRIX SUITE
   // =========================================================================
 
-  await t.test(
-    "Matrix 1: Classical Sequential Onion-Model Architecture Hierarchy Verification",
-    async () => {
-      onionTrace = [];
-      const res = await request(volten, "/pipeline/onion");
-      assert.equal(res.status, 200);
-      assert.equal(res.body, "onion_resolved");
-      assert.deepEqual(onionTrace, [
-        "onion_1_in",
-        "onion_2_in",
-        "handler_onion_hit",
-        "onion_2_out",
-        "onion_1_out",
-      ]);
-    },
-  );
+  await t.test("Executes middlewares in sequential onion order", async () => {
+    onionTrace = [];
+    const res = await request(volten, "/pipeline/onion");
+    assert.equal(res.status, 200);
+    assert.equal(res.body, "onion_resolved");
+    assert.deepEqual(onionTrace, [
+      "onion_1_in",
+      "onion_2_in",
+      "handler_onion_hit",
+      "onion_2_out",
+      "onion_1_out",
+    ]);
+  });
 
-  await t.test("Matrix 2: Deep Request Context Pipeline State Mutation Propagation", async () => {
+  await t.test("Propagates state mutations down the pipeline", async () => {
     const res = await request(volten, "/state/mutation-pass");
     assert.equal(res.status, 200);
     const parsed = res.json<any>();
@@ -232,97 +229,79 @@ test("Volten Middleware Execution Pipeline & Lifecycle Matrix", async (t) => {
     });
   });
 
-  await t.test("Matrix 3: Non-Awaited Immediate Short-Circuit Pipeline Interceptions", async () => {
+  await t.test("Allows short-circuiting the pipeline without awaiting", async () => {
     const res = await request(volten, "/pipeline/short-circuit");
     assert.equal(res.status, 403);
     assert.equal(res.body, "Forbidden Outright");
   });
 
-  await t.test(
-    "Matrix 4: Dynamic Asynchronous Concurrency Race Controls & Context Desynchronization",
-    async () => {
-      raceTrace = [];
-      const flowA = request(volten, "/pipeline/concurrent-race?delay=30");
-      const flowB = request(volten, "/pipeline/concurrent-race?delay=2");
+  await t.test("Safely handles asynchronous concurrency", async () => {
+    raceTrace = [];
+    const flowA = request(volten, "/pipeline/concurrent-race?delay=30");
+    const flowB = request(volten, "/pipeline/concurrent-race?delay=2");
 
-      const [resA, resB] = await Promise.all([flowA, flowB]);
-      assert.equal(resA.status, 200);
-      assert.equal(resB.status, 200);
+    const [resA, resB] = await Promise.all([flowA, flowB]);
+    assert.equal(resA.status, 200);
+    assert.equal(resB.status, 200);
 
-      assert.equal(raceTrace[0], "race_in_30");
-      assert.equal(raceTrace[1], "race_in_2");
-      assert.equal(raceTrace[2], "race_out_2");
-    },
-  );
+    assert.equal(raceTrace[0], "race_in_30");
+    assert.equal(raceTrace[1], "race_in_2");
+    assert.equal(raceTrace[2], "race_out_2");
+  });
 
-  await t.test(
-    "Matrix 5: Composite Inline Multiplex Route Guard Arrays Processing Order",
-    async () => {
-      inlineTrace = [];
-      const res = await request(volten, "/pipeline/inline-guards");
+  await t.test("Processes inline middleware arrays in order", async () => {
+    inlineTrace = [];
+    const res = await request(volten, "/pipeline/inline-guards");
+    assert.equal(res.status, 200);
+    assert.deepEqual(inlineTrace, [
+      "alpha_in",
+      "beta_in",
+      "inline_handler",
+      "beta_out",
+      "alpha_out",
+    ]);
+  });
+
+  await t.test("Prevents multiple next() calls", async () => {
+    doubleNextTrace = [];
+    const res = await request(volten, "/pipeline/double-next");
+    assert.ok(res.status === 200 || res.status === 500);
+    assert.ok(doubleNextTrace.includes("double_next_trigger"));
+  });
+
+  await t.test("Bubbles up asynchronous errors properly", async () => {
+    errorTrace = [];
+    const res = await request(volten, "/pipeline/error-bubbling");
+    assert.ok(res.status === 500 || res.status === 502);
+    assert.ok(errorTrace.includes("bubble_inner_handler"));
+  });
+
+  await t.test("Cleans up state after boundary response", async () => {
+    postMutateState = null;
+    const res = await request(volten, "/pipeline/post-mutate");
+    assert.equal(res.status, 200);
+    assert.equal(res.body, "payload_intact");
+    assert.equal(res.headers["x-post-mutation"], undefined);
+    assert.ok(postMutateState !== null);
+    assert.equal(postMutateState.postExecutionMarker, "cleaned-up");
+  });
+
+  await t.test("Prevents memory leaks under high frequency mutations", async () => {
+    for (let i = 0; i < 10; i++) {
+      const payloadData = { iteration: i };
+
+      const res = await request(volten, "/pipeline/stress-payload", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payloadData),
+      });
+
       assert.equal(res.status, 200);
-      assert.deepEqual(inlineTrace, [
-        "alpha_in",
-        "beta_in",
-        "inline_handler",
-        "beta_out",
-        "alpha_out",
-      ]);
-    },
-  );
-
-  await t.test(
-    "Matrix 6: Loop Defection Guardrails vs Malicious Double Next-Call Implementations",
-    async () => {
-      doubleNextTrace = [];
-      const res = await request(volten, "/pipeline/double-next");
-      assert.ok(res.status === 200 || res.status === 500);
-      assert.ok(doubleNextTrace.includes("double_next_trigger"));
-    },
-  );
-
-  await t.test(
-    "Matrix 7: Two-Way Asynchronous Error Bubbling Upstream & Recovery Controls",
-    async () => {
-      errorTrace = [];
-      const res = await request(volten, "/pipeline/error-bubbling");
-      assert.ok(res.status === 500 || res.status === 502);
-      assert.ok(errorTrace.includes("bubble_inner_handler"));
-    },
-  );
-
-  await t.test(
-    "Matrix 8: Outbound Boundary Response Protection & Post-Execution Cleanup State",
-    async () => {
-      postMutateState = null;
-      const res = await request(volten, "/pipeline/post-mutate");
-      assert.equal(res.status, 200);
-      assert.equal(res.body, "payload_intact");
-      assert.equal(res.headers["x-post-mutation"], undefined);
-      assert.ok(postMutateState !== null);
-      assert.equal(postMutateState.postExecutionMarker, "cleaned-up");
-    },
-  );
-
-  await t.test(
-    "Matrix 9: Memory Leak Prevention & High Frequency Payload Buffer Mutations Stress",
-    async () => {
-      for (let i = 0; i < 10; i++) {
-        const payloadData = { iteration: i };
-
-        const res = await request(volten, "/pipeline/stress-payload", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(payloadData),
-        });
-
-        assert.equal(res.status, 200);
-        const returningJson = res.json<any>();
-        assert.equal(returningJson.iteration, i);
-        assert.equal(returningJson.intercepted, true);
-      }
-      assert.ok(globalExecutionCount > 0);
-    },
-  );
+      const returningJson = res.json<any>();
+      assert.equal(returningJson.iteration, i);
+      assert.equal(returningJson.intercepted, true);
+    }
+    assert.ok(globalExecutionCount > 0);
+  });
   volten.close();
 });

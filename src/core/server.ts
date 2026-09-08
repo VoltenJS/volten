@@ -219,6 +219,22 @@ export class App<CustomLevels extends string = never> extends Router {
         break;
     }
 
+    if (err.code !== "ERR_HEADERS_SENT") {
+      const acceptHeader = ctx.headers["accept"];
+      const acceptStr =
+        (typeof acceptHeader === "string"
+          ? acceptHeader
+          : Array.isArray(acceptHeader)
+            ? acceptHeader[0]
+            : "") ?? "";
+      if (acceptStr.includes("application/json")) {
+        const errorMsg = Buffer.isBuffer(body) ? body.toString("utf8") : body;
+        body = JSON.stringify({ error: errorMsg, code: status });
+        headers["content-type"] = "application/json; charset=utf-8";
+        headers["content-length"] = Buffer.byteLength(body);
+      }
+    }
+
     if (ctx.runtime === "node") {
       const res = ctx.res;
       if (res !== null) {
@@ -295,13 +311,14 @@ export class App<CustomLevels extends string = never> extends Router {
         const res = ctx.res;
         if (res !== null && !res.destroyed) {
           res.destroy();
-          this.resetCtx(ctx);
         }
+        this.resetCtx(ctx);
       } else {
         const edgeCtx = ctx as EdgeRequestContext;
         if (!edgeCtx.sent) {
           edgeCtx.send("Internal Server Error", 500);
         }
+        this.resetEdgeCtx(edgeCtx);
       }
     }
   }
@@ -563,6 +580,7 @@ export class App<CustomLevels extends string = never> extends Router {
           req,
           res,
           runtime: "node",
+          headers: req.headers,
         } as RequestContext);
         return;
       }

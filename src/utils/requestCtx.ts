@@ -1,4 +1,5 @@
 import * as http from "http";
+import { Readable } from "stream";
 import type {
   Query,
   PathData,
@@ -18,7 +19,6 @@ import {
   HeadersSentError,
   NotFoundError,
   VoltenError,
-  BadRequestError,
 } from "../core/errors.ts";
 import { getMimeType } from "./mime.ts";
 
@@ -282,11 +282,14 @@ export class RequestContext<P extends string = string> {
         const pathModule = await import("path");
         const filePath = pathModule.join(staticPath, pathname);
         if (!(await isFileInFolder(staticPath, filePath))) {
-          throw new BadRequestError("Attempted directory traversal attack");
+          throw new NotFoundError("Route Not Found");
         }
         await this.sendFile(filePath, 200, {});
         return;
-      } catch {
+      } catch (err: unknown) {
+        if (err instanceof NotFoundError) {
+          throw err;
+        }
         const routeTree = app.getRouteTree();
         const methodsAllowed = routeTree.checkMethodAllowed(pathname);
         if (methodsAllowed.length > 0) {
@@ -604,6 +607,10 @@ export class RequestContext<P extends string = string> {
     return this;
   }
 
+  get bodyStream(): ReadableStream<Uint8Array> {
+    return Readable.toWeb(this.req as http.IncomingMessage) as ReadableStream<Uint8Array>;
+  }
+
   public body(type: "json" | "text" = "json"): Promise<unknown> {
     if (this._bodyPromise !== undefined) return this._bodyPromise;
 
@@ -671,12 +678,39 @@ export class RequestContext<P extends string = string> {
       const ext = pathModule.extname(filePath).toLowerCase().slice(1);
       const contentType = getMimeType(ext);
 
+      const mtimeStr = stats.mtime.getTime().toString(16);
+      const sizeStr = stats.size.toString(16);
+      const etag = `W/"${sizeStr}-${mtimeStr}"`;
+
+      const reqHeaders = this.headers;
+      const ifNoneMatch = reqHeaders["if-none-match"];
+      const ifModifiedSince = reqHeaders["if-modified-since"];
+
+      let is304 = false;
+      if (typeof ifNoneMatch === "string" && ifNoneMatch === etag) {
+        is304 = true;
+      } else if (typeof ifModifiedSince === "string") {
+        const modifiedSince = new Date(ifModifiedSince);
+        if (!isNaN(modifiedSince.getTime()) && modifiedSince >= stats.mtime) {
+          is304 = true;
+        }
+      }
+
+      if (is304) {
+        resObj.statusCode = 304;
+        this.setHeader("ETag", etag);
+        this.setHeader("Last-Modified", stats.mtime.toUTCString());
+        resObj.end();
+        return this;
+      }
+
       resObj.cork();
       try {
         resObj.statusCode = statusCode;
         this.setHeader("Content-Type", contentType);
         this.setHeader("Content-Length", stats.size);
         this.setHeader("Last-Modified", stats.mtime.toUTCString());
+        this.setHeader("ETag", etag);
 
         if (options?.download !== undefined) {
           const encodedName = encodeURIComponent(options.download);
@@ -709,6 +743,9 @@ export class RequestContext<P extends string = string> {
           void options.errCallback(normalizedErr, this);
         }
         void this.app.handleError(normalizedErr, this);
+        if (!resObj.headersSent && this instanceof NodeRequestContext) {
+          regApp.resetCtx(this);
+        }
       });
     } catch {
       const error = new NotFoundError("Resource Not Found");
@@ -1030,6 +1067,10 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
 
     this._edgeHeaders.append("Set-Cookie", str);
     return this;
+  }
+
+  override get bodyStream(): ReadableStream<Uint8Array> {
+    return this.req.body as ReadableStream<Uint8Array>;
   }
 
   override body(type: "json" | "text" = "json"): Promise<unknown> {
