@@ -311,13 +311,14 @@ export class App<CustomLevels extends string = never> extends Router {
         const res = ctx.res;
         if (res !== null && !res.destroyed) {
           res.destroy();
-          this.resetCtx(ctx);
         }
+        this.resetCtx(ctx);
       } else {
         const edgeCtx = ctx as EdgeRequestContext;
         if (!edgeCtx.sent) {
           edgeCtx.send("Internal Server Error", 500);
         }
+        this.resetEdgeCtx(edgeCtx);
       }
     }
   }
@@ -579,6 +580,7 @@ export class App<CustomLevels extends string = never> extends Router {
           req,
           res,
           runtime: "node",
+          headers: req.headers,
         } as RequestContext);
         return;
       }
