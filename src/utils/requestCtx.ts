@@ -1,4 +1,5 @@
 import * as http from "http";
+import { Readable } from "stream";
 import type {
   Query,
   PathData,
@@ -606,6 +607,10 @@ export class RequestContext<P extends string = string> {
     return this;
   }
 
+  get bodyStream(): ReadableStream<Uint8Array> {
+    return Readable.toWeb(this.req as http.IncomingMessage) as ReadableStream<Uint8Array>;
+  }
+
   public body(type: "json" | "text" = "json"): Promise<unknown> {
     if (this._bodyPromise !== undefined) return this._bodyPromise;
 
@@ -1032,6 +1037,10 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
 
     this._edgeHeaders.append("Set-Cookie", str);
     return this;
+  }
+
+  override get bodyStream(): ReadableStream<Uint8Array> {
+    return this.req.body as ReadableStream<Uint8Array>;
   }
 
   override body(type: "json" | "text" = "json"): Promise<unknown> {
