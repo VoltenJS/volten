@@ -9,6 +9,7 @@ import { dirname } from "path";
 import { pipeline } from "stream/promises";
 import { basename } from "path";
 import * as http from "http";
+import { constants } from "buffer";
 
 function decodeQueryComponent(str: string): string {
   if (!str.includes("+") && !str.includes("%")) {
@@ -109,6 +110,15 @@ export async function parseBody(
 
       if (chunks.length === 0) {
         resolve(App.EMPTY_OBJECT);
+        return;
+      }
+
+      if (receivedSize > constants.MAX_STRING_LENGTH) {
+        reject(
+          new Error(
+            "Payload too large to be converted to a string in memory. Use ctx.bodyStream() for large payloads.",
+          ),
+        );
         return;
       }
 
