@@ -678,12 +678,39 @@ export class RequestContext<P extends string = string> {
       const ext = pathModule.extname(filePath).toLowerCase().slice(1);
       const contentType = getMimeType(ext);
 
+      const mtimeStr = stats.mtime.getTime().toString(16);
+      const sizeStr = stats.size.toString(16);
+      const etag = `W/"${sizeStr}-${mtimeStr}"`;
+
+      const reqHeaders = this.headers;
+      const ifNoneMatch = reqHeaders["if-none-match"];
+      const ifModifiedSince = reqHeaders["if-modified-since"];
+
+      let is304 = false;
+      if (typeof ifNoneMatch === "string" && ifNoneMatch === etag) {
+        is304 = true;
+      } else if (typeof ifModifiedSince === "string") {
+        const modifiedSince = new Date(ifModifiedSince);
+        if (!isNaN(modifiedSince.getTime()) && modifiedSince >= stats.mtime) {
+          is304 = true;
+        }
+      }
+
+      if (is304) {
+        resObj.statusCode = 304;
+        this.setHeader("ETag", etag);
+        this.setHeader("Last-Modified", stats.mtime.toUTCString());
+        resObj.end();
+        return this;
+      }
+
       resObj.cork();
       try {
         resObj.statusCode = statusCode;
         this.setHeader("Content-Type", contentType);
         this.setHeader("Content-Length", stats.size);
         this.setHeader("Last-Modified", stats.mtime.toUTCString());
+        this.setHeader("ETag", etag);
 
         if (options?.download !== undefined) {
           const encodedName = encodeURIComponent(options.download);
