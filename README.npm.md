@@ -27,19 +27,23 @@ app.use((ctx, next) => {
 app.static("/public", "./public");
 
 // 3. Trie-based routing, params, and cookies
-app.get("/users/:id", (ctx) => {
+app.get("/user/:id", { priority: "low" }, (ctx) => {
+  // Dropped when state is "WARNING" or "CRITICAL"
   const session = ctx.cookies.get("session_id");
   ctx.json({ userId: ctx.params.id, session });
 });
 
 // 4. Native body parsing
-app.post("/data", async (ctx) => {
+app.post("/data", { priority: "critical" }, async (ctx) => {
+  // Never dropped
   const body = await ctx.body();
   ctx.status(201).json({ received: body });
 });
 
 // 5. Streaming responses (Node only)
 app.get("/stream", (ctx) => {
+  // Routes have a default "normal" priority
+  // Dropped when state is "CRITICAL"
   ctx.stream(fs.createReadStream("large-file.txt"));
 });
 
