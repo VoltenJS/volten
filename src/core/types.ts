@@ -1,10 +1,11 @@
+/* eslint-disable @typescript-eslint/no-redundant-type-constituents */
 import { IncomingMessage, ServerResponse } from "http";
 import { RequestContext } from "../utils/requestCtx.ts";
 import { MethodStorage } from "../utils/routeTree.ts";
 import { VoltenError } from "./errors.ts";
 import { Readable } from "stream";
 
-export type Next = () => Promise<void> | void;
+export type Next = () => Promise<unknown> | unknown;
 
 type ExtractParamKeys<T extends string> = T extends `${string}:${infer Param}/${infer Rest}`
   ? Param | ExtractParamKeys<Rest>
@@ -23,11 +24,11 @@ export type ExtractParams<T extends string> = string extends T
 export type VoltenHandler<P extends string = string> = (
   ctx: RequestContext<P>,
   next: Next,
-) => Promise<void> | void;
+) => Promise<unknown> | unknown;
 
 export type VoltenChainHandler<P extends string = string> = (
   ctx: RequestContext<P>,
-) => Promise<void> | void;
+) => Promise<unknown> | unknown;
 
 export type PreflightHandler<P extends string = string> = (
   ctx: RequestContext<P>,
