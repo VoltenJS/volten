@@ -6,37 +6,88 @@
 
 ---
 
-## Write Once. Run Anywhere.
+## ⚡ The All-in-One Snippet
 
-This is not a compatibility shim. Volten ships a **first-class dual-runtime architecture** — the exact same routes and middleware run on both Node.js and any Web Fetch-compatible edge runtime with zero adapter overhead and zero extra dependencies.
+See Volten's core features in action in a single file:
 
 ```javascript
 import { App } from "volten";
+import fs from "node:fs";
 
-const app = new App();
+// Enable Adaptive Traffic Triage (ATT) to drop low-priority requests under load
+const app = new App({ att: true });
 
+// 1. Middleware chain
 app.use((ctx, next) => {
-  console.log(`${ctx.method} ${ctx.url}`);
+  ctx.setHeader("X-Powered-By", "Volten");
   next();
 });
 
-app.get("/users/:id", (ctx) => {
-  ctx.json({ userId: ctx.params.id, status: "active" });
+// 2. Static file serving (Node only)
+app.static("/public", "./public");
+
+// 3. Trie-based routing, params, and cookies
+app.get("/user/:id", { priority: "low" }, (ctx) => {
+  // Dropped when state is "WARNING" or "CRITICAL"
+  const session = ctx.cookies.get("session_id");
+  ctx.json({ userId: ctx.params.id, session });
 });
 
-app.post("/data", async (ctx) => {
+// 4. Native body parsing
+app.post("/data", { priority: "critical" }, async (ctx) => {
+  // Never dropped
   const body = await ctx.body();
-  ctx.json({ received: body });
+  ctx.status(201).json({ received: body });
 });
 
-// ─── Node.js ──────────────────────────────────────────────
-app.listen(3000);
+// 5. Streaming responses (Node only)
+app.get("/stream", (ctx) => {
+  // Routes have a default "normal" priority
+  // Dropped when state is "CRITICAL"
+  ctx.stream(fs.createReadStream("large-file.txt"));
+});
 
-// ─── Cloudflare Workers / Bun / Deno / any WinterCG runtime
+// 6. Global error handling
+app.onError((err, ctx) => {
+  console.error(err);
+  ctx.status(500).json({ error: "Internal Server Error" });
+});
+
+// ─── Dual Runtime Support ─────────────────────────────────
+
+// Node.js
+app.listen(3000, () => console.log("Listening on :3000"));
+
+// Cloudflare Workers / Bun / Deno / WinterCG
 export default { fetch: app.createFetch() };
 ```
 
-**That's the whole file.** No separate entry points. No runtime checks. No adapter packages to install. The same `app` instance — you pick how to expose it.
+---
+
+## 🛡️ Adaptive Traffic Triage (ATT)
+
+**Event-loop immune routing.** Volten includes built-in **Adaptive Traffic Triage (ATT)**, a unique feature that automatically drops low-priority requests at the socket level when your Node.js server is under heavy stress. This ensures your high-priority endpoints stay responsive and prevents your application from crashing during traffic spikes.
+
+---
+
+## 🌟 First-Class Features
+
+- **Dual Runtime Architecture** — Write once, run on Node.js (`app.listen()`) or any Web Fetch-compatible edge runtime (`app.createFetch()`).
+- **Adaptive Traffic Triage (ATT)** — Built-in stress management that drops low-priority requests when Node is overwhelmed.
+- **Zero Runtime Dependencies** — Uses only the Node.js core API (or the Web platform API on edge) for maximum security and minimal size.
+- **Context Pooling** — Zero-overhead reusable `RequestContext` objects pre-allocated on both runtimes to minimize GC pressure.
+- **Trie-Based Router** — Extremely fast routing supporting dynamic params (`/users/:id`) and wildcards. Match cost scales with path depth.
+- **Middleware Chain** — Global and per-route middleware with cascading composition. Works identically on both runtimes.
+
+---
+
+## ✨ Second-Class Features
+
+- **Native Body Parsing** — Built-in parsers for JSON, form-urlencoded, text, raw, and streaming multipart data.
+- **First-Class Streaming** — Backpressure-aware `ctx.write` / `ctx.stream` / `ctx.end` API on Node.js.
+- **Cookies & Sessions** — Read and set cookies effortlessly using built-in `ctx.cookies` helpers.
+- **Static File Serving** — Path-traversal-safe static file delivery for Node.js environments.
+- **Error Handling** — Centralized global and custom error handlers with safe fallbacks across platforms.
 
 ---
 
@@ -54,23 +105,9 @@ Volten abstracts away the Node ↔ Edge gap at the context layer. Every request 
 
 There is **no runtime dispatch in your handler code**. The adapter layer is invisible.
 
-**Zero-overhead pooling on both runtimes.** On Node, Volten pre-allocates a pool of `NodeRequestContext` objects (default: 2048) and recycles them per request to eliminate GC pressure. On Edge, a parallel pool of `EdgeRequestContext` objects does the same — with no cross-runtime tax.
-
 ---
 
-## Why Volten?
-
-- **Zero runtime dependencies** — only the Node.js core API or the Web platform API on edge. No supply-chain risk, no nested `node_modules`.
-- **Dual runtime** — `app.listen()` for Node, `app.createFetch()` for Cloudflare Workers / Bun / Deno / WinterCG runtimes.
-- **Ultra-fast trie router** — match cost scales with path depth, not total route count.
-- **Native body parsing** — JSON, form-urlencoded, text, raw, and streaming multipart, built in.
-- **Context pooling** — pre-allocated, recycled contexts on both runtimes minimize GC overhead.
-- **First-class streaming** — backpressure-aware `ctx.write` / `ctx.stream` / `ctx.end` on Node.
-- **Cookies & error handling** — full built-in support on both runtimes.
-
----
-
-## Quick Start
+## 🚀 Quick Start
 
 ```bash
 npm install volten
@@ -97,21 +134,6 @@ app.get("/", (ctx) => ctx.json({ hello: "world" })); // identical handler
 
 export default { fetch: app.createFetch() };
 ```
-
----
-
-## Features at a Glance
-
-| Feature             | Node.js | Edge |
-| :------------------ | :-----: | :--: |
-| Trie-based routing  |   ✅    |  ✅  |
-| Middleware chain    |   ✅    |  ✅  |
-| Body parsing        |   ✅    |  ✅  |
-| Cookie helpers      |   ✅    |  ✅  |
-| Error handling      |   ✅    |  ✅  |
-| Context pooling     |   ✅    |  ✅  |
-| Static file serving |   ✅    |  —   |
-| Streaming responses |   ✅    |  —   |
 
 ---
 
