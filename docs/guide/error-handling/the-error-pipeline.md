@@ -8,12 +8,12 @@ flowchart TD
     Preflight --> RouteMatch[Route Tree Matching]
     RouteMatch --> Middleware[Middleware Chain]
     Middleware --> Handler[Route Handler]
-    
+
     Preflight -- Throws --> ErrorBoundary[handleError]
     RouteMatch -- 404 / 405 --> ErrorBoundary
     Middleware -- Throws / Next Error --> ErrorBoundary
     Handler -- Throws / Rejection --> ErrorBoundary
-    
+
     ErrorBoundary --> CustomCheck{Custom Handler?}
     CustomCheck -- Yes --> CustomHandler[app.onError]
     CustomCheck -- No --> DefaultHandler[Default Core Handler]

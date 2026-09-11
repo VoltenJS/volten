@@ -3,7 +3,7 @@
 You can register an application-wide custom error handler using `app.onError()`:
 
 ```typescript
-import { App, VoltenError } from 'volten';
+import { App, VoltenError } from "volten";
 
 const app = new App();
 
@@ -21,7 +21,7 @@ app.onError((err, ctx) => {
     error: {
       code: error.code,
       message: error.message,
-      ...(process.env.NODE_ENV === 'development' && { stack: error.stack }),
+      ...(process.env.NODE_ENV === "development" && { stack: error.stack }),
     },
   });
 });

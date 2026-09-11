@@ -3,7 +3,7 @@
 Global middleware runs for every request entering your application. Register global middleware using `app.use()`:
 
 ```typescript
-import { App } from 'volten';
+import { App } from "volten";
 
 const app = new App();
 
@@ -15,8 +15,8 @@ app.use(async (ctx, next) => {
 
 // 2. Security headers middleware
 app.use(async (ctx, next) => {
-  ctx.setHeader('X-Content-Type-Options', 'nosniff');
-  ctx.setHeader('X-Frame-Options', 'DENY');
+  ctx.setHeader("X-Content-Type-Options", "nosniff");
+  ctx.setHeader("X-Frame-Options", "DENY");
   await next();
 });
 

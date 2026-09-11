@@ -6,19 +6,19 @@ As your application grows, you can modularize routes into separate files using t
 
 ```typescript
 // routes/users.ts
-import { Router } from 'volten';
+import { Router } from "volten";
 
 export const userRouter = new Router();
 
-userRouter.get('/', (ctx) => {
+userRouter.get("/", (ctx) => {
   return ctx.json({ users: [] });
 });
 
-userRouter.get('/:id', (ctx) => {
+userRouter.get("/:id", (ctx) => {
   return ctx.json({ user: { id: ctx.params.id } });
 });
 
-userRouter.post('/', async (ctx) => {
+userRouter.post("/", async (ctx) => {
   const body = await ctx.body();
   return ctx.status(201).json({ created: true, body });
 });
@@ -28,13 +28,13 @@ Mount the router onto the main `App` instance using `app.use()`:
 
 ```typescript
 // app.ts
-import { App } from 'volten';
-import { userRouter } from './routes/users.js';
+import { App } from "volten";
+import { userRouter } from "./routes/users.js";
 
 const app = new App();
 
 // Mount with a prefix path
-app.use('/api/users', userRouter);
+app.use("/api/users", userRouter);
 
 // Now responds to:
 // GET  /api/users
@@ -49,8 +49,8 @@ You can also mount a router without a prefix path:
 ```typescript
 const healthRouter = new Router();
 
-healthRouter.get('/ping', (ctx) => ctx.send('pong'));
-healthRouter.get('/health', (ctx) => ctx.json({ status: 'ok' }));
+healthRouter.get("/ping", (ctx) => ctx.send("pong"));
+healthRouter.get("/health", (ctx) => ctx.json({ status: "ok" }));
 
 app.use(healthRouter);
 // Responds directly to /ping and /health
@@ -61,24 +61,24 @@ app.use(healthRouter);
 Routers can be nested to any depth:
 
 ```typescript
-import { App, Router } from 'volten';
+import { App, Router } from "volten";
 
 const app = new App();
 const apiRouter = new Router();
 const v1Router = new Router();
 const postsRouter = new Router();
 
-postsRouter.get('/', (ctx) => ctx.json({ posts: [] }));
-postsRouter.get('/:id', (ctx) => ctx.json({ id: ctx.params.id }));
+postsRouter.get("/", (ctx) => ctx.json({ posts: [] }));
+postsRouter.get("/:id", (ctx) => ctx.json({ id: ctx.params.id }));
 
 // Nest postsRouter under v1Router -> /v1/posts
-v1Router.use('/posts', postsRouter);
+v1Router.use("/posts", postsRouter);
 
 // Nest v1Router under apiRouter -> /api/v1/posts
-apiRouter.use('/v1', v1Router);
+apiRouter.use("/v1", v1Router);
 
 // Mount apiRouter to the main app
-app.use('/api', apiRouter);
+app.use("/api", apiRouter);
 
 // Accessible at:
 // GET /api/v1/posts
@@ -94,21 +94,21 @@ const adminRouter = new Router();
 
 // Router-scoped middleware
 adminRouter.use((ctx, next) => {
-  if (!ctx.headers['authorization']) {
-    return ctx.status(401).send('Unauthorized');
+  if (!ctx.headers["authorization"]) {
+    return ctx.status(401).send("Unauthorized");
   }
   return next();
 });
 
-adminRouter.get('/dashboard', (ctx) => {
-  return ctx.json({ view: 'dashboard' });
+adminRouter.get("/dashboard", (ctx) => {
+  return ctx.json({ view: "dashboard" });
 });
 
-adminRouter.get('/settings', (ctx) => {
-  return ctx.json({ view: 'settings' });
+adminRouter.get("/settings", (ctx) => {
+  return ctx.json({ view: "settings" });
 });
 
-app.use('/admin', adminRouter);
+app.use("/admin", adminRouter);
 ```
 
 ---

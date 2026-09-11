@@ -100,7 +100,7 @@ Volten applications are initialized and configured using the `VoltenAppOptions` 
 ## Basic Usage
 
 ```typescript
-import { App } from 'volten';
+import { App } from "volten";
 
 const app = new App({
   bodyLimit: 2 * 1024 * 1024, // 2MB limit
@@ -140,20 +140,23 @@ export type VoltenAppOptions<CustomLevels extends string = never> = {
 
 ### `RequestPoolSize`
 
-* **Type**: `number`
-* **Default**: `2048`
+- **Type**: `number`
+- **Default**: `2048`
 
 Volten utilizes an advanced object pooling architecture for request lifecycles. Instead of instantiating new request and response wrapper objects on every HTTP request, Volten pre-allocates a fixed pool of `RequestContext` instances (`NodeRequestContext` and `EdgeRequestContext`) at application startup.
 
 #### How It Works
+
 1. Upon `new App()`, Volten initializes `RequestPoolSize` context instances and keeps them in an internal queue.
 2. When a request arrives, a context is popped from the pool in $O(1)$ time and initialized with the active socket/request streams.
 3. When the response finishes or connection closes (`res.on('close')`), the context is thoroughly reset and returned to the pool.
 
 #### Pool Exhaustion
+
 If concurrent requests exceed the pool size:
-* **Node.js**: The server immediately responds with `503 Service Unavailable` (`Connection: close`) to avoid unbounded memory allocation and process crashes.
-* **Edge / Fetch**: A transient fallback context is created dynamically.
+
+- **Node.js**: The server immediately responds with `503 Service Unavailable` (`Connection: close`) to avoid unbounded memory allocation and process crashes.
+- **Edge / Fetch**: A transient fallback context is created dynamically.
 
 ```typescript
 const app = new App({
@@ -169,8 +172,8 @@ const app = new App({
 
 ### `https`
 
-* **Type**: `VoltenHttpsOptions | undefined`
-* **Default**: `undefined`
+- **Type**: `VoltenHttpsOptions | undefined`
+- **Default**: `undefined`
 
 Configures the underlying Node.js server to run as a native `https.Server` with TLS encryption.
 
@@ -189,26 +192,25 @@ export type VoltenHttpsOptions = {
   :items="httpsItems"
 />
 
-
 #### Example: HTTPS Server
 
 ```typescript
-import { App } from 'volten';
-import fs from 'node:fs';
+import { App } from "volten";
+import fs from "node:fs";
 
 const app = new App({
   https: {
-    key: fs.readFileSync('./certs/privkey.pem', 'utf8'),
-    cert: fs.readFileSync('./certs/fullchain.pem', 'utf8'),
+    key: fs.readFileSync("./certs/privkey.pem", "utf8"),
+    cert: fs.readFileSync("./certs/fullchain.pem", "utf8"),
   },
 });
 
-app.get('/', (ctx) => {
-  ctx.send('Serving securely over HTTPS!');
+app.get("/", (ctx) => {
+  ctx.send("Serving securely over HTTPS!");
 });
 
 app.listen(8443, () => {
-  console.log('HTTPS server listening on https://localhost:8443');
+  console.log("HTTPS server listening on https://localhost:8443");
 });
 ```
 
@@ -218,12 +220,13 @@ When `https` is provided, Volten delegates server creation to Node's `https.crea
 
 ### `bodyLimit`
 
-* **Type**: `number`
-* **Default**: `1048576` (1 MB in bytes)
+- **Type**: `number`
+- **Default**: `1048576` (1 MB in bytes)
 
 Defines the maximum allowed byte size for incoming request bodies (e.g., JSON, URL-encoded, or raw buffers).
 
 #### Fast Early Rejection
+
 When an incoming request arrives, Volten performs an instant check on the `Content-Length` header before buffering any chunks into memory. If `Content-Length` exceeds `bodyLimit`, the request socket is paused and Volten terminates the request with `413 Payload Too Large`.
 
 For chunked transfer encoding (where `Content-Length` may not be present), the internal body parsers enforce this limit continuously while consuming the stream.
@@ -237,8 +240,9 @@ const app = new App({
 
 > [!NOTE]
 > You can also override the body limit per individual route using route options:
+>
 > ```typescript
-> app.post('/upload', { bodyLimit: 50 * 1024 * 1024 }, async (ctx) => {
+> app.post("/upload", { bodyLimit: 50 * 1024 * 1024 }, async (ctx) => {
 >   const body = await ctx.body();
 >   ctx.json({ received: true });
 > });
@@ -248,13 +252,13 @@ const app = new App({
 
 ### `caseInsensitive`
 
-* **Type**: `boolean`
-* **Default**: `true`
+- **Type**: `boolean`
+- **Default**: `true`
 
 Controls whether URL path matching in the radix router is case-insensitive.
 
-* When `true`: `/Users/Profile` and `/users/profile` resolve to the same handler.
-* When `false`: Paths are treated with strict casing.
+- When `true`: `/Users/Profile` and `/users/profile` resolve to the same handler.
+- When `false`: Paths are treated with strict casing.
 
 ```typescript
 const app = new App({
@@ -266,14 +270,14 @@ const app = new App({
 
 ### `noLogs`
 
-* **Type**: `boolean`
-* **Default**: `false`
+- **Type**: `boolean`
+- **Default**: `false`
 
 Silences framework-level diagnostic and warning outputs printed to `console.error` and `console.warn` (such as unhandled error fallbacks or custom error handler warnings).
 
 ```typescript
 const app = new App({
-  noLogs: process.env.NODE_ENV === 'test', // Clean output during automated testing
+  noLogs: process.env.NODE_ENV === "test", // Clean output during automated testing
 });
 ```
 
@@ -281,17 +285,17 @@ const app = new App({
 
 ### `loggerOptions`
 
-* **Type**: `CustomLoggerOptions<CustomLevels>`
-* **Default**: `{ level: 'warn' }`
+- **Type**: `CustomLoggerOptions<CustomLevels>`
+- **Default**: `{ level: 'warn' }`
 
 Configures the built-in high-performance structured JSON logger. For detailed documentation on logger levels, serializers, mixins, and redaction, refer to the [Logging API Reference](/api/logging).
 
 ```typescript
 const app = new App({
   loggerOptions: {
-    level: 'info',
-    pretty: process.env.NODE_ENV !== 'production',
-    redact: ['password', 'authorization'],
+    level: "info",
+    pretty: process.env.NODE_ENV !== "production",
+    redact: ["password", "authorization"],
   },
 });
 ```
@@ -300,8 +304,8 @@ const app = new App({
 
 ### `adaptiveTriage`
 
-* **Type**: `AdaptiveTriageOptions`
-* **Default**:
+- **Type**: `AdaptiveTriageOptions`
+- **Default**:
   ```typescript
   {
     enabled: false,
@@ -320,7 +324,6 @@ const app = new App({
 
 Configures Volten's automated event loop health monitor and intelligent load shedding. For an in-depth breakdown of load-shedding states and route priority tagging, see the [Performance & Architecture Reference](/api/performance).
 
-
 ---
 
 ## Default Configuration Object
@@ -328,7 +331,7 @@ Configures Volten's automated event loop health monitor and intelligent load she
 Volten exposes the default configuration constant `DefaultVoltenOptions`:
 
 ```typescript
-import { DefaultVoltenOptions } from 'volten';
+import { DefaultVoltenOptions } from "volten";
 
 console.log(DefaultVoltenOptions);
 /*

@@ -5,10 +5,10 @@ Handling `multipart/form-data` uploads safely is a common challenge in Node.js. 
 Volten prevents memory exhaustion by requiring that multipart uploads be consumed via `ctx.multipart()`:
 
 ```typescript
-app.post('/upload', async (ctx) => {
+app.post("/upload", async (ctx) => {
   // Ensure the request is multipart
   if (!ctx.isMultipart) {
-    return ctx.status(400).send('Expected multipart/form-data');
+    return ctx.status(400).send("Expected multipart/form-data");
   }
 
   const uploadedFiles: string[] = [];
@@ -17,7 +17,7 @@ app.post('/upload', async (ctx) => {
   for await (const part of ctx.multipart()) {
     if (part.isFile) {
       console.log(`Receiving file: ${part.filename} (${part.contentType})`);
-      
+
       // Save directly to disk without loading into RAM
       const savePath = `./uploads/${Date.now()}-${part.filename}`;
       await part.save(savePath);
@@ -34,9 +34,11 @@ app.post('/upload', async (ctx) => {
 
 ::: warning parseBody is Protected
 If you attempt to call `ctx.body()` on a `multipart/form-data` request, Volten throws an explicit error:
+
 ```
 Volten: Use ctx.multipart() to handle multipart/form-data streams. parseBody() is restricted to text/json inputs to prevent memory exhaustion.
 ```
+
 :::
 
 ### Multipart Part Properties & Methods
@@ -45,42 +47,42 @@ The async generator `ctx.multipart()` yields `MultipartPart` objects. Inspect `p
 
 #### When `part.isFile === true`
 
-| Property / Method | Type | Description |
-| :--- | :--- | :--- |
-| `part.isFile` | `true` | Indicates this part is an uploaded file. |
-| `part.name` | `string` | The form field name (e.g. `'avatar'`). |
-| `part.filename` | `string` | The sanitized basename of the uploaded file. |
-| `part.contentType` | `string` | The MIME type provided by the client (e.g. `'image/png'`). |
-| `part.stream` | `Readable` | A Node.js `Readable` stream of the file contents. |
+| Property / Method       | Type                              | Description                                                                       |
+| :---------------------- | :-------------------------------- | :-------------------------------------------------------------------------------- |
+| `part.isFile`           | `true`                            | Indicates this part is an uploaded file.                                          |
+| `part.name`             | `string`                          | The form field name (e.g. `'avatar'`).                                            |
+| `part.filename`         | `string`                          | The sanitized basename of the uploaded file.                                      |
+| `part.contentType`      | `string`                          | The MIME type provided by the client (e.g. `'image/png'`).                        |
+| `part.stream`           | `Readable`                        | A Node.js `Readable` stream of the file contents.                                 |
 | `part.save(targetPath)` | `(path: string) => Promise<void>` | Pipes the file stream directly to disk, creating destination folders recursively. |
-| `part.buffer()` | `() => Promise<Buffer>` | Buffers the entire file in memory and returns a `Buffer`. |
-| `part.text()` | `() => Promise<string>` | Reads the file as a UTF-8 string. |
+| `part.buffer()`         | `() => Promise<Buffer>`           | Buffers the entire file in memory and returns a `Buffer`.                         |
+| `part.text()`           | `() => Promise<string>`           | Reads the file as a UTF-8 string.                                                 |
 
 #### When `part.isFile === false`
 
-| Property | Type | Description |
-| :--- | :--- | :--- |
-| `part.isFile` | `false` | Indicates this part is a standard text field. |
-| `part.name` | `string` | The form field name. |
-| `part.value` | `string` | The string value of the field. |
+| Property      | Type     | Description                                   |
+| :------------ | :------- | :-------------------------------------------- |
+| `part.isFile` | `false`  | Indicates this part is a standard text field. |
+| `part.name`   | `string` | The form field name.                          |
+| `part.value`  | `string` | The string value of the field.                |
 
 ### In-Memory File Buffering Example
 
 If you need to process file buffers directly (for example, uploading to AWS S3 or image resizing):
 
 ```typescript
-app.post('/avatar', async (ctx) => {
+app.post("/avatar", async (ctx) => {
   for await (const part of ctx.multipart()) {
-    if (part.isFile && part.name === 'avatar') {
+    if (part.isFile && part.name === "avatar") {
       const fileBuffer = await part.buffer();
-      
+
       // Upload buffer directly to cloud storage
       await uploadToS3(part.filename, fileBuffer, part.contentType);
       return ctx.json({ uploaded: true });
     }
   }
 
-  return ctx.status(400).json({ error: 'No avatar uploaded' });
+  return ctx.status(400).json({ error: "No avatar uploaded" });
 });
 ```
 

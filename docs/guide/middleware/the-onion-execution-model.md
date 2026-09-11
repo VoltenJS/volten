@@ -30,7 +30,7 @@ sequenceDiagram
 ### Timing Requests Example
 
 ```typescript
-import { App } from 'volten';
+import { App } from "volten";
 
 const app = new App();
 
@@ -42,7 +42,7 @@ app.use(async (ctx, next) => {
 
   // Runs on the return trip
   const duration = Date.now() - start;
-  ctx.setHeader('X-Response-Time', `${duration}ms`);
+  ctx.setHeader("X-Response-Time", `${duration}ms`);
   console.log(`${ctx.method} ${ctx.url} - ${ctx.statusCode} (${duration}ms)`);
 });
 ```

@@ -50,28 +50,30 @@ const cookieOptionsItems = [
 Volten provides built-in cookie parsing and serialization without external dependencies.
 
 ### Reading Cookies with `ctx.cookies`
+
 Incoming cookies are automatically parsed into a key-value dictionary on `ctx.cookies`:
 
 ```typescript
-app.get('/profile', (ctx) => {
+app.get("/profile", (ctx) => {
   const sessionId = ctx.cookies.session_id;
-  const theme = ctx.cookies.theme || 'light';
+  const theme = ctx.cookies.theme || "light";
 
   return ctx.json({ sessionId, theme });
 });
 ```
 
 ### Setting Cookies with `ctx.setCookie(name, value, options?)`
+
 Sets an outgoing cookie header:
 
 ```typescript
-app.post('/login', (ctx) => {
-  ctx.setCookie('session_id', 'xyz987654321', {
+app.post("/login", (ctx) => {
+  ctx.setCookie("session_id", "xyz987654321", {
     httpOnly: true,
     secure: true,
-    sameSite: 'lax',
+    sameSite: "lax",
     maxAge: 86400, // 24 hours in seconds
-    path: '/',
+    path: "/",
   });
 
   return ctx.json({ loggedIn: true });
@@ -85,7 +87,5 @@ app.post('/login', (ctx) => {
   description="Configuration options passed to ctx.setCookie(name, value, options)"
   :items="cookieOptionsItems"
 />
-
-
 
 ---

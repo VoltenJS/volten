@@ -4,10 +4,10 @@ Use an asterisk (`*`) to capture any trailing path sequence. The captured path s
 
 ```typescript
 // Matches /static/css/main.css, /static/images/logo.png, etc.
-app.get('/static/*', (ctx) => {
-  const assetPath = ctx.params['*'];
+app.get("/static/*", (ctx) => {
+  const assetPath = ctx.params["*"];
   return ctx.json({
-    status: 'success',
+    status: "success",
     assetPath,
   });
 });
@@ -19,8 +19,8 @@ You can use wildcards at the root or route level to implement custom 404 handler
 
 ```typescript
 // SPA client-side routing fallback
-app.get('/*', (ctx) => {
-  return ctx.sendFile('./public/index.html');
+app.get("/*", (ctx) => {
+  return ctx.sendFile("./public/index.html");
 });
 ```
 

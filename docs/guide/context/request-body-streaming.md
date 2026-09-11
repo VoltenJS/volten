@@ -3,10 +3,11 @@
 Volten features on-demand body parsing and streaming:
 
 ### `await ctx.body(type?: 'json' | 'text')`
+
 Parses the incoming request body on demand. Caches the result on the context so multiple calls return the same data without re-reading the stream:
 
 ```typescript
-app.post('/api/data', async (ctx) => {
+app.post("/api/data", async (ctx) => {
   // Parse as JSON
   const json = await ctx.body();
 
@@ -18,27 +19,29 @@ app.post('/api/data', async (ctx) => {
 ```
 
 ### `ctx.bodyStream`
+
 Exposes the request payload as a standard Web `ReadableStream<Uint8Array>`:
 
 ```typescript
-import { Writable } from 'stream';
-import fs from 'fs';
+import { Writable } from "stream";
+import fs from "fs";
 
-app.post('/upload-stream', async (ctx) => {
-  const fileStream = fs.createWriteStream('./uploads/file.bin');
-  
+app.post("/upload-stream", async (ctx) => {
+  const fileStream = fs.createWriteStream("./uploads/file.bin");
+
   // Pipe Web ReadableStream to Node WritableStream
   await ctx.bodyStream.pipeTo(Writable.toWeb(fileStream));
-  
-  return ctx.send('Stream uploaded successfully');
+
+  return ctx.send("Stream uploaded successfully");
 });
 ```
 
 ### `ctx.multipart()`
+
 An asynchronous generator for streaming multipart file uploads without buffering the entire payload into RAM:
 
 ```typescript
-app.post('/upload', async (ctx) => {
+app.post("/upload", async (ctx) => {
   for await (const part of ctx.multipart()) {
     if (part.isFile) {
       console.log(`Uploading file: ${part.filename}`);

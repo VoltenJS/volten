@@ -19,13 +19,13 @@ You can override the global limit for individual routes using route options:
 
 ```typescript
 // Allow up to 50MB for this specific endpoint
-app.post('/large-upload', { bodyLimit: 50 * 1024 * 1024 }, async (ctx) => {
+app.post("/large-upload", { bodyLimit: 50 * 1024 * 1024 }, async (ctx) => {
   const data = await ctx.body();
   return ctx.json({ received: true });
 });
 
 // Restrict this route to 10KB
-app.post('/small-payload', { bodyLimit: 10 * 1024 }, async (ctx) => {
+app.post("/small-payload", { bodyLimit: 10 * 1024 }, async (ctx) => {
   const data = await ctx.body();
   return ctx.json({ received: true });
 });

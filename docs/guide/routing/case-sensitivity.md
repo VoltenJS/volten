@@ -7,8 +7,8 @@ const app = new App({
   caseInsensitive: true, // Default
 });
 
-app.get('/users', (ctx) => {
-  ctx.send('Matched!');
+app.get("/users", (ctx) => {
+  ctx.send("Matched!");
 });
 
 // All of the following match the same route:

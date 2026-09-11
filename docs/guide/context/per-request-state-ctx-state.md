@@ -5,18 +5,18 @@ Use `ctx.state` to pass data, authenticated user sessions, database transaction 
 ```typescript
 // 1. Auth middleware attaches user to ctx.state
 app.use(async (ctx, next) => {
-  const token = ctx.headers['authorization'];
+  const token = ctx.headers["authorization"];
   if (token) {
-    ctx.state.user = { id: 42, role: 'admin' };
+    ctx.state.user = { id: 42, role: "admin" };
   }
   await next();
 });
 
 // 2. Route handler accesses ctx.state
-app.get('/admin/profile', (ctx) => {
+app.get("/admin/profile", (ctx) => {
   const user = ctx.state.user;
   if (!user) {
-    return ctx.status(401).send('Unauthorized');
+    return ctx.status(401).send("Unauthorized");
   }
   return ctx.json({ user });
 });

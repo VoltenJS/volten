@@ -6,7 +6,7 @@ import katex from "markdown-it-katex";
 export default withMermaid({
   vite: {
     optimizeDeps: {
-      include: ["mermaid", "dayjs", "@braintree/sanitize-url"],
+      include: ["mermaid"],
     },
     plugins: [
       {

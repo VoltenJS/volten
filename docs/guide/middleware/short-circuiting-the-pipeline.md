@@ -5,10 +5,10 @@ To halt execution and prevent downstream middlewares or route handlers from runn
 ```typescript
 const rateLimiter = (ctx, next) => {
   const clientIp = ctx.ip;
-  
+
   if (isRateLimited(clientIp)) {
     // Pipeline stops here; downstream handlers are NEVER called
-    return ctx.status(429).json({ error: 'Too Many Requests' });
+    return ctx.status(429).json({ error: "Too Many Requests" });
   }
 
   // Proceed normally

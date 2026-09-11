@@ -3,6 +3,7 @@
 Volten provides built-in, high-performance static file serving via `app.static()`.
 
 There is no need to install external packages or configure complex middleware. Volten handles file serving directly with:
+
 - **Zero-copy stream piping** with socket backpressure management.
 - **Built-in Directory Traversal Protection** to prevent path breakout attacks.
 - **Automatic ETag Generation** and conditional HTTP caching (`304 Not Modified`).
@@ -16,15 +17,15 @@ There is no need to install external packages or configure complex middleware. V
 To serve assets such as images, stylesheets, scripts, and fonts from a directory:
 
 ```typescript
-import { App } from 'volten';
+import { App } from "volten";
 
 const app = new App();
 
 // Serve files from the 'public' directory
-app.static('public');
+app.static("public");
 
 app.listen(3000, () => {
-  console.log('Server listening on http://localhost:3000');
+  console.log("Server listening on http://localhost:3000");
 });
 ```
 
@@ -42,6 +43,7 @@ my-app/
 ```
 
 Your files are immediately accessible over HTTP:
+
 - `http://localhost:3000/index.html`
 - `http://localhost:3000/css/style.css`
 - `http://localhost:3000/images/logo.png`
@@ -67,6 +69,7 @@ In Volten, routing is handled in order of specificity:
 Serving static files requires rigorous validation to prevent malicious path traversal exploits (e.g. requests targeting `/../../etc/passwd` or `/..%2f..%2f.env`).
 
 Volten includes a built-in security layer (`isFileInFolder`):
+
 - Resolves the canonical physical paths of both the target folder and the requested file using `fs.realpath()`.
 - Verifies that the resolved file path strictly resides within the configured root folder boundary.
 - Automatically rejects any traversal attempt by returning a `404 Not Found` without disclosing filesystem structure.
@@ -95,6 +98,7 @@ Last-Modified: Wed, 09 Sep 2026 20:00:00 GMT
 ### Conditional Requests
 
 When a browser or CDN makes a conditional request with:
+
 - `If-None-Match: W/"..."` matching the current ETag, or
 - `If-Modified-Since` timestamp matching or newer than the file's modification time
 
@@ -121,9 +125,9 @@ Any unrecognized extension defaults to `application/octet-stream`.
 Beyond `app.static()`, you can serve files programmatically from any route handler using `ctx.sendFile()`:
 
 ```typescript
-import path from 'node:path';
+import path from "node:path";
 
-app.get('/reports/:id', async (ctx) => {
+app.get("/reports/:id", async (ctx) => {
   const reportId = ctx.params.id;
   const filePath = path.resolve(`./reports/${reportId}.pdf`);
 
@@ -138,8 +142,8 @@ app.get('/reports/:id', async (ctx) => {
 await ctx.sendFile(filePath, 200, {
   // Optional callback for stream or lookup errors
   errCallback: (err, ctx) => {
-    console.error('File delivery error:', err);
-  }
+    console.error("File delivery error:", err);
+  },
 });
 ```
 
@@ -150,11 +154,11 @@ await ctx.sendFile(filePath, 200, {
 If you want the browser to prompt a "Save As" file download dialog instead of displaying the file inline, use `ctx.download()`:
 
 ```typescript
-app.get('/export/data', async (ctx) => {
-  const exportPath = './storage/exports/export-2026.csv';
+app.get("/export/data", async (ctx) => {
+  const exportPath = "./storage/exports/export-2026.csv";
 
   // Serves the file with Content-Disposition: attachment; filename="..."
-  await ctx.download(exportPath, 'annual-report.csv');
+  await ctx.download(exportPath, "annual-report.csv");
 });
 ```
 
