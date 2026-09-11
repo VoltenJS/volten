@@ -1,0 +1,177 @@
+/* Fonts: Inter for UI body, JetBrains Mono for code blocks */
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
+
+:root {
+  /* Typography */
+  --vp-font-family-base: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  --vp-font-family-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+
+  /* Electric Blue Accent Colors (Light Mode) */
+  --vp-c-brand-1: #0284c7;
+  --vp-c-brand-2: #0ea5e9;
+  --vp-c-brand-3: #38bdf8;
+  --vp-c-brand-soft: rgba(14, 165, 233, 0.12);
+}
+
+/* OLED Black Dark Mode */
+.dark {
+  /* Electric Blue Accent Colors (Dark Mode) */
+  --vp-c-brand-1: #38bdf8;
+  --vp-c-brand-2: #0ea5e9;
+  --vp-c-brand-3: #7dd3fc;
+  --vp-c-brand-soft: rgba(56, 189, 248, 0.15);
+
+  /* OLED Pure Black Backgrounds */
+  --vp-c-bg: #000000;
+  --vp-c-bg-alt: #050507;
+  --vp-c-bg-elv: #0c0c0e;
+  --vp-c-bg-soft: #0a0a0c;
+
+  /* Borders & Dividers */
+  --vp-c-border: #18181b;
+  --vp-c-divider: #18181b;
+  --vp-c-gutter: #000000;
+
+  /* Sidebar & Nav */
+  --vp-nav-bg-color: rgba(0, 0, 0, 0.88);
+  --vp-sidebar-bg-color: #000000;
+  --vp-c-default-soft: rgba(255, 255, 255, 0.04);
+}
+
+/* Code Typography & Ligatures */
+code, kbd, samp, pre {
+  font-family: var(--vp-font-family-mono);
+  font-feature-settings: 'liga' on, 'calt' on;
+}
+
+/* Custom Containers: ::: info & ::: warning glowing styling */
+.custom-block {
+  margin: 1.5rem 0;
+  padding: 1rem 1.25rem;
+  border-radius: 8px;
+  position: relative;
+  transition: all 0.25s ease;
+}
+
+/* Info container: Glowing Electric Blue */
+.custom-block.info {
+  border: 1px solid rgba(14, 165, 233, 0.25);
+  border-left: 4px solid #0ea5e9;
+  background-color: rgba(14, 165, 233, 0.06);
+  box-shadow: 0 0 16px rgba(14, 165, 233, 0.12), inset 0 0 16px rgba(14, 165, 233, 0.03);
+  backdrop-filter: blur(8px);
+}
+
+.custom-block.info .custom-block-title {
+  color: #0284c7;
+  font-weight: 700;
+  font-size: 0.95rem;
+  margin-bottom: 0.5rem;
+}
+
+.dark .custom-block.info {
+  border-color: rgba(56, 189, 248, 0.3);
+  border-left-color: #38bdf8;
+  background-color: rgba(14, 165, 233, 0.08);
+  box-shadow: 0 0 24px rgba(56, 189, 248, 0.2), inset 0 0 16px rgba(56, 189, 248, 0.05);
+}
+
+.dark .custom-block.info .custom-block-title {
+  color: #38bdf8;
+  text-shadow: 0 0 12px rgba(56, 189, 248, 0.4);
+}
+
+/* Warning container: Glowing Amber / Gold */
+.custom-block.warning {
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-left: 4px solid #f59e0b;
+  background-color: rgba(245, 158, 11, 0.06);
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.12), inset 0 0 16px rgba(245, 158, 11, 0.03);
+  backdrop-filter: blur(8px);
+}
+
+.custom-block.warning .custom-block-title {
+  color: #d97706;
+  font-weight: 700;
+  font-size: 0.95rem;
+  margin-bottom: 0.5rem;
+}
+
+.dark .custom-block.warning {
+  border-color: rgba(251, 191, 36, 0.3);
+  border-left-color: #fbbf24;
+  background-color: rgba(245, 158, 11, 0.08);
+  box-shadow: 0 0 24px rgba(251, 191, 36, 0.2), inset 0 0 16px rgba(251, 191, 36, 0.05);
+}
+
+.dark .custom-block.warning .custom-block-title {
+  color: #fbbf24;
+  text-shadow: 0 0 12px rgba(251, 191, 36, 0.4);
+}
+
+/* Tip container: Glowing Emerald / Cyan */
+.custom-block.tip {
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  border-left: 4px solid #10b981;
+  background-color: rgba(16, 185, 129, 0.06);
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.12), inset 0 0 16px rgba(16, 185, 129, 0.03);
+  backdrop-filter: blur(8px);
+}
+
+.dark .custom-block.tip {
+  border-color: rgba(52, 211, 153, 0.3);
+  border-left-color: #34d399;
+  background-color: rgba(16, 185, 129, 0.08);
+  box-shadow: 0 0 24px rgba(52, 211, 153, 0.2), inset 0 0 16px rgba(52, 211, 153, 0.05);
+}
+
+.dark .custom-block.tip .custom-block-title {
+  color: #34d399;
+  text-shadow: 0 0 12px rgba(52, 211, 153, 0.4);
+}
+
+/* Danger container: Glowing Rose / Red */
+.custom-block.danger {
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-left: 4px solid #ef4444;
+  background-color: rgba(239, 68, 68, 0.06);
+  box-shadow: 0 0 16px rgba(239, 68, 68, 0.12), inset 0 0 16px rgba(239, 68, 68, 0.03);
+  backdrop-filter: blur(8px);
+}
+
+.dark .custom-block.danger {
+  border-color: rgba(248, 113, 113, 0.3);
+  border-left-color: #f87171;
+  background-color: rgba(239, 68, 68, 0.08);
+  box-shadow: 0 0 24px rgba(248, 113, 113, 0.2), inset 0 0 16px rgba(248, 113, 113, 0.05);
+}
+
+.dark .custom-block.danger .custom-block-title {
+  color: #f87171;
+  text-shadow: 0 0 12px rgba(248, 113, 113, 0.4);
+}
+
+/* Dark mode enhancements for hero features */
+.dark .VPFeature {
+  background-color: #050508 !important;
+  border: 1px solid #181820 !important;
+  transition: all 0.25s ease;
+}
+
+.dark .VPFeature:hover {
+  border-color: rgba(56, 189, 248, 0.45) !important;
+  box-shadow: 0 0 25px rgba(56, 189, 248, 0.12);
+  transform: translateY(-2px);
+}
+
+/* Code block dark styling */
+.dark div[class*='language-'] {
+  background-color: #070709 !important;
+  border: 1px solid #16161e !important;
+}
+
+/* Edit link styling */
+.VPLink.edit-link-button {
+  font-weight: 500;
+  color: var(--vp-c-brand-1);
+}

@@ -90,3 +90,6 @@ jobs:
 
       - name: Verify Examples
         run: node examples/automate.js
+
+      - name: Build Docs
+        run: pnpm docs:build
