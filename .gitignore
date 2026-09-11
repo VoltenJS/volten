@@ -4,6 +4,9 @@ node_modules/
 
 # Build outputs
 dist/
+docs/.vitepress/dist/
+docs/.vitepress/cache/
+docs/.vitepress/.temp/
 volten-*.*.*.tgz
 
 # Temporary files

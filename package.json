@@ -48,7 +48,10 @@
     "format": "prettier --write \"{src,tests}/**/*.ts\"",
     "check": "pnpm run lint && pnpm run format",
     "pack:npm": "node scripts/pack.js",
-    "release": "node scripts/release.js"
+    "release": "node scripts/release.js",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs"
   },
   "keywords": [
     "web",
@@ -64,17 +67,32 @@
     "jit"
   ],
   "devDependencies": {
+    "@braintree/sanitize-url": "^7.1.2",
     "@eslint/js": "^10.0.1",
+    "@shikijs/magic-move": "^4.4.3",
+    "@shikijs/vitepress-twoslash": "^4.4.3",
+    "@stackblitz/sdk": "^1.11.1",
     "@types/node": "^25.5.2",
+    "cytoscape": "^3.34.3",
+    "cytoscape-cose-bilkent": "^4.1.0",
+    "dayjs": "^1.11.23",
+    "debug": "^4.4.3",
     "eslint": "^10.8.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-security": "^4.0.1",
+    "markdown-it-katex": "^2.0.3",
+    "mermaid": "^11.17.2",
     "nodemon": "^3.1.14",
     "prettier": "^3.8.3",
+    "shiki": "^4.4.3",
+    "shiki-magic-move": "^1.4.0",
     "tar": "^7.5.22",
     "tsup": "^8.5.1",
     "tsx": "^4.22.5",
     "typescript": "^6.0.2",
-    "typescript-eslint": "^8.59.4"
+    "typescript-eslint": "^8.59.4",
+    "vitepress": "^1.6.4",
+    "vitepress-plugin-mermaid": "^2.0.17",
+    "vue": "^3.5.42"
   }
 }
