@@ -20,10 +20,9 @@ See Volten's core features in action in a single file:
 
 ```javascript
 import { App } from "volten";
-import fs from "node:fs";
 
 // Enable Adaptive Traffic Triage (ATT) to drop low-priority requests under load
-const app = new App({ att: true });
+const app = new App({ adaptiveTriage: { enabled: true } });
 // 1. Middleware chain
 app.use((ctx, next) => {
   ctx.setHeader("X-Powered-By", "Volten");
@@ -36,7 +35,7 @@ app.static("./public");
 // 3. Trie-based routing, params, and cookies
 app.get("/user/:id", { priority: "low" }, (ctx) => {
   // Dropped when state is "WARNING" or "CRITICAL"
-  const session = ctx.cookies.get("session_id");
+  const session = ctx.cookies["session_id"];
   ctx.json({ userId: ctx.params.id, session });
 });
 
@@ -48,10 +47,11 @@ app.post("/data", { priority: "critical" }, async (ctx) => {
 });
 
 // 5. Streaming responses (Node only)
-app.get("/stream", (ctx) => {
+app.get("/stream", async (ctx) => {
   // Routes have a default "normal" priority
   // Dropped when state is "CRITICAL"
-  ctx.stream(fs.createReadStream("large-file.txt"));
+  await ctx.sendFile("large-file.txt");
+  console.log("File Sent!");
 });
 
 // 6. Global error handling
