@@ -93,3 +93,48 @@ jobs:
 
       - name: Build Docs
         run: pnpm docs:build
+
+  benchmark:
+    name: Performance Regression Check
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: "pnpm"
+
+      - name: Install dependencies (main)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build main
+        run: pnpm run build
+
+      - name: Generate Baseline (main)
+        run: pnpm run bench:update
+
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Install dependencies (PR)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build PR
+        run: pnpm run build
+
+      - name: Run Regression Check
+        run: pnpm run bench:ci
