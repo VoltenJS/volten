@@ -15,11 +15,7 @@ function decodeQueryComponent(str: string): string {
   if (!str.includes("+") && !str.includes("%")) {
     return str;
   }
-  try {
-    return decodeURIComponent(str.replace(/\+/g, " "));
-  } catch {
-    return str;
-  }
+  return decodeURIComponent(str.replace(/\+/g, " "));
 }
 
 function fastParseUrlEncoded(input: string): Record<string, unknown> {
@@ -152,15 +148,25 @@ export async function parseBody(
       reject(err);
     };
 
+    const onClose = () => {
+      // Socket closed before the body was fully received
+      if (chunks.length < receivedSize || receivedSize === 0) {
+        cleanup();
+        reject(new Error("Client disconnected before body was fully received."));
+      }
+    };
+
     const cleanup = () => {
       req.off("data", onData);
       req.off("end", onEnd);
       req.off("error", onError);
+      req.off("close", onClose);
     };
 
     req.on("data", onData);
     req.on("end", onEnd);
     req.on("error", onError);
+    req.on("close", onClose);
   });
 }
 
@@ -370,9 +376,19 @@ export async function* parseMultipartStream(
     if (resolveNextPart !== null) resolveNextPart();
   };
 
+  const onClose = () => {
+    // Client disconnected mid-upload; treat as network done with an error
+    if (!isNetworkDone) {
+      networkError = new Error("Client disconnected during multipart upload.");
+      isNetworkDone = true;
+      if (resolveNextPart !== null) resolveNextPart();
+    }
+  };
+
   req.on("data", onData);
   req.on("end", onEnd);
   req.on("error", onError);
+  req.on("close", onClose);
 
   try {
     for (;;) {
@@ -396,6 +412,7 @@ export async function* parseMultipartStream(
     req.off("data", onData);
     req.off("end", onEnd);
     req.off("error", onError);
+    req.off("close", onClose);
 
     if (typeof req.pause === "function") {
       req.pause();

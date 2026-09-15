@@ -79,4 +79,107 @@ test("RouteTree Unit Tests", async (t) => {
     assert.ok(tree.matchPath("GET", "/api/beta", dummyCtx) !== null);
     assert.ok(tree.matchPath("GET", "/api/gamma", dummyCtx) !== null);
   });
+
+  await t.test(
+    "createMatchPath compiles JIT fast-path and generates monomorphic param shapes",
+    () => {
+      const tree = new RouteTree(false);
+      const options = { bodyLimit: 1024, priority: "normal" as const };
+
+      tree.addPath("GET", "/static/route", [() => {}], options);
+      tree.addPath("GET", "/users/:userId/posts/:postId", [() => {}], options);
+      tree.addPath("GET", "/files/*", [() => {}], options);
+
+      const ctx = { inited: true, params: {} } as unknown as RequestContext;
+
+      // Trigger JIT compilation via matchPath
+      const staticMatch = tree.matchPath("GET", "/static/route", ctx);
+      assert.ok(staticMatch !== null);
+      assert.equal(staticMatch.method, "GET");
+
+      // Match static route with query string (tests qIdx fallback in compiled code)
+      const staticQueryMatch = tree.matchPath("GET", "/static/route?foo=bar", ctx);
+      assert.ok(staticQueryMatch !== null);
+
+      // Match dynamic route with parameters and verify monomorphic class instantiation
+      ctx.params = {} as any;
+      const dynamicMatch = tree.matchPath("GET", "/users/123/posts/456", ctx);
+      assert.ok(dynamicMatch !== null);
+      assert.equal((ctx.params as any).userId, "123");
+      assert.equal((ctx.params as any).postId, "456");
+
+      // Verify constructor name reflects compiled RouteParams shape
+      assert.ok(ctx.params.constructor.name.startsWith("RouteParams_"));
+
+      // Match wildcard route
+      ctx.params = {} as any;
+      const wildcardMatch = tree.matchPath("GET", "/files/docs/readme.md", ctx);
+      assert.ok(wildcardMatch !== null);
+      assert.equal((ctx.params as any)["*"], "docs/readme.md");
+    },
+  );
+
+  await t.test("replaces static child on non-first sibling", () => {
+    const tree = new RouteTree(false);
+    const options = { bodyLimit: 1024, priority: "normal" as const };
+
+    tree.addPath("GET", "/api/first", [() => {}], options);
+    tree.addPath("GET", "/api/second-alpha", [() => {}], options);
+    tree.addPath("GET", "/api/second-beta", [() => {}], options); // triggers replaceStaticChild on second sibling
+
+    const dummyCtx = { inited: false, params: {} } as unknown as RequestContext;
+    assert.ok(tree.matchPath("GET", "/api/second-alpha", dummyCtx) !== null);
+    assert.ok(tree.matchPath("GET", "/api/second-beta", dummyCtx) !== null);
+  });
+
+  await t.test("throws DuplicateRouteError when adding duplicate route", () => {
+    const tree = new RouteTree(false);
+    const options = { bodyLimit: 1024, priority: "normal" as const };
+
+    tree.addPath("GET", "/duplicate", [() => {}], options);
+    assert.throws(() => {
+      tree.addPath("GET", "/duplicate", [() => {}], options);
+    });
+  });
+
+  await t.test("case-insensitive route matching", () => {
+    const tree = new RouteTree(true);
+    const options = { bodyLimit: 1024, priority: "normal" as const };
+
+    tree.addPath("GET", "/API/UserS", [() => {}], options);
+    const ctx = { inited: true, params: {} } as unknown as RequestContext;
+
+    assert.ok(tree.matchPath("GET", "/api/users", ctx) !== null);
+    assert.ok(tree.matchPath("GET", "/API/USERS", ctx) !== null);
+  });
+
+  await t.test("overlapping parameter routes resolution", () => {
+    const tree = new RouteTree(false);
+    const options = { bodyLimit: 1024, priority: "normal" as const };
+
+    tree.addPath("GET", "/org/:orgId/profile", [() => {}], options);
+    tree.addPath("GET", "/org/:orgId/settings", [() => {}], options);
+
+    const ctx1 = { inited: true, params: {} } as unknown as RequestContext;
+    const m1 = tree.matchPath("GET", "/org/acme/profile", ctx1);
+    assert.ok(m1 !== null);
+    assert.equal((ctx1.params as any).orgId, "acme");
+
+    const ctx2 = { inited: true, params: {} } as unknown as RequestContext;
+    const m2 = tree.matchPath("GET", "/org/globex/settings", ctx2);
+    assert.ok(m2 !== null);
+    assert.equal((ctx2.params as any).orgId, "globex");
+  });
+
+  await t.test("root path and non-matching paths", () => {
+    const tree = new RouteTree(false);
+    const options = { bodyLimit: 1024, priority: "normal" as const };
+
+    tree.addPath("GET", "/", [() => {}], options);
+    const ctx = { inited: true, params: {} } as unknown as RequestContext;
+
+    assert.ok(tree.matchPath("GET", "/", ctx) !== null);
+    assert.equal(tree.matchPath("GET", "/nonexistent", ctx), null);
+    assert.equal(tree.matchPath("POST", "/", ctx), null);
+  });
 });

@@ -1,11 +1,17 @@
 import type { Query } from "../core/types.ts";
 
 function safeDecode(str: string): string {
+  if (str.indexOf("%") === -1) return str;
   try {
     return decodeURIComponent(str);
   } catch {
     return str;
   }
+}
+
+function safeDecodeQuery(str: string): string {
+  if (str.indexOf("%") === -1 && str.indexOf("+") === -1) return str;
+  return safeDecode(str.replace(/\+/g, " "));
 }
 
 export function parseUrl(url: string) {
@@ -68,11 +74,11 @@ export function parseQuery(queryStr: string): Query {
   for (const pairStr of pairs) {
     const pair = splitFirst(pairStr, "=");
     try {
-      const key = decodeURIComponent(pair[0] ?? "");
+      const key = safeDecodeQuery(pair[0] ?? "");
       if (key === "__proto__" || key === "constructor" || key === "prototype") {
         continue;
       }
-      const value = pair[1] !== undefined ? decodeURIComponent(pair[1].replace(/\+/g, " ")) : "";
+      const value = pair[1] !== undefined ? safeDecodeQuery(pair[1]) : "";
 
       if (query[key] !== undefined) {
         if (Array.isArray(query[key])) {

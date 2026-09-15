@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { App } from "../../src/core/server.ts";
-import { request, requestFetch } from "../helpers.ts";
+import { request } from "../helpers.ts";
 
 const TMP_ERR_DIR = path.resolve("./.tmp_error_test_dir");
 
@@ -38,7 +38,7 @@ test("Error Pipeline & Boundary Constraints", async (t) => {
       RequestPoolSize: 20,
       bodyLimit: 256,
       caseInsensitive: true,
-      noLogs: true,
+      loggerOptions: { level: "fatal" },
     });
 
     // Re-mount the common paths required across the matrix suites
@@ -150,8 +150,8 @@ test("Error Pipeline & Boundary Constraints", async (t) => {
 
   await t.test("Ensures compose safety on next() loop breaches", async () => {
     await resetErrorMetrics();
-    const res = await requestFetch(volten, "/error/pipeline-breach");
-    assert.ok(res.status === 500);
+    const res = await request(volten, "/error/pipeline-breach");
+    assert.strictEqual(res.status, 500);
   });
 
   await t.test("Traps next() calls after response sent", async () => {
@@ -159,6 +159,35 @@ test("Error Pipeline & Boundary Constraints", async (t) => {
     const res = await request(volten, "/error/next-after-send");
     assert.equal(res.status, 200);
     assert.equal(res.body, "already_finalized");
+  });
+
+  await t.test("Generates HTML error page in development mode", async () => {
+    await resetErrorMetrics();
+    const originalEnv = process.env["NODE_ENV"];
+    process.env["NODE_ENV"] = "development";
+    const res = await request(volten, "/error/sync-crash", {
+      headers: { accept: "text/html" },
+    });
+    assert.equal(res.status, 500);
+    assert.ok(res.headers["content-type"]?.includes("text/html"));
+    assert.ok(res.body.includes("fatal_sync_execution_node"));
+    assert.ok(res.body.includes("<!DOCTYPE html>"));
+    process.env["NODE_ENV"] = originalEnv;
+  });
+
+  await t.test("Generates JSON error page when accept is application/json", async () => {
+    await resetErrorMetrics();
+    const originalEnv = process.env["NODE_ENV"];
+    process.env["NODE_ENV"] = "development";
+    const res = await request(volten, "/error/sync-crash", {
+      headers: { accept: "application/json" },
+    });
+    assert.equal(res.status, 500);
+    assert.ok(res.headers["content-type"]?.includes("application/json"));
+    const body = JSON.parse(res.body);
+    assert.ok(typeof body.error === "string");
+    assert.ok(body.error.includes("fatal_sync_execution_node"));
+    process.env["NODE_ENV"] = originalEnv;
   });
 
   await t.test("Prevents header modification after flush", async () => {

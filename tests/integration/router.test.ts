@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert";
 import { App } from "../../src/core/server.ts";
 import { Router } from "../../src/core/router.ts";
-import { requestFetch } from "../helpers.ts";
+import { request } from "../helpers.ts";
 
 test("Router tests", async (t) => {
   await t.test("should register a basic route on a router", async () => {
@@ -15,7 +15,7 @@ test("Router tests", async (t) => {
 
     app.use("/api", router);
 
-    const response = await requestFetch(app, "/api/hello");
+    const response = await request(app, "/api/hello");
     assert.strictEqual(response.status, 200);
     assert.strictEqual(response.body, "Hello from router");
   });
@@ -35,9 +35,9 @@ test("Router tests", async (t) => {
 
     app.use("/api", router);
 
-    const response = await requestFetch(app, "/api/data");
+    const response = await request(app, "/api/data");
     assert.strictEqual(response.status, 200);
-    assert.strictEqual(response.headers.get("x-router-middleware"), "true");
+    assert.strictEqual(response.headers["x-router-middleware"], "true");
     assert.strictEqual(response.body, "Router data");
   });
 
@@ -56,9 +56,9 @@ test("Router tests", async (t) => {
 
     app.use("/api", router);
 
-    const response = await requestFetch(app, "/api/info");
+    const response = await request(app, "/api/info");
     assert.strictEqual(response.status, 200);
-    assert.strictEqual(response.headers.get("x-app-middleware"), "true");
+    assert.strictEqual(response.headers["x-app-middleware"], "true");
   });
 
   await t.test("should support nested routers", async () => {
@@ -73,7 +73,7 @@ test("Router tests", async (t) => {
     parentRouter.use("/users", childRouter);
     app.use("/api", parentRouter);
 
-    const response = await requestFetch(app, "/api/users/profile");
+    const response = await request(app, "/api/users/profile");
     assert.strictEqual(response.status, 200);
     assert.strictEqual(response.body, "User profile");
   });
@@ -88,7 +88,7 @@ test("Router tests", async (t) => {
 
     app.use(router);
 
-    const response = await requestFetch(app, "/ping");
+    const response = await request(app, "/ping");
     assert.strictEqual(response.status, 200);
     assert.strictEqual(response.body, "pong");
   });
@@ -102,24 +102,44 @@ test("Router tests", async (t) => {
       ctx.json({ username: ctx.params.username });
     });
 
-    const res1 = await requestFetch(app, "/users/123");
+    const res1 = await request(app, "/users/123");
     const json1 = JSON.parse(res1.body);
     assert.strictEqual(json1.id, "123");
 
-    const res2 = await requestFetch(app, "/users/john/profile");
+    const res2 = await request(app, "/users/john/profile");
     const json2 = JSON.parse(res2.body);
     assert.strictEqual(json2.username, "john");
   });
 
   await t.test("should preserve parameter casing when caseInsensitive is enabled", async () => {
-    const app = new App({ caseInsensitive: true });
-    app.get("/users/:username", (ctx) => {
-      ctx.json({ username: ctx.params.username });
+    const app = new App({
+      caseInsensitive: true,
     });
 
-    const response = await requestFetch(app, "/USERS/JohnDoe");
-    assert.strictEqual(response.status, 200);
-    const json = JSON.parse(response.body);
-    assert.strictEqual(json.username, "JohnDoe");
+    app.get("/Api/Users/:UserId", (ctx) => {
+      ctx.json({ userId: ctx.params.UserId });
+    });
+
+    const res = await request(app, "/api/users/ABC-123");
+    assert.strictEqual(res.status, 200);
+
+    const data = res.json();
+    assert.deepEqual(data, { userId: "ABC-123" });
+  });
+
+  await t.test("should support router.group", async () => {
+    const app = new App({});
+
+    app.group("/api/v1", (router) => {
+      router.get("/users", (ctx) => {
+        ctx.json({ group: true });
+      });
+    });
+
+    const res = await request(app, "/api/v1/users");
+    assert.strictEqual(res.status, 200);
+
+    const data = res.json();
+    assert.deepEqual(data, { group: true });
   });
 });

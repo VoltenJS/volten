@@ -1,10 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import http from "node:http";
 import { Readable, PassThrough } from "node:stream";
-import type { AddressInfo } from "node:net";
 import { App } from "../../../src/core/server.ts";
 import { RequestContext } from "../../../src/utils/requestCtx.ts";
+import { request } from "../../helpers.ts";
 import { parseBody, parseMultipartStream } from "../../../src/utils/bodyParser.ts";
 import { PayloadTooLargeError } from "../../../src/core/errors.ts";
 
@@ -56,7 +55,7 @@ function makeReqRes(headers: Record<string, string>, chunks: Buffer[] = []) {
 
 test("BodyParser Unit Tests", async (t) => {
   await t.test("rejects multipart/form-data explicitly", async () => {
-    const app = new App({ noLogs: true });
+    const app = new App({});
     const { req, res } = makeReqRes({
       "content-type": "multipart/form-data; boundary=---xyz",
     });
@@ -81,7 +80,7 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("returns empty object for Content-Length: 0", async () => {
-    const app = new App({ noLogs: true });
+    const app = new App({});
     const ctx = new RequestContext();
     const { req, res } = makeReqRes({ "content-length": "0" });
     (ctx as any)._req = req as any;
@@ -93,7 +92,7 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("rejects Content-Length above limit with 413", async () => {
-    const app = new App({ noLogs: true });
+    const app = new App({});
     const ctx = new RequestContext();
     const res = {
       headersSent: false,
@@ -116,7 +115,7 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("parses JSON body when content-type is application/json", async () => {
-    const app = new App({ noLogs: true });
+    const app = new App({});
     const ctx = new RequestContext();
     const { req, res } = makeReqRes({ "content-type": "application/json" }, [
       Buffer.from('{"hello":"world"}'),
@@ -130,7 +129,7 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("parses raw text body when text=true", async () => {
-    const app = new App({ noLogs: true });
+    const app = new App({});
     const ctx = new RequestContext();
     const { req, res } = makeReqRes({ "content-type": "text/plain" }, [
       Buffer.from("plain text payload"),
@@ -144,7 +143,7 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("parses urlencoded text body correctly (with fastParseUrlEncoded)", async () => {
-    const app = new App({ noLogs: true });
+    const app = new App({});
     const ctx = new RequestContext();
     const { req, res } = makeReqRes({ "content-type": "application/x-www-form-urlencoded" }, [
       Buffer.from("a=1&b=2"),
@@ -160,7 +159,7 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("rejects with PayloadTooLargeError when streaming exceeds limit", async () => {
-    const app = new App({ noLogs: true });
+    const app = new App({});
     const ctx = new RequestContext();
     // Build a req that emits many chunks
     const listeners: Record<string, Array<(...a: unknown[]) => void>> = {
@@ -213,7 +212,7 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("returns empty object when stream ends with zero chunks", async () => {
-    const app = new App({ noLogs: true });
+    const app = new App({});
     const ctx = new RequestContext();
     const { req, res } = makeReqRes({});
     (ctx as any)._req = req as any;
@@ -225,7 +224,7 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("end handler runs cleanup and resolves empty object", async () => {
-    const app = new App({ noLogs: true });
+    const app = new App({});
     const ctx = new RequestContext();
     const { req, res } = makeReqRes({ "content-type": "application/json" }, []);
     (ctx as any)._req = req as any;
@@ -237,7 +236,7 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("uses route.bodyLimit when present", async () => {
-    const app = new App({ noLogs: true });
+    const app = new App({});
     const ctx = new RequestContext();
     ctx._route = {
       bodyLimit: 50,
@@ -289,7 +288,7 @@ test("BodyParser Unit Tests", async (t) => {
   }
 
   await t.test("throws when boundary is missing", async () => {
-    const app = new App({ noLogs: true });
+    const app = new App({});
     const ctx = new RequestContext();
     const { req } = makeMultipartReq("multipart/form-data", Buffer.from(""));
     (ctx as any)._req = req;
@@ -299,7 +298,7 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("yields a text field and finishes", async () => {
-    const app = new App({ noLogs: true });
+    const app = new App({});
     const ctx = new RequestContext();
     const boundary = "----TestBoundary123";
     const body = Buffer.from(
@@ -324,7 +323,7 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("yields multiple text fields in order", async () => {
-    const app = new App({ noLogs: true });
+    const app = new App({});
     const ctx = new RequestContext();
     const boundary = "BOUND";
     const body = Buffer.from(
@@ -353,7 +352,7 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("yields a file part with content-type header", async () => {
-    const app = new App({ noLogs: true });
+    const app = new App({});
     const ctx = new RequestContext();
     const boundary = "FILEBOUND";
     const fileContent = "file body content here";
@@ -387,7 +386,7 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("file part save() writes the streamed content to disk", async () => {
-    const app = new App({ noLogs: true });
+    const app = new App({});
     const ctx = new RequestContext();
     const boundary = "FILEBOUND_SAVE";
     const fileContent = "saveable content";
@@ -420,7 +419,7 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("supports quoted boundary parameter", async () => {
-    const app = new App({ noLogs: true });
+    const app = new App({});
     const ctx = new RequestContext();
     const boundary = "QBOUND";
     const body = Buffer.from(
@@ -442,7 +441,7 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("handles split chunks (data spans multiple buffers)", async () => {
-    const app = new App({ noLogs: true });
+    const app = new App({});
     const ctx = new RequestContext();
     const boundary = "SPLITBND";
     const fullBody = Buffer.from(
@@ -477,50 +476,53 @@ test("BodyParser Unit Tests", async (t) => {
   // the request that exercises the no-cl, no-content-type branch with chunks).
   // =========================================================================
   await t.test("real HTTP request with body but no Content-Length header", async () => {
-    const app = new App({ noLogs: true, RequestPoolSize: 4 });
+    const app = new App({ RequestPoolSize: 4 });
     app.post("/body", async (ctx) => {
       const body = await ctx.body("text");
       ctx.text(String(body));
     });
 
-    const server = app.listen(0);
-    await new Promise<void>((resolve) => server.once("listening", resolve));
-    const address = server.address() as AddressInfo;
-    if (!address) {
-      throw new Error("Server address is null");
-    }
-    const port = address.port;
-
-    const status = await new Promise<number>((resolve, reject) => {
-      const req = http.request(
-        {
-          method: "POST",
-          hostname: "127.0.0.1",
-          port,
-          path: "/body",
-          headers: {
-            "content-type": "application/json",
-            "transfer-encoding": "chunked",
-          },
-          agent: false,
-        },
-        (res) => {
-          res.on("data", () => {});
-          res.on("end", () => resolve(res.statusCode || 0));
-        },
-      );
-      req.on("error", reject);
-      req.write('{"a":1}');
-      req.end();
+    const res = await request(app, "/body", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "transfer-encoding": "chunked",
+      },
+      body: '{"a":1}',
     });
 
-    await new Promise<void>((resolve) => {
-      if (typeof server.closeAllConnections === "function") {
-        server.closeAllConnections();
-      }
-      server.close(() => resolve());
+    assert.equal(res.status, 200);
+  });
+
+  await t.test("real HTTP request with urlencoded body", async () => {
+    const app = new App({});
+    app.post("/url", async (ctx) => {
+      const body = await ctx.body("urlencoded");
+      ctx.json(body);
     });
-    assert.equal(status, 200);
-    app.close();
+
+    const res = await request(app, "/url", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "foo=bar&baz=1",
+    });
+
+    assert.deepEqual(res.json(), { foo: "bar", baz: "1" });
+  });
+
+  await t.test("real HTTP request with invalid json body returns raw string", async () => {
+    const app = new App({});
+    app.post("/json", async (ctx) => {
+      const body = await ctx.body();
+      ctx.json({ raw: body });
+    });
+
+    const res = await request(app, "/json", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{badjson:",
+    });
+
+    assert.deepEqual(res.json(), { raw: "{badjson:" });
   });
 });

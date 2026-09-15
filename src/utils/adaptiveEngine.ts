@@ -1,4 +1,4 @@
-import type { AdaptiveTriageOptions } from "../core/types.ts";
+import type { AdaptiveTriageOptions, Logger } from "../core/types.ts";
 import type { IntervalHistogram } from "node:perf_hooks";
 
 export class AdaptiveEngine {
@@ -6,8 +6,12 @@ export class AdaptiveEngine {
   private options: Required<AdaptiveTriageOptions>;
   private histogram: IntervalHistogram | null = null;
   private intervalTimer: NodeJS.Timeout | null = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private logger: Logger<any> | undefined;
 
-  constructor(options: AdaptiveTriageOptions) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  constructor(options: AdaptiveTriageOptions, logger?: Logger<any>) {
+    this.logger = logger;
     this.options = {
       enabled: options.enabled ?? false,
       warningThresholdMs: options.warningThresholdMs ?? 40,
@@ -43,9 +47,15 @@ export class AdaptiveEngine {
         this.intervalTimer.unref();
       }
     } catch {
-      console.warn(
-        "[Volten] Adaptive Triage is enabled but node:perf_hooks is not available in this environment. Running in fallback mode.",
-      );
+      if (this.logger !== undefined) {
+        this.logger["warn"]?.(
+          "[Volten] Adaptive Triage is enabled but node:perf_hooks is not available in this environment. Running in fallback mode.",
+        );
+      } else {
+        console.warn(
+          "[Volten] Adaptive Triage is enabled but node:perf_hooks is not available in this environment. Running in fallback mode.",
+        );
+      }
     }
   }
 

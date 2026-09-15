@@ -10,13 +10,13 @@ import { RequestContext } from "../../../src/utils/requestCtx.ts";
 
 test("Edge Unit Tests", async (t) => {
   await t.test("createFetch returns a fetch function", () => {
-    const app = new App();
+    const app = new App({ loggerOptions: { level: "fatal" } });
     const fetchHandler = app.createFetch();
     assert.equal(typeof fetchHandler, "function");
   });
 
   await t.test("matches routes and handles standard requests/responses", async () => {
-    const app = new App();
+    const app = new App({ loggerOptions: { level: "fatal" } });
     app.get("/hello", (ctx) => {
       ctx.text("Hello Edge!");
     });
@@ -31,7 +31,7 @@ test("Edge Unit Tests", async (t) => {
   });
 
   await t.test("supports return value ergonomics", async () => {
-    const app = new App();
+    const app = new App({ loggerOptions: { level: "fatal" } });
     app.get("/json", () => {
       return { ok: true, runtime: "edge" };
     });
@@ -65,7 +65,7 @@ test("Edge Unit Tests", async (t) => {
   });
 
   await t.test("parses request JSON body natively", async () => {
-    const app = new App();
+    const app = new App({ loggerOptions: { level: "fatal" } });
     app.post("/post-json", async (ctx) => {
       const body = await ctx.body();
       ctx.json({ body });
@@ -83,7 +83,7 @@ test("Edge Unit Tests", async (t) => {
   });
 
   await t.test("parses request URL encoded body natively", async () => {
-    const app = new App();
+    const app = new App({ loggerOptions: { level: "fatal" } });
     app.post("/post-form", async (ctx) => {
       const body = await ctx.body();
       ctx.json({ body });
@@ -101,7 +101,7 @@ test("Edge Unit Tests", async (t) => {
   });
 
   await t.test("attaches env and executionCtx to context", async () => {
-    const app = new App();
+    const app = new App({ loggerOptions: { level: "fatal" } });
     app.get("/bindings", (ctx) => {
       assert.deepEqual(ctx.env, { MY_KV: "kv-val" });
       assert.deepEqual(ctx.executionCtx, { mockCtx: true });
@@ -119,7 +119,7 @@ test("Edge Unit Tests", async (t) => {
   });
 
   await t.test("cookie handling and multiple Set-Cookie headers", async () => {
-    const app = new App();
+    const app = new App({ loggerOptions: { level: "fatal" } });
     app.get("/cookies", (ctx) => {
       assert.equal(ctx.cookies["session"], "xyz");
       ctx.setCookie("cookie1", "val1", { httpOnly: true });
@@ -333,7 +333,7 @@ test("Edge Unit Tests", async (t) => {
   await t.test("full app with createFetch executes smoothly in Edge mode", async () => {
     setIsEdge(true);
     try {
-      const app = new App();
+      const app = new App({ loggerOptions: { level: "fatal" } });
 
       app.use(async (ctx, next) => {
         ctx.setHeader("X-Custom-Middleware", "active");

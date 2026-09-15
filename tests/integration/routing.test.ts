@@ -31,7 +31,7 @@ test("Router & Core Integration", async (t) => {
     RequestPoolSize: 2,
     bodyLimit: 1024, // 1KB global limit default
     caseInsensitive: true,
-    noLogs: true,
+    loggerOptions: { level: "fatal" },
   });
 
   // State setup tracking execution order
@@ -319,35 +319,22 @@ test("Router & Core Integration", async (t) => {
     const isolatedApp = new App({
       RequestPoolSize: 2,
       bodyLimit: 1024,
+      loggerOptions: { level: "fatal" },
     });
     isolatedApp.get("/sluggish-node", async (ctx) => {
       await new Promise((resolve) => setTimeout(resolve, 20));
       ctx.text("OK");
     });
 
-    const contentionServer = isolatedApp.listen(0);
-    const assignedPort = await new Promise<number>((resolve) => {
-      contentionServer.on("listening", () => {
-        const addr = contentionServer.address() as AddressInfo;
-        resolve(addr.port);
-      });
-    });
-
-    const targetUrl = `http://127.0.0.1:${assignedPort}/sluggish-node`;
-    const burstPromises: Promise<Response>[] = [];
+    const burstPromises: Promise<any>[] = [];
     for (let i = 0; i < 6; i++) {
-      burstPromises.push(fetch(targetUrl, { headers: { Connection: "close" } }));
+      burstPromises.push(
+        request(isolatedApp, "/sluggish-node", { headers: { Connection: "close" } }),
+      );
     }
 
     const networkOutcomes = await Promise.all(burstPromises);
     const codeList = networkOutcomes.map((r) => r.status);
-
-    await new Promise<void>((resolve) => {
-      if (typeof contentionServer.closeAllConnections === "function") {
-        contentionServer.closeAllConnections();
-      }
-      contentionServer.close(() => resolve());
-    });
 
     const has200 = codeList.includes(200);
     const has503 = codeList.includes(503);
