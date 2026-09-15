@@ -98,4 +98,125 @@ test("Server Unit Tests", async (t) => {
     app.resetCtx(nodeCtx);
     app.resetEdgeCtx(edgeCtx);
   });
+
+  await t.test("app.fetch processes edge requests correctly", async () => {
+    const app = new App({ loggerOptions: { level: "fatal" } });
+    app.get("/api/test", (ctx) => {
+      ctx.json({ ok: true });
+    });
+    const fetch = app.createFetch();
+    const req = new Request("http://localhost/api/test");
+    const res = await fetch(req);
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.deepEqual(body, { ok: true });
+  });
+
+  await t.test("app.fetch triggers edge 404 correctly", async () => {
+    const app = new App({ loggerOptions: { level: "fatal" } });
+    const fetch = app.createFetch();
+    const req = new Request("http://localhost/not-found");
+    const res = await fetch(req);
+    assert.strictEqual(res.status, 404);
+  });
+
+  await t.test("app.fetch edge generic error handling", async () => {
+    const app = new App({ loggerOptions: { level: "fatal" } });
+    app.get("/crash", () => {
+      throw new Error("Edge Crash");
+    });
+    const fetch = app.createFetch();
+    const req = new Request("http://localhost/crash");
+    const res = await fetch(req);
+    assert.strictEqual(res.status, 500);
+  });
+
+  await t.test("app.fetch handles preflight requests", async () => {
+    const app = new App({ loggerOptions: { level: "fatal" } });
+    app.preflight((ctx) => {
+      ctx.setHeader("Access-Control-Allow-Methods", "GET, POST");
+      ctx.status(204).send();
+    });
+    const fetch = app.createFetch();
+    const req = new Request("http://localhost/test", { method: "OPTIONS" });
+    const res = await fetch(req);
+    assert.strictEqual(res.status, 204);
+  });
+
+  await t.test("executeFallback catches crashes in custom errorHandler (Node)", async () => {
+    const app = new App({ loggerOptions: { level: "fatal" } });
+    app.logger.level = "fatal"; // hide the error output for cleaner tests
+    app.onError(() => {
+      throw new Error("Fatal Error Handler Crash");
+    });
+    (app as any).register(app);
+
+    const req = { method: "GET", url: "/" } as any;
+    let destroyed = false;
+    const res = {
+      destroy: () => {
+        destroyed = true;
+      },
+    } as any;
+
+    const ctx = new NodeRequestContext();
+    ctx.init(app, req, res);
+
+    await app.handleError(new Error("initial error"), ctx);
+    assert.strictEqual(destroyed, true);
+  });
+
+  await t.test("executeFallback catches crashes in custom errorHandler (Edge)", async () => {
+    const app = new App({ loggerOptions: { level: "fatal" } });
+    app.onError(() => {
+      throw new Error("Fatal Error Handler Crash");
+    });
+    app.get("/", () => {
+      throw new Error("Trigger crash");
+    });
+    const fetch = app.createFetch();
+    const req = new Request("http://localhost/");
+
+    const response = await fetch(req);
+    assert.strictEqual(response.status, 500);
+    assert.strictEqual(await response.text(), "Internal Server Error");
+  });
+
+  await t.test("executeFallback catches crashes in core errorHandler (Node)", async () => {
+    const app = new App({ loggerOptions: { level: "fatal" } });
+    (app as any).errorHandler = () => {
+      throw new Error("Fatal Error Handler Crash");
+    };
+    (app as any).register(app);
+
+    const req = { method: "GET", url: "/" } as any;
+    let destroyed = false;
+    const res = {
+      destroy: () => {
+        destroyed = true;
+      },
+    } as any;
+
+    const ctx = new NodeRequestContext();
+    ctx.init(app, req, res);
+
+    await app.handleError(new Error("initial error"), ctx);
+    assert.strictEqual(destroyed, true);
+  });
+
+  await t.test("executeFallback catches crashes in core errorHandler (Edge)", async () => {
+    const app = new App({ loggerOptions: { level: "fatal" } });
+    (app as any).errorHandler = () => {
+      throw new Error("Fatal Error Handler Crash");
+    };
+    app.get("/", () => {
+      throw new Error("Trigger crash");
+    });
+    const fetch = app.createFetch();
+    const req = new Request("http://localhost/");
+
+    const response = await fetch(req);
+    assert.strictEqual(response.status, 500);
+    assert.strictEqual(await response.text(), "Internal Server Error");
+  });
 });

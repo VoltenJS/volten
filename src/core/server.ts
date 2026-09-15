@@ -28,6 +28,7 @@ import { createServer } from "../utils/createServer.ts";
 import { Router } from "./router.ts";
 import { createLogger } from "../utils/logger.ts";
 import { AdaptiveEngine } from "../utils/adaptiveEngine.ts";
+import { buildDevErrorPage, isDevMode } from "../utils/devErrorPage.ts";
 
 /**
  * The main Volten Application class.
@@ -97,19 +98,17 @@ export class App<CustomLevels extends string = never> extends Router {
   }
 
   resetCtx(ctx: NodeRequestContext) {
-    if (!ctx.inited) {
-      return;
+    if (ctx.inited) {
+      ctx.reset();
+      this.availableContexts.push(ctx);
     }
-    ctx.reset();
-    this.availableContexts.push(ctx);
   }
 
   resetEdgeCtx(ctx: EdgeRequestContext) {
-    if (!ctx.inited) {
-      return;
+    if (ctx.inited) {
+      ctx.reset();
+      this.availableEdgeContexts.push(ctx);
     }
-    ctx.reset();
-    this.availableEdgeContexts.push(ctx);
   }
 
   /**
@@ -127,7 +126,7 @@ export class App<CustomLevels extends string = never> extends Router {
     this.tree = new RouteTree(this.AppOptions.caseInsensitive);
     this.onRequest = this.onRequest.bind(this);
     this.logger = createLogger(this.AppOptions.loggerOptions) as Logger<CustomLevels>;
-    this.adaptiveEngine = new AdaptiveEngine(this.AppOptions.adaptiveTriage);
+    this.adaptiveEngine = new AdaptiveEngine(this.AppOptions.adaptiveTriage, this.logger);
     this.availableContexts = [];
     this.availableEdgeContexts = [];
     for (let i = 0; i < this.poolSize; i++) {
@@ -196,6 +195,9 @@ export class App<CustomLevels extends string = never> extends Router {
           "content-length": Buffer.byteLength(body),
         };
         break;
+      case "ERR_SEND_AFTER_SENT":
+        this.logger.warn(err);
+        break;
       case "ERR_HEADERS_SENT":
         if (ctx.runtime === "node") {
           const res = ctx.res;
@@ -206,10 +208,9 @@ export class App<CustomLevels extends string = never> extends Router {
           reqNode.socket.destroy();
         }
         break;
+
       default:
-        if (!this.AppOptions.noLogs) {
-          console.error(err);
-        }
+        this.logger.error(err);
         status = 500;
         body = "Internal Server Error";
         headers = {
@@ -227,11 +228,25 @@ export class App<CustomLevels extends string = never> extends Router {
           : Array.isArray(acceptHeader)
             ? acceptHeader[0]
             : "") ?? "";
+
       if (acceptStr.includes("application/json")) {
-        const errorMsg = Buffer.isBuffer(body) ? body.toString("utf8") : body;
+        const errorMsg = isDevMode()
+          ? (err.stack ?? err.message)
+          : Buffer.isBuffer(body)
+            ? body.toString("utf8")
+            : body;
         body = JSON.stringify({ error: errorMsg, code: status });
         headers["content-type"] = "application/json; charset=utf-8";
         headers["content-length"] = Buffer.byteLength(body);
+      } else if (status === 500 && ctx.runtime === "node" && acceptStr.includes("text/html")) {
+        const devPage = buildDevErrorPage(err.cause instanceof Error ? err.cause : err);
+        if (devPage !== null) {
+          body = devPage;
+          headers = {
+            "content-type": "text/html; charset=utf-8",
+            "content-length": Buffer.byteLength(body),
+          };
+        }
       }
     }
 
@@ -282,17 +297,13 @@ export class App<CustomLevels extends string = never> extends Router {
             : !ctx.sent;
 
         if (isNotEnded) {
-          if (!this.AppOptions.noLogs) {
-            console.warn(
-              `[Volten Framework Warning]: Custom error handler returned without terminating the response. Falling back to default handler.`,
-            );
-          }
+          this.logger.warn(
+            `[Volten Framework Warning]: Custom error handler returned without terminating the response. Falling back to default handler.`,
+          );
           this.executeFallback(error, ctx);
         }
       } catch (customHandlerError) {
-        if (!this.AppOptions.noLogs) {
-          console.error("Custom error handler crashed:", customHandlerError);
-        }
+        this.logger.error("Custom error handler crashed:", customHandlerError);
         this.executeFallback(error, ctx);
       }
     } else {
@@ -304,9 +315,7 @@ export class App<CustomLevels extends string = never> extends Router {
     try {
       this.errorHandler(error, ctx);
     } catch (finalError) {
-      if (!this.AppOptions.noLogs) {
-        console.error("Critical failure in core errorHandler:", finalError);
-      }
+      this.logger.error("Critical failure in core errorHandler:", finalError);
       if (ctx.runtime === "node") {
         const res = ctx.res;
         if (res !== null && !res.destroyed) {
@@ -399,29 +408,67 @@ export class App<CustomLevels extends string = never> extends Router {
     return ctx;
   }
 
-  private async handleRequest(ctx: RequestContext) {
+  private handleRequest(ctx: RequestContext): void {
+    // 1. Preflight execution
     const preflightHandler = this.getPreflightHandler();
     if (preflightHandler !== null) {
-      const result = preflightHandler(ctx);
-      if (result instanceof Promise) {
-        await result.catch((err: unknown) => this.handleError(err, ctx));
-      }
-      if (ctx.sent) {
+      try {
+        const result = preflightHandler(ctx);
+        if (typeof (result as Promise<unknown> | undefined)?.then === "function") {
+          (result as Promise<unknown>)
+            .then(() => {
+              if (!ctx.sent) this.executeRouting(ctx);
+            })
+            .catch((err: unknown) => this.handleError(err, ctx));
+          return;
+        }
+      } catch (err: unknown) {
+        void this.handleError(err, ctx);
         return;
       }
+
+      if (ctx.sent) return;
     }
 
-    await ctx.routePath().catch((err: unknown) => {
+    this.executeRouting(ctx);
+  }
+
+  private executeRouting(ctx: RequestContext): void {
+    // 2. Route matching (Sync fast-path, async fallback)
+    try {
+      const routeResult = ctx.routePath();
+      if (typeof (routeResult as Promise<unknown> | undefined)?.then === "function") {
+        (routeResult as Promise<unknown>)
+          .then(() => {
+            this.executeChain(ctx);
+          })
+          .catch((err: unknown) => this.handleError(err, ctx));
+        return;
+      }
+    } catch (err: unknown) {
       void this.handleError(err, ctx);
       return;
-    });
+    }
+
+    this.executeChain(ctx);
+  }
+
+  private executeChain(ctx: RequestContext): void {
+    // 3. Handler chain execution
     const route = ctx._route;
     if (route === null) return;
 
-    const handlerChain = route.composeChain;
-    const result = handlerChain(ctx);
-    if (result instanceof Promise) {
-      result.catch((err: unknown) => this.handleError(err, ctx));
+    try {
+      const result = route.composeChain(ctx);
+      if (
+        result !== null &&
+        typeof result === "object" &&
+        typeof (result as Promise<unknown>).then === "function"
+      ) {
+        (result as Promise<unknown>).catch((err: unknown) => this.handleError(err, ctx));
+      }
+    } catch (err: unknown) {
+      void this.handleError(err, ctx);
     }
   }
 
@@ -438,7 +485,24 @@ export class App<CustomLevels extends string = never> extends Router {
    *   console.log('Server is running on port 3000');
    * });
    */
-  listen(...args: Parameters<http.Server["listen"]>): http.Server {
+  /* eslint-disable @typescript-eslint/unified-signatures, @typescript-eslint/no-explicit-any */
+  listen(
+    port?: number,
+    hostname?: string,
+    backlog?: number,
+    listeningListener?: () => void,
+  ): http.Server;
+  listen(port?: number, hostname?: string, listeningListener?: () => void): http.Server;
+  listen(port?: number, backlog?: number, listeningListener?: () => void): http.Server;
+  listen(port?: number, listeningListener?: () => void): http.Server;
+  listen(path: string, backlog?: number, listeningListener?: () => void): http.Server;
+  listen(path: string, listeningListener?: () => void): http.Server;
+  listen(options: import("net").ListenOptions, listeningListener?: () => void): http.Server;
+  listen(handle: any, backlog?: number, listeningListener?: () => void): http.Server;
+  listen(handle: any, listeningListener?: () => void): http.Server;
+  /* eslint-enable @typescript-eslint/unified-signatures, @typescript-eslint/no-explicit-any */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  listen(...args: any[]): http.Server {
     if (this.server.listening) {
       const lastArg = args[args.length - 1] as unknown;
       if (typeof lastArg === "function") {
@@ -451,6 +515,7 @@ export class App<CustomLevels extends string = never> extends Router {
     this.compilePreflightHandler();
     this.register(this);
     this.tree.createMatchPath();
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
     this.server.listen(...args);
     return this.server;
   }
@@ -475,8 +540,7 @@ export class App<CustomLevels extends string = never> extends Router {
         if (this.adaptiveEngine.state !== "NORMAL") {
           let urlPath = request.url;
           try {
-            const parsed = new URL(request.url);
-            urlPath = parsed.pathname;
+            urlPath = new URL(request.url).pathname;
           } catch {
             const qIndex = urlPath.indexOf("?");
             if (qIndex !== -1) urlPath = urlPath.substring(0, qIndex);
@@ -491,28 +555,30 @@ export class App<CustomLevels extends string = never> extends Router {
         }
       }
 
-      let ctx = this.availableEdgeContexts.pop();
-      if (ctx === undefined) {
-        ctx = new EdgeRequestContext();
-      }
-
+      const ctx = this.availableEdgeContexts.pop() ?? new EdgeRequestContext();
       ctx.init(this, request, env, executionCtx);
 
       try {
+        // 1. Synchronous-first Preflight
         const preflightHandler = this.getPreflightHandler();
         if (preflightHandler !== null) {
-          const result = preflightHandler(ctx);
-          if (result instanceof Promise) {
-            await result.catch((err: unknown) => this.handleError(err, ctx));
+          const preResult = preflightHandler(ctx);
+          if (
+            preResult !== undefined &&
+            typeof (preResult as Promise<unknown>).then === "function"
+          ) {
+            await (preResult as Promise<unknown>);
           }
           if (ctx.sent) {
             return await ctx._edgeResponsePromise;
           }
         }
 
-        await ctx.routePath().catch((err: unknown) => {
-          void this.handleError(err, ctx);
-        });
+        // 2. Synchronous-first Route Matching
+        const routeResult = ctx.routePath();
+        if (typeof (routeResult as Promise<unknown> | undefined)?.then === "function") {
+          await (routeResult as Promise<unknown>);
+        }
 
         if (ctx.sent) {
           return await ctx._edgeResponsePromise;
@@ -523,21 +589,24 @@ export class App<CustomLevels extends string = never> extends Router {
           return new Response("Not Found", { status: 404 });
         }
 
-        const handlerChain = route.composeChain;
-        const result = handlerChain(ctx);
-        if (result instanceof Promise) {
-          await result.catch((err: unknown) => this.handleError(err, ctx));
+        // 3. Synchronous-first Handler Chain
+        const chainResult = route.composeChain(ctx);
+        if (
+          chainResult !== undefined &&
+          typeof (chainResult as Promise<unknown>).then === "function"
+        ) {
+          await (chainResult as Promise<unknown>);
         }
 
-        const resObj = await ctx._edgeResponsePromise;
-        return resObj;
-      } catch (err) {
-        await this.handleError(err, ctx);
+        return await ctx._edgeResponsePromise;
+      } catch (err: unknown) {
+        const errorResult = this.handleError(err, ctx);
+        if (typeof (errorResult as Promise<unknown>).then === "function") {
+          await (errorResult as Promise<unknown>);
+        }
         return await ctx._edgeResponsePromise;
       } finally {
-        if (ctx._edgeBody instanceof ReadableStream) {
-          // Do not recycle immediately if body is a readable stream to allow deferred reading
-        } else {
+        if (!(ctx._edgeBody instanceof ReadableStream)) {
           this.resetEdgeCtx(ctx);
         }
       }
@@ -592,9 +661,49 @@ export class App<CustomLevels extends string = never> extends Router {
     res.on("close", () => {
       this.resetCtx(ctx);
     });
-    this.handleRequest(ctx).catch(async (err: unknown) => {
-      await this.handleError(err, ctx);
+    try {
+      this.handleRequest(ctx);
+    } catch (err: unknown) {
+      void this.handleError(err, ctx);
+    }
+  }
+
+  /**
+   * Prints a beautifully formatted ASCII table of all registered routes, their HTTP methods,
+   * middleware count, and priority to the console using the application logger.
+   */
+  public printRoutes(): void {
+    const routes = this.getRegisteredRoutes();
+    if (routes.length === 0) {
+      this.logger.info("No routes registered.");
+      return;
+    }
+
+    // Calculate column widths
+    const maxMethodLen = Math.max(6, ...routes.map((r) => r.method.length));
+    const maxPathLen = Math.max(4, ...routes.map((r) => r.path.length));
+    const maxHandlersLen = 10;
+    const maxPriorityLen = Math.max(8, ...routes.map((r) => r.priority.length));
+
+    const totalWidth = maxMethodLen + maxPathLen + maxHandlersLen + maxPriorityLen + 13;
+    const separator = "-".repeat(totalWidth);
+
+    let output = `\n${separator}\n`;
+    output += `| ${"METHOD".padEnd(maxMethodLen)} | ${"PATH".padEnd(maxPathLen)} | ${"MIDDLEWARE".padEnd(maxHandlersLen)} | ${"PRIORITY".padEnd(maxPriorityLen)} |\n`;
+    output += `${separator}\n`;
+
+    // Sort routes by path then method
+    routes.sort((a, b) => {
+      if (a.path !== b.path) return a.path.localeCompare(b.path);
+      return a.method.localeCompare(b.method);
     });
+
+    for (const route of routes) {
+      output += `| ${route.method.padEnd(maxMethodLen)} | ${route.path.padEnd(maxPathLen)} | ${route.handlersCount.toString().padEnd(maxHandlersLen)} | ${route.priority.padEnd(maxPriorityLen)} |\n`;
+    }
+    output += `${separator}\n`;
+
+    console.info(output);
   }
 
   /**
@@ -609,11 +718,11 @@ export class App<CustomLevels extends string = never> extends Router {
    * @example
    * await app.close();
    */
-  public async close(...args: Parameters<http.Server["close"]>) {
+  public async close(callback?: (err?: Error) => void): Promise<void> {
     this.acceptIncomming = false;
     this.adaptiveEngine.close();
 
-    const timeoutMs = 10000;
+    const timeoutMs = this.AppOptions.shutdownTimeoutMs;
     const startTime = Date.now();
     while (this.availableContexts.length < this.poolSize) {
       if (Date.now() - startTime > timeoutMs) {
@@ -622,16 +731,21 @@ export class App<CustomLevels extends string = never> extends Router {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     if (!this.server.listening) {
-      if (typeof args[0] === "function") {
-        args[0](new Error("ERR_SERVER_NOT_RUNNING: Server is not running."));
+      if (typeof callback === "function") {
+        callback(new Error("ERR_SERVER_NOT_RUNNING: Server is not running."));
       }
       return;
     }
 
+    // Force close any hanging sockets that didn't finish gracefully
+    if ("closeAllConnections" in this.server) {
+      this.server.closeAllConnections();
+    }
+
     return new Promise<void>((resolve) => {
       this.server.close((err) => {
-        if (typeof args[0] === "function") {
-          args[0](err);
+        if (typeof callback === "function") {
+          callback(err);
         }
         resolve();
       });

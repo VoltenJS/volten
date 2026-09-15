@@ -83,6 +83,24 @@ export class Router {
   }
 
   /**
+   * Groups routes under a common prefix.
+   *
+   * @param {string} prefix - The route prefix for the group.
+   * @param {(router: Router) => void} callback - A callback providing a new router for the group.
+   * @returns {this} The current router instance for chaining.
+   *
+   * @example
+   * app.group('/api/v1', (router) => {
+   *   router.get('/users', getUsers);
+   * });
+   */
+  group(prefix: string, callback: (router: Router) => void): this {
+    const groupRouter = new Router();
+    callback(groupRouter);
+    return this.use(prefix, groupRouter);
+  }
+
+  /**
    * Registers a GET route handler for the specified path.
    *
    * @param {string} path - The route path pattern (supports parameters e.g., `/user/:id`).
@@ -279,5 +297,43 @@ export class Router {
       }
       sub.router.register(app, subPrefix, parentMiddleware.concat(sub.parentMiddleware));
     }
+  }
+
+  /**
+   * Recursively gathers all registered routes across the router and its sub-routers.
+   * Internal utility for printRoutes().
+   */
+  public getRegisteredRoutes(
+    prefix: string = "",
+    parentMiddlewareCount: number = 0,
+  ): { method: string; path: string; handlersCount: number; priority: string }[] {
+    const allRoutes: { method: string; path: string; handlersCount: number; priority: string }[] =
+      [];
+
+    for (const route of this.routes) {
+      let fullPath = prefix + route.path;
+      if (fullPath !== "/" && fullPath.endsWith("/")) {
+        fullPath = fullPath.slice(0, -1);
+      }
+      if (fullPath === "") fullPath = "/";
+
+      allRoutes.push({
+        method: route.method,
+        path: fullPath,
+        handlersCount: parentMiddlewareCount + route.handlers.length,
+        priority: route.options.priority,
+      });
+    }
+
+    for (const sub of this.subRouters) {
+      let subPrefix = prefix + sub.path;
+      if (subPrefix !== "/" && subPrefix.endsWith("/")) {
+        subPrefix = subPrefix.slice(0, -1);
+      }
+      const subMiddlewareCount = parentMiddlewareCount + sub.parentMiddleware.length;
+      allRoutes.push(...sub.router.getRegisteredRoutes(subPrefix, subMiddlewareCount));
+    }
+
+    return allRoutes;
   }
 }

@@ -32,26 +32,28 @@ async function writeWebResponseToNode(webRes: Response, ctx: RequestContext) {
 
 export function handleHandlerResult(res: unknown, ctx: RequestContext): unknown {
   if (res === undefined) return;
-  if (res !== null && typeof res === "object" && "then" in res) {
+  if (
+    res !== null &&
+    typeof res === "object" &&
+    typeof (res as Promise<unknown>).then === "function"
+  ) {
     const thenable = res as { then: (cb: (val: unknown) => unknown) => Promise<unknown> };
-    if (typeof thenable.then === "function") {
-      return thenable.then((val: unknown) => {
-        if (val !== undefined && !ctx.sent) {
-          if (typeof Response !== "undefined" && val instanceof Response) {
-            if (ctx.runtime === "edge") {
-              const edgeCtx = ctx as EdgeRequestContext;
-              edgeCtx._edgeBodySent = true;
-              edgeCtx._resolveEdgeResponse(val);
-            } else {
-              return writeWebResponseToNode(val, ctx);
-            }
+    return thenable.then((val: unknown) => {
+      if (val !== undefined && !ctx.sent) {
+        if (typeof Response !== "undefined" && val instanceof Response) {
+          if (ctx.runtime === "edge") {
+            const edgeCtx = ctx as EdgeRequestContext;
+            edgeCtx._edgeBodySent = true;
+            edgeCtx._resolveEdgeResponse(val);
           } else {
-            ctx.send(val);
+            return writeWebResponseToNode(val, ctx);
           }
+        } else {
+          ctx.send(val);
         }
-        return val;
-      });
-    }
+      }
+      return val;
+    });
   }
   if (!ctx.sent) {
     if (typeof Response !== "undefined" && res instanceof Response) {
@@ -103,7 +105,11 @@ export function createDynamicMiddlewareChain(chain: VoltenHandler[]): VoltenChai
         chain[0](ctx, () => dispatch(1)),
         ctx,
       );
-      if (res !== null && typeof res === "object" && "then" in res) {
+      if (
+        res !== null &&
+        typeof res === "object" &&
+        typeof (res as { then?: unknown }).then === "function"
+      ) {
         const thenable = res as { catch: (cb: (err: unknown) => unknown) => Promise<unknown> };
         if (typeof thenable.catch === "function") {
           return thenable.catch(function (err: unknown) {
@@ -166,7 +172,9 @@ export function compileMiddlewareChain(chain: VoltenHandler[]): VoltenChainHandl
     lines.push("  try {");
     lines.push("    index = 0;");
     lines.push("    const res = handleHandlerResult(chain[0](ctx, next_1), ctx);");
-    lines.push('    if (res && typeof res.then === "function") {');
+    lines.push(
+      '    if (res !== null && typeof res === "object" && typeof res.then === "function") {',
+    );
     lines.push("      return res.catch(function(err) {");
     lines.push("        if (ctx._app !== null) {");
     lines.push("          void ctx._app.handleError(VoltenError.from(err), ctx);");

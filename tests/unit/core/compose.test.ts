@@ -200,4 +200,41 @@ test("Compose Unit Tests", async (t) => {
     assert.equal((ctx as any)._edgeBodySent, true);
     assert.equal(edgeResolved, webRes);
   });
+
+  await t.test("throws InvalidNextCallError when next() is called multiple times", async () => {
+    let errorCount = 0;
+    const ctx = makeCtx();
+
+    const chain = compileMiddlewareChain([
+      async (_ctx, next) => {
+        await next();
+        try {
+          await next();
+        } catch {
+          errorCount++;
+        }
+      },
+      (_ctx) => {},
+    ]);
+
+    await chain(ctx);
+    assert.equal(errorCount, 1);
+  });
+
+  await t.test("handleHandlerResult processes string and object return values safely", async () => {
+    let sentData: unknown = null;
+    const ctx = makeCtx();
+    ctx.send = (data: unknown) => {
+      sentData = data;
+    };
+
+    const chain = compileMiddlewareChain([
+      () => {
+        return { message: "ok" };
+      },
+    ]);
+
+    await chain(ctx);
+    assert.deepEqual(sentData, { message: "ok" });
+  });
 });
