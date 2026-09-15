@@ -78,10 +78,10 @@ export class InvalidNextCallError extends VoltenError {
 }
 
 export class BodyReadOnInvalidMethodError extends VoltenError {
-  constructor(method: "GET" | "DELETE") {
+  constructor(method: string) {
     super(
       "ERR_BODY_READ_ON_INVALID_METHOD",
-      `Attempted to read request body on a ${method} request, which is not allowed`,
+      `Attempted to access body on a ${method} request; returning empty fallback.`,
       400,
     );
   }
@@ -124,5 +124,15 @@ export class BadRequestError extends VoltenError {
 export class DuplicateRouteError extends VoltenError {
   constructor(method: string, path: string) {
     super("ERR_DUPLICATE_ROUTE", `Duplicate route "${method} ${path}" detected`, 500);
+  }
+}
+
+export class SendAfterSentError extends VoltenError {
+  constructor(method: string) {
+    super(
+      "ERR_SEND_AFTER_SENT",
+      `Attempted to send ${method} response after response was sent`,
+      500,
+    );
   }
 }
