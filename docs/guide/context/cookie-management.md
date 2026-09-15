@@ -80,6 +80,20 @@ app.post("/login", (ctx) => {
 });
 ```
 
+### Clearing Cookies with `ctx.clearCookie(name, options?)`
+
+Easily clear a cookie by setting its expiration date to the past. It accepts the same options as `setCookie` (excluding `maxAge` and `expires`). If the cookie was set with a specific `path` or `domain`, you must provide the same options to clear it properly.
+
+```typescript
+app.post("/logout", (ctx) => {
+  ctx.clearCookie("session_id", {
+    path: "/",
+  });
+
+  return ctx.json({ loggedOut: true });
+});
+```
+
 ### `CookieOptions` Reference
 
 <ApiTable
