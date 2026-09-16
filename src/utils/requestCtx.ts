@@ -16,6 +16,7 @@ import { createCompiledStringifier } from "./stringifyJson.ts";
 import { isFileInFolder } from "./security.ts";
 import {
   MethodNotAllowedError,
+  SendAfterSentError,
   HeadersSentError,
   NotFoundError,
   VoltenError,
@@ -26,7 +27,7 @@ let DATE_HEADER_BUF = new Date().toUTCString();
 const timer = setInterval(() => {
   DATE_HEADER_BUF = new Date().toUTCString();
 }, 1000);
-if (typeof timer !== "undefined" && typeof timer.unref === "function") {
+if (typeof timer.unref === "function") {
   timer.unref();
 }
 
@@ -86,16 +87,34 @@ export class RequestContext<P extends string = string> {
   public _req: http.IncomingMessage | Request | null = null;
   public _res: http.ServerResponse | null = null;
   public _route: PathData | null = null;
+  private _ensureParsedUrl(): void {
+    if (this._path === null) {
+      const { pathname, queryStr } = parseUrl(this.url);
+      this._path = pathname;
+      this._queryString = queryStr;
+    }
+  }
+
+  get path(): string {
+    this._ensureParsedUrl();
+    return this._path as string;
+  }
+
+  get queryString(): string {
+    this._ensureParsedUrl();
+    return this._queryString as string;
+  }
+
   public method!: string;
   public url!: string;
-  public path!: string;
+  public _path: string | null = null;
   public _headers: http.IncomingHttpHeaders | Record<string, string | string[] | undefined> | null =
     null;
   public state: Record<string, unknown> = {};
   public params: ExtractParams<P> = Object.create(null) as ExtractParams<P>;
   public inited: boolean = false;
 
-  protected queryString!: string;
+  protected _queryString: string | null = null;
   protected queryValue: Query | null = null;
   public _bodyPromise?: Promise<unknown> | undefined;
   public JSONOptions?: JSONResponseOptions;
@@ -111,6 +130,18 @@ export class RequestContext<P extends string = string> {
   protected writeQueue: { str: string; resolve: () => void }[] = [];
   protected _cookiesCache: Record<string, string> | null = null;
 
+  protected logWarn(message: string, ...args: unknown[]): void {
+    if (this._app !== null) {
+      this._app.logger["warn"]?.(message, ...args);
+    }
+  }
+
+  protected logError(message: string, ...args: unknown[]): void {
+    if (this._app !== null) {
+      this._app.logger["error"]?.(message, ...args);
+    }
+  }
+
   public init(
     app: App<string>,
     req: http.IncomingMessage | Request,
@@ -121,15 +152,14 @@ export class RequestContext<P extends string = string> {
     const reqNode = req as http.IncomingMessage;
     const resNode = resOrEnv as http.ServerResponse;
     const urlStr = reqNode.url ?? "/";
-    const { pathname, queryStr } = parseUrl(urlStr);
 
     this._app = app;
     this._req = reqNode;
     this._res = resNode;
 
     this.url = urlStr;
-    this.path = pathname;
-    this.queryString = queryStr;
+    this._path = null;
+    this._queryString = null;
 
     this.queryValue = null;
     this.params = Object.create(null) as ExtractParams<P>;
@@ -268,37 +298,37 @@ export class RequestContext<P extends string = string> {
     return this.sendFile(filePath, statusCode, options);
   }
 
-  public async routePath(): Promise<void> {
-    if (!this.inited) return;
+  public async handleRouteFallback(): Promise<void> {
     const app = this.app;
     const pathname = this.path;
-    const route = app.getRoute(this.method, pathname, this);
-    if (route === null) {
-      try {
-        const staticPath = app.serverStaticMap;
-        if (staticPath === null) {
-          throw new Error("No static path configured");
-        }
-        const pathModule = await import("path");
-        const filePath = pathModule.join(staticPath, pathname);
-        if (!(await isFileInFolder(staticPath, filePath))) {
-          throw new NotFoundError("Route Not Found");
-        }
+    const staticPath = app.serverStaticMap;
+    if (staticPath !== null) {
+      const pathModule = await import("path");
+      const filePath = pathModule.join(staticPath, pathname);
+      if (await isFileInFolder(staticPath, filePath)) {
         await this.sendFile(filePath, 200, {});
         return;
-      } catch (err: unknown) {
-        if (err instanceof NotFoundError) {
-          throw err;
-        }
-        const routeTree = app.getRouteTree();
-        const methodsAllowed = routeTree.checkMethodAllowed(pathname);
-        if (methodsAllowed.length > 0) {
-          throw new MethodNotAllowedError(this.method, methodsAllowed);
-        }
-        throw new NotFoundError("Route Not Found");
       }
     }
-    this._route = route;
+
+    const routeTree = app.getRouteTree();
+    const methodsAllowed = routeTree.checkMethodAllowed(pathname);
+    if (methodsAllowed.length > 0) {
+      throw new MethodNotAllowedError(this.method, methodsAllowed);
+    }
+
+    throw new NotFoundError("Route Not Found");
+  }
+
+  public routePath(): void | Promise<void> {
+    if (!this.inited) return;
+    const app = this.app;
+    const route = app.getRoute(this.method, this.url, this);
+    if (route !== null) {
+      this._route = route;
+      return;
+    }
+    return this.handleRouteFallback();
   }
 
   reset() {
@@ -380,10 +410,7 @@ export class RequestContext<P extends string = string> {
     resObj.statusCode = statusCode;
 
     if (this.sent) {
-      if (this._app !== null && !this.app.AppOptions.noLogs) {
-        console.warn("Attempted to send JSON response after response was sent");
-      }
-      return this;
+      throw new SendAfterSentError("json");
     }
 
     resObj.setHeader("Content-Type", "application/json; charset=utf-8");
@@ -429,19 +456,14 @@ export class RequestContext<P extends string = string> {
     if (resObj === null) return this;
     const body = data;
     if (this.sent) {
-      if (!this.app.AppOptions.noLogs) {
-        console.warn("Attempted to send text response after response was sent");
-      }
-      return this;
+      throw new SendAfterSentError("text");
     }
     resObj.statusCode = statusCode;
     if (!this.headersSent) {
       this.setHeader("Content-Type", "text/plain; charset=utf-8");
       this.setHeader("Content-Length", Buffer.byteLength(body));
     } else {
-      if (!this.app.AppOptions.noLogs) {
-        console.warn("Headers Already Sent, Sending Only Body");
-      }
+      this.logWarn("Headers Already Sent, Sending Only Body");
     }
     resObj.end(body);
     resObj.uncork();
@@ -452,10 +474,7 @@ export class RequestContext<P extends string = string> {
     const resObj = this.res;
     if (resObj === null) return this;
     if (this.sent) {
-      if (!this.app.AppOptions.noLogs) {
-        console.warn("Attempted to send buffer after response was sent");
-      }
-      return this;
+      throw new SendAfterSentError("buffer");
     }
     resObj.statusCode = statusCode;
     this.setHeader("Content-Type", "application/octet-stream; charset=utf-8");
@@ -464,9 +483,13 @@ export class RequestContext<P extends string = string> {
     return this;
   }
 
-  public send(data: unknown, statusCode: number = this.statusCode): this {
+  public send(data?: unknown, statusCode: number = this.statusCode): this {
     const resObj = this.res;
     if (resObj === null) return this;
+    if (data === undefined) {
+      resObj.end();
+      return this;
+    }
     resObj.cork();
     if (typeof data === "string") {
       this.text(data, statusCode);
@@ -607,6 +630,13 @@ export class RequestContext<P extends string = string> {
     return this;
   }
 
+  public clearCookie(name: string, options: Omit<CookieOptions, "maxAge" | "expires"> = {}): this {
+    return this.setCookie(name, "", {
+      ...options,
+      expires: new Date(0),
+    });
+  }
+
   get bodyStream(): ReadableStream<Uint8Array> {
     return Readable.toWeb(this.req as http.IncomingMessage) as ReadableStream<Uint8Array>;
   }
@@ -626,11 +656,9 @@ export class RequestContext<P extends string = string> {
     if (["POST", "PUT", "PATCH"].includes(this.method)) {
       this._bodyPromise = this.app.parseBody.call(this.app, this, type === "text");
     } else {
-      if (!this.app.AppOptions.noLogs) {
-        console.warn(
-          `Attempted to access body on a ${this.method} request; returning empty fallback.`,
-        );
-      }
+      this.logWarn(
+        `Attempted to access body on a ${this.method} request; returning empty fallback.`,
+      );
       this._bodyPromise = Promise.resolve(type === "text" ? "" : {});
     }
 
@@ -639,9 +667,7 @@ export class RequestContext<P extends string = string> {
 
   public async *multipart(): AsyncGenerator<MultipartPart, void, unknown> {
     if (!this.isMultipart) {
-      if (!this.app.AppOptions.noLogs) {
-        console.warn("Attempted to call ctx.multipart() on a non-multipart request header.");
-      }
+      this.logWarn("Attempted to call ctx.multipart() on a non-multipart request header.");
       return;
     }
 
@@ -656,9 +682,7 @@ export class RequestContext<P extends string = string> {
     const resObj = this.res;
     if (resObj === null) return this;
     if (this.sent) {
-      if (this._app !== null && !this._app.AppOptions.noLogs) {
-        console.warn("Attempted to send file after response was sent");
-      }
+      this.logWarn("Attempted to send file after response was sent");
       return this;
     }
     try {
@@ -733,9 +757,7 @@ export class RequestContext<P extends string = string> {
       });
 
       stream.on("error", (streamErr) => {
-        if (!regApp.AppOptions.noLogs) {
-          console.error("Stream error:", streamErr);
-        }
+        this.logError("Stream error:", streamErr);
         stream.destroy();
         const normalizedErr = VoltenError.from(streamErr);
 
@@ -803,11 +825,9 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
     } catch {
       // relative
     }
-    const { pathname, queryStr } = parseUrl(relativeUrl);
-
     this.url = relativeUrl;
-    this.path = pathname;
-    this.queryString = queryStr;
+    this._path = null;
+    this._queryString = null;
     this.queryValue = null;
     this.params = Object.create(null) as ExtractParams<P>;
 

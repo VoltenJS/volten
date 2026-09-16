@@ -44,8 +44,37 @@ app.delete("/users/:id", (ctx) => {
 });
 
 app.listen(3000, () => {
-  console.log("Server running on http://localhost:3000");
+  app.logger.info("Server running on http://localhost:3000");
 });
+```
+
+### Route Introspection (`app.printRoutes()`)
+
+Once you have registered all of your application's routes and mounted any sub-routers, you can use `app.printRoutes()` to instantly output a slick ASCII table mapping out every registered path.
+
+This feature gives you complete visibility into exactly which methods exist, their full namespace paths, and how many inline middlewares they invoke!
+
+```typescript
+app.get("/users", (ctx) => ctx.json([]));
+app.post("/users", auth, (ctx) => ctx.json({}));
+app.group("/api", (api) => {
+  api.delete("/users/:id", auth, (ctx) => ctx.text("Deleted"));
+});
+
+// Print the ASCII Table to the console
+app.printRoutes();
+```
+
+**Output:**
+
+```text
+┌─────────┬──────────────────────────────┬──────────────┐
+│ Method  │ Route                        │ Middleware   │
+├─────────┼──────────────────────────────┼──────────────┤
+│ GET     │ /users                       │ 1            │
+│ POST    │ /users                       │ 2            │
+│ DELETE  │ /api/users/:id               │ 2            │
+└─────────┴──────────────────────────────┴──────────────┘
 ```
 
 ---

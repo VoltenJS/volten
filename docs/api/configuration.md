@@ -19,10 +19,10 @@ const voltenAppOptionsItems = [
     description: 'Number of pre-allocated RequestContext instances in the memory pool for zero GC overhead.'
   },
   {
-    property: 'noLogs',
-    type: 'boolean',
-    default: 'false',
-    description: 'Suppresses internal framework warning and diagnostic logs.'
+    property: 'shutdownTimeoutMs',
+    type: 'number',
+    default: '10000 (10s)',
+    description: 'Maximum time to wait for active requests to finish during a graceful shutdown (app.close).'
   },
   {
     property: 'https',
@@ -106,7 +106,6 @@ const app = new App({
   bodyLimit: 2 * 1024 * 1024, // 2MB limit
   caseInsensitive: true,
   RequestPoolSize: 4096,
-  noLogs: false,
 });
 ```
 
@@ -119,7 +118,7 @@ export type VoltenAppOptions<CustomLevels extends string = never> = {
   bodyLimit?: number;
   caseInsensitive?: boolean;
   RequestPoolSize?: number;
-  noLogs?: boolean;
+  shutdownTimeoutMs?: number;
   https?: VoltenHttpsOptions | undefined;
   loggerOptions?: CustomLoggerOptions<CustomLevels>;
   adaptiveTriage?: AdaptiveTriageOptions;
@@ -268,21 +267,6 @@ const app = new App({
 
 ---
 
-### `noLogs`
-
-- **Type**: `boolean`
-- **Default**: `false`
-
-Silences framework-level diagnostic and warning outputs printed to `console.error` and `console.warn` (such as unhandled error fallbacks or custom error handler warnings).
-
-```typescript
-const app = new App({
-  noLogs: process.env.NODE_ENV === "test", // Clean output during automated testing
-});
-```
-
----
-
 ### `loggerOptions`
 
 - **Type**: `CustomLoggerOptions<CustomLevels>`
@@ -326,6 +310,23 @@ Configures Volten's automated event loop health monitor and intelligent load she
 
 ---
 
+### `shutdownTimeoutMs`
+
+- **Type**: `number`
+- **Default**: `10000` (10 seconds)
+
+When you call `app.close()`, Volten stops accepting new incoming connections and waits for all active, in-flight requests in the pool to finish processing (graceful shutdown).
+
+If the active requests do not finish within the `shutdownTimeoutMs` window, Volten will forcefully close all active connections and terminate the server to prevent the process from hanging indefinitely.
+
+```typescript
+const app = new App({
+  shutdownTimeoutMs: 5000, // Force close connections after 5 seconds
+});
+```
+
+---
+
 ## Default Configuration Object
 
 Volten exposes the default configuration constant `DefaultVoltenOptions`:
@@ -339,7 +340,7 @@ console.log(DefaultVoltenOptions);
   bodyLimit: 1048576,
   caseInsensitive: true,
   RequestPoolSize: 2048,
-  noLogs: false,
+  shutdownTimeoutMs: 10000,
   https: undefined,
   loggerOptions: {
     level: "warn"

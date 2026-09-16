@@ -10,7 +10,7 @@
   "bugs": {
     "url": "https://github.com/VoltenJS/volten/issues"
   },
-  "homepage": "https://github.com/VoltenJS/volten#readme",
+  "homepage": "https://volten-docs.pages.dev",
   "author": "insanerx",
   "license": "MIT",
   "type": "module",
@@ -52,7 +52,10 @@
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",
-    "docs:format": "prettier --write \"docs/**/*.md\""
+    "docs:format": "prettier --write \"docs/**/*.md\"",
+    "bench": "node benchmarks/run.js",
+    "bench:ci": "node benchmarks/regression.js",
+    "bench:update": "node benchmarks/regression.js --update"
   },
   "keywords": [
     "web",
@@ -72,6 +75,7 @@
     "@shikijs/magic-move": "^4.4.3",
     "@stackblitz/sdk": "^1.11.1",
     "@types/node": "^25.5.2",
+    "autocannon": "^8.0.0",
     "eslint": "^10.8.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-security": "^4.0.1",

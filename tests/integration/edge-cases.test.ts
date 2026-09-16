@@ -81,7 +81,7 @@ test("Framework Edge Cases", async (t) => {
   });
 
   await t.test("Throws on non-existent static folders", () => {
-    const dummyApp = new App({ noLogs: true });
+    const dummyApp = new App({ loggerOptions: { level: "fatal" } });
 
     assert.throws(() => {
       // Intentionally passing a totally fabricated folder location to trip Error branch
@@ -97,7 +97,7 @@ test("Framework Edge Cases", async (t) => {
     const busterApp = new App({
       RequestPoolSize: 2,
       caseInsensitive: true,
-      noLogs: true,
+      loggerOptions: { level: "fatal" },
     });
 
     busterApp.post("/empty-content-len", async (ctx) => {
@@ -148,7 +148,7 @@ test("Framework Edge Cases", async (t) => {
   // MATRIX 6: STATIC MISSING CONFIGS FALLBACK (src/utils/requestctx.ts Lines 93-105)
   // =========================================================================
   await t.test("Handles missing host static configurations on initialization", async () => {
-    const testApp = new App({ RequestPoolSize: 2, noLogs: true });
+    const testApp = new App({ RequestPoolSize: 2, loggerOptions: { level: "fatal" } });
     const ctx = new RequestContext();
     const mockReq = {
       url: "/missing-target-route-file.txt",
@@ -185,7 +185,7 @@ test("Framework Edge Cases", async (t) => {
   // MATRIX 7: STREAM DESTROY ERROR CALLBACKS (src/utils/requestctx.ts Lines 217-227)
   // =========================================================================
   await t.test("Invokes callbacks on sendFile stream failures", async () => {
-    const testApp = new App({ RequestPoolSize: 2, noLogs: true });
+    const testApp = new App({ RequestPoolSize: 2, loggerOptions: { level: "fatal" } });
     const ctx = new RequestContext();
 
     const mockReq = {
@@ -227,7 +227,7 @@ test("Framework Edge Cases", async (t) => {
 
   await t.test("Falls back gracefully on invalid URLs", () => {
     // Import or invoke your parsing dependencies to exhaust string parsing mutations
-    const busterApp = new App({ caseInsensitive: true, noLogs: true });
+    const busterApp = new App({ caseInsensitive: true, loggerOptions: { level: "fatal" } });
 
     busterApp.get("/parse-edge", (ctx) => {
       // Accessing path metrics
@@ -237,7 +237,7 @@ test("Framework Edge Cases", async (t) => {
   });
 
   await t.test("Matches empty paths and handles backtrack bounds correctly", () => {
-    const busterApp = new App({ caseInsensitive: true, noLogs: true });
+    const busterApp = new App({ caseInsensitive: true, loggerOptions: { level: "fatal" } });
 
     // Mount varying complex parameter configurations
     busterApp.get("/tree/:param/fixed/:sub", (ctx) => {

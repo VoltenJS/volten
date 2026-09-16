@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://github.com/VoltenJS/volten/blob/main/.github/voltenLogo.png?raw=true" alt="Volten Logo" width="500" style="margin-bottom: -80px;" />
+  <img src="https://github.com/VoltenJS/volten/blob/main/.github/voltenLogo.svg?raw=true" alt="Volten Logo" width="500" style="margin-bottom: -80px;" />
 </p>
 
 <h1 align="center">Volten</h1>
@@ -74,6 +74,16 @@ export default { fetch: app.createFetch() };
 ## 🛡️ Adaptive Traffic Triage (ATT)
 
 **Event-loop immune routing.** Volten includes built-in **Adaptive Traffic Triage (ATT)**, a unique feature that automatically drops low-priority requests at the socket level when your Node.js server is under heavy stress. This ensures your high-priority endpoints stay responsive and prevents your application from crashing during traffic spikes.
+
+---
+
+## 🏎️ Zero-Overhead Performance
+
+Volten is engineered to outpace almost every framework in the Node.js ecosystem, delivering raw throughput that stands toe-to-toe with Fastify.
+
+- **JIT-Compiled Router**: Volten dynamically analyzes your route map at boot and compiles a partitioned Double-Switch statement using `new Function()`. Static route matches cost `O(1)` and bypass the Radix trie entirely.
+- **Monomorphic Parameters**: `ctx.params` is not a slow dictionary. Volten dynamically generates strict ES6 classes at boot for every parameter combination. Instantiating these ensures V8 maintains monomorphic Inline Caches (ICs).
+- **Zero-Allocation Parsing**: `ctx.path` and `ctx.queryString` lazily parse URLs without creating substring copies in memory unless absolutely necessary.
 
 ---
 

@@ -24,6 +24,8 @@ features:
   - title: 🚦 Adaptive Traffic Triage
     details: Dynamically shape your traffic! The engine monitors Node.js Event Loop delay and drops low-priority requests during heavy load to keep your critical routes alive.
     link: /guide/adaptive-traffic-triage
+  - title: 🏎️ JIT Compiled Routing
+    details: Experience zero-overhead throughput. Volten dynamically analyzes your route map and writes a V8-optimized partitioned switch statement under the hood.
   - title: 🪶 0 Dependencies
     details: Built purely on top of Node.js primitives for maximum security, minimal node_modules size, and zero supply-chain risk.
   - title: 🧠 Native Context (ctx)

@@ -42,6 +42,29 @@ app.use("/api/users", userRouter);
 // POST /api/users
 ```
 
+### Type-Safe Route Groups (`app.group`)
+
+If you don't want to manage multiple file exports or manually mount routers using `app.use()`, you can effortlessly namespace APIs inline using `app.group(prefix, callback)`:
+
+```typescript
+app.group("/api/v1", (v1) => {
+  v1.get("/users", (ctx) => {
+    return ctx.json({ users: [] });
+  });
+
+  v1.post("/users", async (ctx) => {
+    // ...
+  });
+
+  // You can even nest groups!
+  v1.group("/admin", (admin) => {
+    admin.get("/dashboard", (ctx) => ctx.text("Dashboard"));
+  });
+});
+```
+
+Route groups seamlessly manage sub-routers internally without breaking type inferences!
+
 ### Mounting Without a Prefix
 
 You can also mount a router without a prefix path:

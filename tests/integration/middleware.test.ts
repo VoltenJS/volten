@@ -10,7 +10,7 @@ test("Middleware Execution Pipeline & Lifecycle", async (t) => {
     RequestPoolSize: 10,
     bodyLimit: 4096,
     caseInsensitive: true,
-    noLogs: true,
+    loggerOptions: { level: "fatal" },
   });
 
   // Isolated matrix trace collectors to guarantee zero cross-test state pollution

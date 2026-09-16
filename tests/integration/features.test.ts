@@ -8,7 +8,7 @@ import os from "os";
 import { Readable } from "node:stream";
 
 test("Core Framework Features", async (t) => {
-  const volten = new App({ noLogs: true });
+  const volten = new App({ loggerOptions: { level: "fatal" } });
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "volten-v009-tests-"));
   const tempFilePath = path.join(tempDir, "hello world.txt");

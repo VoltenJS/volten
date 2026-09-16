@@ -112,17 +112,16 @@ export type VoltenAppOptions<CustomLevels extends string = never> = {
   bodyLimit?: number;
   caseInsensitive?: boolean;
   RequestPoolSize?: number;
-  noLogs?: boolean;
   https?: VoltenHttpsOptions | undefined;
   loggerOptions?: CustomLoggerOptions<CustomLevels>;
   adaptiveTriage?: AdaptiveTriageOptions;
+  shutdownTimeoutMs?: number;
 };
 
 export const DefaultVoltenOptions: Required<VoltenAppOptions> = {
   bodyLimit: 1024 * 1024,
   caseInsensitive: true,
   RequestPoolSize: 2048,
-  noLogs: false,
   https: undefined,
   loggerOptions: {
     level: "warn",
@@ -134,6 +133,7 @@ export const DefaultVoltenOptions: Required<VoltenAppOptions> = {
     resolutionMs: 10,
     checkIntervalMs: 500,
   },
+  shutdownTimeoutMs: 10000,
 };
 
 export type RouteOptions = {

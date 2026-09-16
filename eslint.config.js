@@ -6,7 +6,7 @@ import pluginSecurity from "eslint-plugin-security";
 
 export default defineConfig([
   {
-    ignores: ["eslint.config.js", "tests", "scripts", "examples"],
+    ignores: ["eslint.config.js", "tests", "scripts", "examples", "benchmarks"],
   },
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked,

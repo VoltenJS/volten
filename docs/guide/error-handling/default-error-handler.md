@@ -16,4 +16,12 @@ If you do not register a custom error handler, Volten's default error handler re
   Route Not Found
   ```
 
+### Developer Experience (HTML Stack Traces)
+
+To improve Developer Experience (DevEx), when an unhandled exception occurs (HTTP 500) and `NODE_ENV` is explicitly set to `"development"`, the default error handler will generate a rich, syntax-highlighted HTML error page.
+
+This page beautifully formats the stack trace and highlights the exact file, line, and column where the error originated, making it drastically easier to debug.
+
+If `NODE_ENV` is unset or set to any other environment (such as `"production"`), the HTML page is disabled to prevent leaking sensitive stack traces and internal paths to users, falling back to a generic `500 Internal Server Error` message.
+
 ---
