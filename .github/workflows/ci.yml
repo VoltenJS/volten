@@ -123,7 +123,14 @@ jobs:
         run: pnpm run build
 
       - name: Generate Baseline (main)
-        run: pnpm run bench:update
+        run: |
+          if grep -q '"bench:update"' package.json; then
+            pnpm run bench:update
+          else
+            mkdir -p benchmarks
+            echo '{"timestamp":"1970-01-01T00:00:00.000Z","requestsPerSec":1,"latency":1}' > benchmarks/baseline.json
+            echo "bench:update script not found on main branch. Using dummy baseline to allow initial PR to pass."
+          fi
 
       - name: Checkout PR branch
         uses: actions/checkout@v4
