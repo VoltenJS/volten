@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "fs";
 import path from "path";
 import { App } from "../../src/core/server.ts";
+import { ServiceUnavailableError } from "../../src/core/errors.ts";
 import { request } from "../helpers.ts"; // Assuming this handles server injection or local http fetch
 import type { AddressInfo } from "node:net";
 
@@ -342,5 +343,56 @@ test("Router & Core Integration", async (t) => {
     assert.ok(has200, "Isolated pool failed to process baseline valid items.");
     assert.ok(has503, "Starvation protective barrier failed to yield a 503 status.");
   });
+
+  await t.test("Returns 405 with RFC Allow header when method is not registered", async () => {
+    const res = await request(volten, "/methods", { method: "TRACE" });
+    assert.equal(res.status, 405);
+    assert.equal(res.headers["allow"], "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS");
+    assert.ok(res.body.includes("TRACE"));
+    assert.ok(res.body.includes("GET"));
+
+    const jsonRes = await request(volten, "/methods", {
+      method: "TRACE",
+      headers: { accept: "application/json" },
+    });
+    assert.equal(jsonRes.status, 405);
+    assert.equal(jsonRes.headers["allow"], "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS");
+    assert.ok(jsonRes.headers["content-type"]?.includes("application/json"));
+  });
+
+  await t.test("HEAD on GET route omits body and preserves Content-Length", async () => {
+    const res = await request(volten, "/methods", { method: "HEAD" });
+    assert.equal(res.status, 200);
+    assert.equal(res.body, "");
+    assert.equal(res.headers["content-length"], "6");
+    assert.equal(res.headers["content-type"], "text/plain; charset=utf-8");
+  });
+
+  await t.test("OPTIONS on existing path returns 204 and Allow", async () => {
+    const res = await request(volten, "/methods", { method: "OPTIONS" });
+    assert.equal(res.status, 204);
+    assert.equal(res.body, "");
+    assert.equal(res.headers["allow"], "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS");
+  });
+
+  await t.test("204 JSON responses omit content", async () => {
+    const isolatedApp = new App({ loggerOptions: { level: "fatal" } });
+    isolatedApp.get("/empty", (ctx) => {
+      ctx.status(204).json({ leaked: true });
+    });
+    isolatedApp.get("/unavailable", () => {
+      throw new ServiceUnavailableError();
+    });
+
+    const res = await request(isolatedApp, "/empty");
+    assert.equal(res.status, 204);
+    assert.equal(res.body, "");
+
+    const res503 = await request(isolatedApp, "/unavailable");
+    assert.equal(res503.status, 503);
+    assert.equal(res503.headers["retry-after"], "1");
+    await isolatedApp.close();
+  });
+
   volten.close();
 });

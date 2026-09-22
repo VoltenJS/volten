@@ -267,6 +267,46 @@ export class Router {
   }
 
   /**
+   * Registers a HEAD route handler for the specified path.
+   *
+   * If no explicit HEAD route is registered, GET handlers are used and the response body is omitted.
+   */
+  head<P extends string>(path: P, ...handlers: VoltenHandler<P>[]): void;
+  head<P extends string>(path: P, options: RouteOptions, ...handlers: VoltenHandler<P>[]): void;
+  head<P extends string>(
+    path: P,
+    arg2: RouteOptions | VoltenHandler<P>,
+    ...handlers: VoltenHandler<P>[]
+  ): void {
+    const { options, routeHandlers } = this.identifyParamType(
+      arg2 as RouteOptions | VoltenHandler,
+      ...(handlers as unknown as VoltenHandler[]),
+    );
+    const handlersWithMiddleware = [...this.middleware, ...routeHandlers];
+    this.routes.push({ method: "HEAD", path, options, handlers: handlersWithMiddleware });
+  }
+
+  /**
+   * Registers an OPTIONS route handler for the specified path.
+   *
+   * If no explicit OPTIONS route is registered and the path exists, Volten responds with 204 and an Allow header.
+   */
+  options<P extends string>(path: P, ...handlers: VoltenHandler<P>[]): void;
+  options<P extends string>(path: P, options: RouteOptions, ...handlers: VoltenHandler<P>[]): void;
+  options<P extends string>(
+    path: P,
+    arg2: RouteOptions | VoltenHandler<P>,
+    ...handlers: VoltenHandler<P>[]
+  ): void {
+    const { options, routeHandlers } = this.identifyParamType(
+      arg2 as RouteOptions | VoltenHandler,
+      ...(handlers as unknown as VoltenHandler[]),
+    );
+    const handlersWithMiddleware = [...this.middleware, ...routeHandlers];
+    this.routes.push({ method: "OPTIONS", path, options, handlers: handlersWithMiddleware });
+  }
+
+  /**
    * Registers all routes and sub-routers defined on this Router instance with the main Volten App.
    *
    * @param {App<string>} app - The main Volten application instance.

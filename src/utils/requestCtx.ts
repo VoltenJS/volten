@@ -20,8 +20,21 @@ import {
   HeadersSentError,
   NotFoundError,
   VoltenError,
+  BadRequestError,
+  UnsupportedMediaTypeError,
 } from "../core/errors.ts";
 import { getMimeType } from "./mime.ts";
+import {
+  contentDispositionAttachment,
+  extractMediaType,
+  ifNoneMatchMatches,
+  isJsonMediaType,
+  isSetCookieHeaderName,
+  isUrlEncodedMediaType,
+  parseCookieHeader,
+  serializeSetCookie,
+  shouldSendContent,
+} from "./httpRfc.ts";
 
 let DATE_HEADER_BUF = new Date().toUTCString();
 const timer = setInterval(() => {
@@ -306,6 +319,13 @@ export class RequestContext<P extends string = string> {
       const pathModule = await import("path");
       const filePath = pathModule.join(staticPath, pathname);
       if (await isFileInFolder(staticPath, filePath)) {
+        if (this.method === "OPTIONS") {
+          this.statusCode = 204;
+          this.setHeader("Allow", "GET, HEAD, OPTIONS");
+          this.setHeader("Content-Length", 0);
+          this.send();
+          return;
+        }
         await this.sendFile(filePath, 200, {});
         return;
       }
@@ -313,6 +333,13 @@ export class RequestContext<P extends string = string> {
 
     const routeTree = app.getRouteTree();
     const methodsAllowed = routeTree.checkMethodAllowed(pathname);
+    if (this.method === "OPTIONS" && methodsAllowed.length > 0) {
+      this.statusCode = 204;
+      this.setHeader("Allow", methodsAllowed.join(", "));
+      this.setHeader("Content-Length", 0);
+      this.send();
+      return;
+    }
     if (methodsAllowed.length > 0) {
       throw new MethodNotAllowedError(this.method, methodsAllowed);
     }
@@ -415,40 +442,30 @@ export class RequestContext<P extends string = string> {
 
     resObj.setHeader("Content-Type", "application/json; charset=utf-8");
     resObj.setHeader("Server", "Volten/1.0.0");
-    resObj.setHeader("Connection", "keep-alive");
     resObj.setHeader("Date", DATE_HEADER_BUF);
 
+    let body: string;
     if (this._route === null || this.route.disableOpt) {
-      const body = JSON.stringify(data);
-      this.setHeader("Content-Length", Buffer.byteLength(body));
-      resObj.end(body);
-      resObj.uncork();
-      return this;
-    }
-
-    try {
-      let serializer = this.route.serializer;
-      if (serializer === undefined) {
-        const finger = this.app.JITCache.getShapeFingerprint(data);
-        serializer = this.app.JITCache.get(finger);
+      body = JSON.stringify(data);
+    } else {
+      try {
+        let serializer = this.route.serializer;
         if (serializer === undefined) {
-          serializer = createCompiledStringifier(data);
-          this.app.JITCache.set(finger, serializer);
+          const finger = this.app.JITCache.getShapeFingerprint(data);
+          serializer = this.app.JITCache.get(finger);
+          if (serializer === undefined) {
+            serializer = createCompiledStringifier(data);
+            this.app.JITCache.set(finger, serializer);
+          }
+          this.route.serializer = serializer;
         }
-        this.route.serializer = serializer;
+        body = serializer(data);
+      } catch {
+        body = JSON.stringify(data);
       }
-      const body = serializer(data);
-      this.setHeader("Content-Length", Buffer.byteLength(body));
-      resObj.end(body);
-      resObj.uncork();
-      return this;
-    } catch {
-      const body = JSON.stringify(data);
-      this.setHeader("Content-Length", Buffer.byteLength(body));
-      resObj.end(body);
-      resObj.uncork();
-      return this;
     }
+    this.endNodePayload(resObj, body);
+    return this;
   }
 
   public text(data: string, statusCode: number = this.statusCode): this {
@@ -461,12 +478,10 @@ export class RequestContext<P extends string = string> {
     resObj.statusCode = statusCode;
     if (!this.headersSent) {
       this.setHeader("Content-Type", "text/plain; charset=utf-8");
-      this.setHeader("Content-Length", Buffer.byteLength(body));
     } else {
       this.logWarn("Headers Already Sent, Sending Only Body");
     }
-    resObj.end(body);
-    resObj.uncork();
+    this.endNodePayload(resObj, body);
     return this;
   }
 
@@ -477,9 +492,8 @@ export class RequestContext<P extends string = string> {
       throw new SendAfterSentError("buffer");
     }
     resObj.statusCode = statusCode;
-    this.setHeader("Content-Type", "application/octet-stream; charset=utf-8");
-    this.setHeader("Content-Length", data.length);
-    resObj.end(data);
+    this.setHeader("Content-Type", "application/octet-stream");
+    this.endNodePayload(resObj, data);
     return this;
   }
 
@@ -487,7 +501,8 @@ export class RequestContext<P extends string = string> {
     const resObj = this.res;
     if (resObj === null) return this;
     if (data === undefined) {
-      resObj.end();
+      resObj.statusCode = statusCode;
+      this.endNodePayload(resObj, null);
       return this;
     }
     resObj.cork();
@@ -501,6 +516,42 @@ export class RequestContext<P extends string = string> {
     return this;
   }
 
+  protected endNodePayload(resObj: http.ServerResponse, body: string | Buffer | null): void {
+    const status = resObj.statusCode;
+    const payloadLength =
+      body === null ? 0 : Buffer.isBuffer(body) ? body.length : Buffer.byteLength(body);
+
+    if (this.method === "HEAD") {
+      if (!this.headersSent) {
+        this.setHeader("Content-Length", payloadLength);
+      }
+      resObj.end();
+      resObj.uncork();
+      return;
+    }
+
+    if (!shouldSendContent(this.method, status)) {
+      if (!this.headersSent) {
+        this.setHeader("Content-Length", 0);
+      }
+      resObj.end();
+      resObj.uncork();
+      return;
+    }
+
+    if (body === null) {
+      resObj.end();
+      resObj.uncork();
+      return;
+    }
+
+    if (!this.headersSent) {
+      this.setHeader("Content-Length", payloadLength);
+    }
+    resObj.end(body);
+    resObj.uncork();
+  }
+
   public getHeaders(): http.OutgoingHttpHeaders {
     return this.res !== null ? this.res.getHeaders() : {};
   }
@@ -509,7 +560,14 @@ export class RequestContext<P extends string = string> {
     if (this.res === null) return undefined;
     const raw = this.res.getHeader(header);
     if (raw === undefined) return undefined;
-    return Array.isArray(raw) ? raw.join(", ") : String(raw);
+    if (Array.isArray(raw)) {
+      if (isSetCookieHeaderName(header)) {
+        const first = raw[0];
+        return first === undefined ? undefined : first;
+      }
+      return raw.join(", ");
+    }
+    return String(raw);
   }
 
   public getRawHeader(header: string): string | number | string[] | null | undefined {
@@ -559,65 +617,13 @@ export class RequestContext<P extends string = string> {
       this._cookiesCache = Object.freeze({});
       return this._cookiesCache;
     }
-    const parsedCookies: Record<string, string> = Object.create(null) as Record<string, string>;
-    let start = 0;
-    const len = rawCookieHeader.length;
-    while (start < len) {
-      while (start < len && rawCookieHeader.charCodeAt(start) === 32) {
-        start++;
-      }
-      if (start >= len) break;
-      const equalsIdx = rawCookieHeader.indexOf("=", start);
-      if (equalsIdx === -1) break;
-      let semiIdx = rawCookieHeader.indexOf(";", equalsIdx);
-      if (semiIdx === -1) {
-        semiIdx = len;
-      }
-      const rawKey = rawCookieHeader.slice(start, equalsIdx).trim();
-      const rawVal = rawCookieHeader.slice(equalsIdx + 1, semiIdx).trim();
-      try {
-        parsedCookies[decodeURIComponent(rawKey)] = decodeURIComponent(rawVal);
-      } catch {
-        parsedCookies[rawKey] = rawVal;
-      }
-      start = semiIdx + 1;
-    }
+    const parsedCookies = parseCookieHeader(rawCookieHeader);
     this._cookiesCache = parsedCookies;
     return this._cookiesCache;
   }
 
   public setCookie(name: string, value: string, options: CookieOptions = {}): this {
-    let str = encodeURIComponent(name) + "=" + encodeURIComponent(value);
-    if (options.path !== undefined) {
-      str += "; Path=" + options.path;
-    } else {
-      str += "; Path=/";
-    }
-
-    if (options.maxAge !== undefined) {
-      str += "; Max-Age=" + String(options.maxAge);
-    }
-
-    if (options.expires !== undefined) {
-      str += "; Expires=" + options.expires.toUTCString();
-    }
-
-    if (options.domain !== undefined) {
-      str += "; Domain=" + options.domain;
-    }
-
-    if (options.sameSite !== undefined) {
-      const ss = options.sameSite;
-      str += "; SameSite=" + (ss === "lax" ? "Lax" : ss === "strict" ? "Strict" : "None");
-    }
-
-    if (options.secure === true) {
-      str += "; Secure";
-    }
-
-    if (options.httpOnly === true) {
-      str += "; HttpOnly";
-    }
+    const str = serializeSetCookie(name, value, options);
     const existing = this.res !== null ? this.res.getHeader("Set-Cookie") : undefined;
 
     if (existing === undefined) {
@@ -711,9 +717,9 @@ export class RequestContext<P extends string = string> {
       const ifModifiedSince = reqHeaders["if-modified-since"];
 
       let is304 = false;
-      if (typeof ifNoneMatch === "string" && ifNoneMatch === etag) {
+      if (ifNoneMatchMatches(ifNoneMatch, etag)) {
         is304 = true;
-      } else if (typeof ifModifiedSince === "string") {
+      } else if (ifNoneMatch === undefined && typeof ifModifiedSince === "string") {
         const modifiedSince = new Date(ifModifiedSince);
         if (!isNaN(modifiedSince.getTime()) && modifiedSince >= stats.mtime) {
           is304 = true;
@@ -737,13 +743,15 @@ export class RequestContext<P extends string = string> {
         this.setHeader("ETag", etag);
 
         if (options?.download !== undefined) {
-          const encodedName = encodeURIComponent(options.download);
-          this.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodedName}`);
-        } else {
-          this.setHeader("Content-Type", contentType);
+          this.setHeader("Content-Disposition", contentDispositionAttachment(options.download));
         }
       } finally {
         resObj.uncork();
+      }
+
+      if (!shouldSendContent(this.method, resObj.statusCode)) {
+        resObj.end();
+        return this;
       }
 
       const stream = fsModule.createReadStream(filePath);
@@ -938,12 +946,43 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
     this._edgeBody = String(this._edgeBody) + str;
   }
 
+  private endEdgePayload(body: string | Buffer | Uint8Array | null): void {
+    if (!this._edgeHeaders.has("Date")) {
+      this._edgeHeaders.set("Date", DATE_HEADER_BUF);
+    }
+    const status = this._edgeStatus;
+    const payloadLength =
+      body === null ? 0 : typeof body === "string" ? Buffer.byteLength(body) : body.byteLength;
+
+    if (this.method === "HEAD") {
+      this._edgeHeaders.set("Content-Length", String(payloadLength));
+      this._edgeBody = null;
+      this._edgeBodySent = true;
+      this._resolveEdgeResponse(new Response(null, { status, headers: this._edgeHeaders }));
+      return;
+    }
+
+    if (!shouldSendContent(this.method, status)) {
+      this._edgeHeaders.set("Content-Length", "0");
+      this._edgeBody = null;
+      this._edgeBodySent = true;
+      this._resolveEdgeResponse(new Response(null, { status, headers: this._edgeHeaders }));
+      return;
+    }
+
+    this._edgeBody = body;
+    this._edgeBodySent = true;
+    this._resolveEdgeResponse(
+      new Response(body as BodyInit, { status, headers: this._edgeHeaders }),
+    );
+  }
+
   override json(data: unknown, statusCode: number = this._edgeStatus): this {
     if (this._edgeBodySent) return this;
     this._edgeStatus = statusCode;
     this._edgeHeaders.set("Content-Type", "application/json; charset=utf-8");
     this._edgeHeaders.set("Server", "Volten/1.0.0");
-    this._edgeHeaders.set("Connection", "keep-alive");
+    this._edgeHeaders.set("Date", DATE_HEADER_BUF);
 
     let body: string;
     if (this._route === null || this.route.disableOpt) {
@@ -965,14 +1004,7 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
         body = JSON.stringify(data);
       }
     }
-    this._edgeBody = body;
-    this._edgeBodySent = true;
-    this._resolveEdgeResponse(
-      new Response(body, {
-        status: this._edgeStatus,
-        headers: this._edgeHeaders,
-      }),
-    );
+    this.endEdgePayload(body);
     return this;
   }
 
@@ -980,33 +1012,24 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
     if (this._edgeBodySent) return this;
     this._edgeStatus = statusCode;
     this._edgeHeaders.set("Content-Type", "text/plain; charset=utf-8");
-    this._edgeBody = data;
-    this._edgeBodySent = true;
-    this._resolveEdgeResponse(
-      new Response(data, {
-        status: this._edgeStatus,
-        headers: this._edgeHeaders,
-      }),
-    );
+    this.endEdgePayload(data);
     return this;
   }
 
   override buffer(data: Buffer | Uint8Array, statusCode: number = this._edgeStatus): this {
     if (this._edgeBodySent) return this;
     this._edgeStatus = statusCode;
-    this._edgeHeaders.set("Content-Type", "application/octet-stream; charset=utf-8");
-    this._edgeBody = data;
-    this._edgeBodySent = true;
-    this._resolveEdgeResponse(
-      new Response(data as BodyInit, {
-        status: this._edgeStatus,
-        headers: this._edgeHeaders,
-      }),
-    );
+    this._edgeHeaders.set("Content-Type", "application/octet-stream");
+    this.endEdgePayload(data);
     return this;
   }
 
-  override send(data: unknown, statusCode: number = this._edgeStatus): this {
+  override send(data?: unknown, statusCode: number = this._edgeStatus): this {
+    if (data === undefined) {
+      this._edgeStatus = statusCode;
+      this.endEdgePayload(null);
+      return this;
+    }
     if (typeof data === "string") {
       this.text(data, statusCode);
     } else if (data instanceof Uint8Array) {
@@ -1022,6 +1045,10 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
   }
 
   override getHeader(header: string): string | undefined {
+    if (isSetCookieHeaderName(header) && typeof this._edgeHeaders.getSetCookie === "function") {
+      const cookies = this._edgeHeaders.getSetCookie();
+      return cookies[0];
+    }
     return this._edgeHeaders.get(header) ?? undefined;
   }
 
@@ -1053,39 +1080,7 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
   }
 
   override setCookie(name: string, value: string, options: CookieOptions = {}): this {
-    let str = encodeURIComponent(name) + "=" + encodeURIComponent(value);
-    if (options.path !== undefined) {
-      str += "; Path=" + options.path;
-    } else {
-      str += "; Path=/";
-    }
-
-    if (options.maxAge !== undefined) {
-      str += "; Max-Age=" + String(options.maxAge);
-    }
-
-    if (options.expires !== undefined) {
-      str += "; Expires=" + options.expires.toUTCString();
-    }
-
-    if (options.domain !== undefined) {
-      str += "; Domain=" + options.domain;
-    }
-
-    if (options.sameSite !== undefined) {
-      const ss = options.sameSite;
-      str += "; SameSite=" + (ss === "lax" ? "Lax" : ss === "strict" ? "Strict" : "None");
-    }
-
-    if (options.secure === true) {
-      str += "; Secure";
-    }
-
-    if (options.httpOnly === true) {
-      str += "; HttpOnly";
-    }
-
-    this._edgeHeaders.append("Set-Cookie", str);
+    this._edgeHeaders.append("Set-Cookie", serializeSetCookie(name, value, options));
     return this;
   }
 
@@ -1106,18 +1101,20 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
         this._bodyPromise = this.req.text().catch(() => "");
       } else {
         const contentType = this.headers["content-type"] ?? "";
-        if (
-          typeof contentType === "string" &&
-          contentType.includes("application/x-www-form-urlencoded")
-        ) {
+        const mediaType = typeof contentType === "string" ? extractMediaType(contentType) : "";
+        if (isUrlEncodedMediaType(mediaType)) {
           this._bodyPromise = this.req
             .text()
             .then((text: string) => fastParseUrlEncoded(text))
             .catch(() => ({}));
-        } else if (typeof contentType === "string" && contentType.includes("application/json")) {
-          this._bodyPromise = this.req.json().catch(() => ({}));
+        } else if (isJsonMediaType(mediaType)) {
+          this._bodyPromise = this.req.json().catch(() => {
+            throw new BadRequestError("Malformed JSON request body");
+          });
         } else {
-          this._bodyPromise = this.req.text().catch(() => "");
+          this._bodyPromise = Promise.reject(
+            new UnsupportedMediaTypeError(mediaType === "" ? "missing" : mediaType),
+          );
         }
       }
     } else {

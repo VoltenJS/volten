@@ -15,6 +15,7 @@ If you do not register a custom error handler, Volten's default error handler re
   ```text
   Route Not Found
   ```
+- **405 Method Not Allowed**: When the path exists but the HTTP method is not registered, the response includes an RFC `Allow` header listing the methods that are registered for that path (for example `Allow: GET, POST`). The `MethodNotAllowedError` instance also exposes those methods as `allowedMethods` for custom `app.onError` handlers.
 
 ### Developer Experience (HTML Stack Traces)
 

@@ -15,6 +15,11 @@ function safeDecodeQuery(str: string): string {
 }
 
 export function parseUrl(url: string) {
+  const hashIndex = url.indexOf("#");
+  if (hashIndex !== -1) {
+    url = url.slice(0, hashIndex);
+  }
+
   let start = 0;
 
   if (url.startsWith("http")) {
@@ -29,7 +34,8 @@ export function parseUrl(url: string) {
   const pathStart = start === 0 ? 0 : url.indexOf("/", start);
 
   if (pathStart === -1 && start !== 0) {
-    return { pathname: "/", queryStr: url.includes("?") ? url.slice(url.indexOf("?")) : "" };
+    const qIdx = url.indexOf("?");
+    return { pathname: "/", queryStr: qIdx === -1 ? "" : url.slice(qIdx + 1) };
   }
   const remaining = pathStart === -1 ? url : url.substring(pathStart);
   const queryIndex = remaining.indexOf("?");

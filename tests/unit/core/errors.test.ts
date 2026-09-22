@@ -10,6 +10,7 @@ import {
   MethodNotAllowedError,
   ServiceUnavailableError,
   PayloadTooLargeError,
+  UnsupportedMediaTypeError,
 } from "../../../src/core/errors.ts";
 
 test("Errors Unit Tests", async (t) => {
@@ -116,6 +117,9 @@ test("Errors Unit Tests", async (t) => {
     assert.ok(err.message.includes("GET"));
     assert.ok(err.message.includes("POST"));
     assert.equal(err.name, "MethodNotAllowedError");
+    assert.deepEqual(err.allowedMethods, ["GET", "POST"]);
+    const json = err.toJSON();
+    assert.deepEqual(json.error.allowedMethods, ["GET", "POST"]);
   });
 
   await t.test("default and custom message", () => {
@@ -132,5 +136,12 @@ test("Errors Unit Tests", async (t) => {
     assert.equal(err.code, "ERR_PAYLOAD_TOO_LARGE");
     assert.equal(err.statusCode, 413);
     assert.ok(err.message.includes("1024"));
+  });
+
+  await t.test("UnsupportedMediaTypeError is 415", () => {
+    const err = new UnsupportedMediaTypeError("text/plain");
+    assert.equal(err.code, "ERR_UNSUPPORTED_MEDIA_TYPE");
+    assert.equal(err.statusCode, 415);
+    assert.ok(err.message.includes("text/plain"));
   });
 });

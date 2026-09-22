@@ -22,7 +22,7 @@ import {
 import { RouteTree } from "../utils/routeTree.ts";
 import { RequestContext, NodeRequestContext, EdgeRequestContext } from "../utils/requestCtx.ts";
 import { JitCache } from "../utils/jitCache.ts";
-import { PayloadTooLargeError, VoltenError } from "./errors.ts";
+import { MethodNotAllowedError, PayloadTooLargeError, VoltenError } from "./errors.ts";
 import { parseBody, parseMultipartStream } from "../utils/bodyParser.ts";
 import { createServer } from "../utils/createServer.ts";
 import { Router } from "./router.ts";
@@ -171,14 +171,17 @@ export class App<CustomLevels extends string = never> extends Router {
         headers = { ...PAYLOAD_TOO_LARGE_HEADERS };
         body = PAYLOAD_TOO_LARGE_BUF;
         break;
-      case "ERR_METHOD_NOT_ALLOWED":
+      case "ERR_METHOD_NOT_ALLOWED": {
         status = 405;
         body = err.message !== "" ? err.message : "Method Not Allowed";
+        const allow = err instanceof MethodNotAllowedError ? err.allowedMethods.join(", ") : "";
         headers = {
           "content-type": "text/plain; charset=utf-8",
           "content-length": Buffer.byteLength(body),
+          ...(allow !== "" ? { Allow: allow } : {}),
         };
         break;
+      }
       case "ERR_NOT_FOUND":
         status = 404;
         body = err.message !== "" ? err.message : "Not Found";
@@ -187,9 +190,28 @@ export class App<CustomLevels extends string = never> extends Router {
           "content-length": Buffer.byteLength(body),
         };
         break;
+      case "ERR_SERVICE_UNAVAILABLE":
       case "SERVICE_UNAVAILABLE":
         status = 503;
         body = err.message !== "" ? err.message : "Service Unavailable";
+        headers = { ...SERVICE_UNAVAILABLE_HEADERS };
+        if (typeof body === "string" && body !== "Service Unavailable") {
+          headers["content-length"] = Buffer.byteLength(body);
+        } else {
+          body = SERVICE_UNAVAILABLE_BUF;
+        }
+        break;
+      case "ERR_BAD_REQUEST":
+        status = 400;
+        body = err.message !== "" ? err.message : "Bad Request";
+        headers = {
+          "content-type": "text/plain; charset=utf-8",
+          "content-length": Buffer.byteLength(body),
+        };
+        break;
+      case "ERR_UNSUPPORTED_MEDIA_TYPE":
+        status = 415;
+        body = err.message !== "" ? err.message : "Unsupported Media Type";
         headers = {
           "content-type": "text/plain; charset=utf-8",
           "content-length": Buffer.byteLength(body),
@@ -549,7 +571,10 @@ export class App<CustomLevels extends string = never> extends Router {
           if (this.adaptiveEngine.shouldDrop(priority)) {
             return new Response("503 Service Unavailable: Server at capacity", {
               status: 503,
-              headers: { "Content-Type": "text/plain; charset=utf-8" },
+              headers: {
+                "Content-Type": "text/plain; charset=utf-8",
+                "Retry-After": "1",
+              },
             });
           }
         }
@@ -632,9 +657,9 @@ export class App<CustomLevels extends string = never> extends Router {
           res.writeHead(503, {
             "Content-Type": "text/plain; charset=utf-8",
             Connection: "close",
+            "Retry-After": "1",
           });
           res.end("503 Service Unavailable: Server at capacity");
-          req.socket.destroy();
           return;
         }
       }

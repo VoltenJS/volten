@@ -82,6 +82,25 @@ test("Edge Unit Tests", async (t) => {
     assert.deepEqual(await res.json(), { body: { hello: "world" } });
   });
 
+  await t.test("HEAD on GET omits body and OPTIONS returns Allow", async () => {
+    const app = new App({ loggerOptions: { level: "fatal" } });
+    app.get("/hello", (ctx) => {
+      ctx.text("Hello");
+    });
+    const fetchHandler = app.createFetch();
+
+    const head = await fetchHandler(new Request("https://example.com/hello", { method: "HEAD" }));
+    assert.equal(head.status, 200);
+    assert.equal(await head.text(), "");
+    assert.equal(head.headers.get("content-length"), "5");
+
+    const options = await fetchHandler(
+      new Request("https://example.com/hello", { method: "OPTIONS" }),
+    );
+    assert.equal(options.status, 204);
+    assert.equal(options.headers.get("allow"), "GET, HEAD, OPTIONS");
+  });
+
   await t.test("parses request URL encoded body natively", async () => {
     const app = new App({ loggerOptions: { level: "fatal" } });
     app.post("/post-form", async (ctx) => {
