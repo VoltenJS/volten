@@ -23,7 +23,11 @@ test("RouteTree Unit Tests", async (t) => {
     ms.set("DELETE", { method: "DELETE" } as any);
     assert.equal(ms.get("DELETE")?.method, "DELETE");
 
-    assert.equal(ms.get("OPTIONS"), null);
+    ms.set("HEAD", { method: "HEAD" } as any);
+    assert.equal(ms.get("HEAD")?.method, "HEAD");
+
+    ms.set("OPTIONS", { method: "OPTIONS" } as any);
+    assert.equal(ms.get("OPTIONS")?.method, "OPTIONS");
   });
 
   await t.test("constructor initializes prefix and charCode", () => {
@@ -47,7 +51,7 @@ test("RouteTree Unit Tests", async (t) => {
     assert.equal(tree.checkDuplicate("GET", "/api/v1/nonexistent"), false);
 
     const allowed = tree.checkMethodAllowed("/api/v1/users");
-    assert.deepEqual(allowed, ["GET", "POST"]);
+    assert.deepEqual(allowed, ["GET", "HEAD", "POST", "OPTIONS"]);
 
     assert.equal(tree.getRoutePriority("GET", "/api/v1/users"), "high");
     assert.equal(tree.getRoutePriority("GET", "/nonexistent"), "normal");

@@ -186,6 +186,7 @@ export const SERVICE_UNAVAILABLE_HEADERS = {
   Connection: "close",
   "content-type": "text/plain; charset=utf-8",
   "content-length": SERVICE_UNAVAILABLE_BUF.length,
+  "Retry-After": "1",
 };
 
 export const PAYLOAD_TOO_LARGE_BUF = Buffer.from("Payload Too Large");

@@ -94,12 +94,24 @@ export class NotFoundError extends VoltenError {
 }
 
 export class MethodNotAllowedError extends VoltenError {
+  public readonly allowedMethods: readonly string[];
+
   constructor(method: string, allowedMethods: string[]) {
     super(
       "ERR_METHOD_NOT_ALLOWED",
       `Method ${method} not allowed. Available methods: ${allowedMethods.join(", ")}`,
       405,
     );
+    this.allowedMethods = [...allowedMethods];
+  }
+
+  public override toJSON(includeStack = false) {
+    return {
+      error: {
+        ...super.toJSON(includeStack).error,
+        allowedMethods: this.allowedMethods,
+      },
+    };
   }
 }
 
@@ -118,6 +130,12 @@ export class PayloadTooLargeError extends VoltenError {
 export class BadRequestError extends VoltenError {
   constructor(message: string = "Bad Request") {
     super("ERR_BAD_REQUEST", message, 400);
+  }
+}
+
+export class UnsupportedMediaTypeError extends VoltenError {
+  constructor(mediaType: string = "unknown") {
+    super("ERR_UNSUPPORTED_MEDIA_TYPE", `Unsupported media type: ${mediaType}`, 415);
   }
 }
 

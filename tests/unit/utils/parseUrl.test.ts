@@ -40,9 +40,21 @@ test("ParseUrl Unit Tests", async (t) => {
   });
 
   await t.test("http:// with no path returns '/' and empty query", () => {
-    // Covers the pathStart === -1 branch in parseurl.ts (line 17).
     const r = parseUrl("http://example.com");
     assert.deepEqual(r, { pathname: "/", queryStr: "" });
+  });
+
+  await t.test("http:// with query and no path excludes '?' from queryStr", () => {
+    const r = parseUrl("http://example.com?x=1");
+    assert.equal(r.pathname, "/");
+    assert.equal(r.queryStr, "x=1");
+  });
+
+  await t.test("fragments are stripped from pathname", () => {
+    assert.deepEqual(parseUrl("/foo#section"), { pathname: "/foo", queryStr: "" });
+    const r = parseUrl("/foo?x=1#section");
+    assert.equal(r.pathname, "/foo");
+    assert.equal(r.queryStr, "x=1");
   });
 
   await t.test("trailing slash on the path is stripped", () => {

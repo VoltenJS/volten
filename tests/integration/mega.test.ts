@@ -8,7 +8,7 @@ test("Mega Integration for Coverage", async () => {
 
   app.get("/error", () => {
     const err = new Error("msg") as any;
-    err.code = "SERVICE_UNAVAILABLE";
+    err.code = "ERR_SERVICE_UNAVAILABLE";
     throw err;
   });
 

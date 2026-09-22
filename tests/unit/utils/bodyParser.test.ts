@@ -510,8 +510,8 @@ test("BodyParser Unit Tests", async (t) => {
     assert.deepEqual(res.json(), { foo: "bar", baz: "1" });
   });
 
-  await t.test("real HTTP request with invalid json body returns raw string", async () => {
-    const app = new App({});
+  await t.test("real HTTP request with invalid json body returns 400", async () => {
+    const app = new App({ loggerOptions: { level: "fatal" } });
     app.post("/json", async (ctx) => {
       const body = await ctx.body();
       ctx.json({ raw: body });
@@ -523,6 +523,23 @@ test("BodyParser Unit Tests", async (t) => {
       body: "{badjson:",
     });
 
-    assert.deepEqual(res.json(), { raw: "{badjson:" });
+    assert.equal(res.status, 400);
+    assert.ok(res.body.includes("Malformed JSON"));
+  });
+
+  await t.test("real HTTP request with unsupported media type returns 415", async () => {
+    const app = new App({ loggerOptions: { level: "fatal" } });
+    app.post("/json", async (ctx) => {
+      await ctx.body();
+      ctx.text("ok");
+    });
+
+    const res = await request(app, "/json", {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: "not-json",
+    });
+
+    assert.equal(res.status, 415);
   });
 });

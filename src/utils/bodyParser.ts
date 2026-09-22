@@ -1,5 +1,10 @@
 import { App } from "../core/server.ts";
-import { PayloadTooLargeError } from "../core/errors.ts";
+import {
+  BadRequestError,
+  PayloadTooLargeError,
+  UnsupportedMediaTypeError,
+} from "../core/errors.ts";
+import { extractMediaType, isJsonMediaType, isUrlEncodedMediaType } from "./httpRfc.ts";
 import { RequestContext } from "./requestCtx.ts";
 import type { MultipartPart, FileController } from "../core/types.ts";
 import { Readable } from "stream";
@@ -67,8 +72,9 @@ export async function parseBody(
   const req = ctx.req as http.IncomingMessage;
 
   const contentType = req.headers["content-type"] ?? "";
+  const mediaType = extractMediaType(contentType);
 
-  if (contentType.includes("multipart/form-data")) {
+  if (mediaType === "multipart/form-data") {
     throw new Error(
       "Volten: Use ctx.multipart() to handle multipart/form-data streams. parseBody() is restricted to text/json inputs to prevent memory exhaustion.",
     );
@@ -125,22 +131,22 @@ export async function parseBody(
         return;
       }
 
-      if (contentType.includes("application/x-www-form-urlencoded")) {
+      if (isUrlEncodedMediaType(mediaType)) {
         resolve(fastParseUrlEncoded(rawBody));
         return;
       }
 
-      if (contentType.includes("application/json") && chunks.length > 0) {
+      if (isJsonMediaType(mediaType)) {
         try {
           resolve(JSON.parse(rawBody));
           return;
         } catch {
-          resolve(rawBody);
+          reject(new BadRequestError("Malformed JSON request body"));
           return;
         }
       }
 
-      resolve(rawBody);
+      reject(new UnsupportedMediaTypeError(mediaType === "" ? "missing" : mediaType));
     };
 
     const onError = (err: Error) => {

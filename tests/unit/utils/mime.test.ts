@@ -4,11 +4,11 @@ import { getMimeType } from "../../../src/utils/mime.ts";
 
 test("Mime Unit Tests", async (t) => {
   await t.test("text & code MIME types", () => {
-    assert.equal(getMimeType("html"), "text/html");
-    assert.equal(getMimeType("htm"), "text/html");
+    assert.equal(getMimeType("html"), "text/html; charset=utf-8");
+    assert.equal(getMimeType("htm"), "text/html; charset=utf-8");
     assert.equal(getMimeType("js"), "text/javascript");
     assert.equal(getMimeType("mjs"), "text/javascript");
-    assert.equal(getMimeType("css"), "text/css");
+    assert.equal(getMimeType("css"), "text/css; charset=utf-8");
     assert.equal(getMimeType("json"), "application/json");
     assert.equal(getMimeType("jsonld"), "application/ld+json");
     assert.equal(getMimeType("txt"), "text/plain; charset=utf-8");

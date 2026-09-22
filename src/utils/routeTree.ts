@@ -11,6 +11,8 @@ export class MethodStorage {
   public PUT: PathData | null = null;
   public PATCH: PathData | null = null;
   public DELETE: PathData | null = null;
+  public HEAD: PathData | null = null;
+  public OPTIONS: PathData | null = null;
 
   set(method: string, data: PathData) {
     const m = method.toUpperCase();
@@ -19,10 +21,12 @@ export class MethodStorage {
     else if (m === "PUT") this.PUT = data;
     else if (m === "PATCH") this.PATCH = data;
     else if (m === "DELETE") this.DELETE = data;
+    else if (m === "HEAD") this.HEAD = data;
+    else if (m === "OPTIONS") this.OPTIONS = data;
   }
 
   get(method: string): PathData | null {
-    return (this as unknown as Record<string, PathData>)[method] ?? null;
+    return (this as unknown as Record<string, PathData | null>)[method] ?? null;
   }
 }
 
@@ -218,12 +222,19 @@ export class RouteTree {
 
   public checkMethodAllowed(path: string): string[] {
     const allowedMethods: string[] = [];
-    const methodsToCheck = ["GET", "POST", "PUT", "PATCH", "DELETE"];
+    const methodsToCheck = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
 
     for (const m of methodsToCheck) {
       if (this.matchPath(m, path, RouteTree.SHARED_DUMMY_CTX) !== null) {
         allowedMethods.push(m);
       }
+    }
+    if (allowedMethods.includes("GET") && !allowedMethods.includes("HEAD")) {
+      const getIndex = allowedMethods.indexOf("GET");
+      allowedMethods.splice(getIndex + 1, 0, "HEAD");
+    }
+    if (allowedMethods.length > 0 && !allowedMethods.includes("OPTIONS")) {
+      allowedMethods.push("OPTIONS");
     }
     return allowedMethods;
   }
@@ -325,7 +336,9 @@ export class RouteTree {
         }
         return null;
       }
-      const result = currentNode.methods.get(method);
+      const result =
+        currentNode.methods.get(method) ??
+        (method === "HEAD" ? currentNode.methods.get("GET") : null);
       if (result !== null) {
         const routeParamNames = result.paramNames ?? [];
         for (let idx = 0; idx < paramMatches.length; idx++) {
@@ -541,7 +554,7 @@ export class RouteTree {
       indent: string,
       activeParams: { name: string; start: string; end: string }[],
     ) => {
-      const methods = ["GET", "POST", "PUT", "PATCH", "DELETE"];
+      const methods = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
       let hasMethods: boolean = false;
 
       methods.forEach((m) => {
@@ -601,6 +614,9 @@ export class RouteTree {
       ) => PathData | null;
       this.matchPath = (method: string, path: string, ctx: RequestContext) => {
         const result = compiledFn.call(this, method, path, ctx);
+        if (result === null && method === "HEAD") {
+          return compiledFn.call(this, "GET", path, ctx);
+        }
         return result;
       };
       this.isMatchPathCompiled = true;
