@@ -36,14 +36,6 @@ import {
   shouldSendContent,
 } from "./httpRfc.ts";
 
-let DATE_HEADER_BUF = new Date().toUTCString();
-const timer = setInterval(() => {
-  DATE_HEADER_BUF = new Date().toUTCString();
-}, 1000);
-if (typeof timer.unref === "function") {
-  timer.unref();
-}
-
 function decodeQueryComponent(str: string): string {
   if (!str.includes("+") && !str.includes("%")) {
     return str;
@@ -440,10 +432,6 @@ export class RequestContext<P extends string = string> {
       throw new SendAfterSentError("json");
     }
 
-    resObj.setHeader("Content-Type", "application/json; charset=utf-8");
-    resObj.setHeader("Server", "Volten/1.0.0");
-    resObj.setHeader("Date", DATE_HEADER_BUF);
-
     let body: string;
     if (this._route === null || this.route.disableOpt) {
       body = JSON.stringify(data);
@@ -464,6 +452,12 @@ export class RequestContext<P extends string = string> {
         body = JSON.stringify(data);
       }
     }
+    if (!this.headersSent) resObj.cork();
+    resObj.writeHead(statusCode, {
+      "Content-Type": "application/json; charset=utf-8",
+      Server: "Volten/1.0.0",
+      "Content-Length": Buffer.byteLength(body),
+    });
     this.endNodePayload(resObj, body);
     return this;
   }
@@ -947,9 +941,6 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
   }
 
   private endEdgePayload(body: string | Buffer | Uint8Array | null): void {
-    if (!this._edgeHeaders.has("Date")) {
-      this._edgeHeaders.set("Date", DATE_HEADER_BUF);
-    }
     const status = this._edgeStatus;
     const payloadLength =
       body === null ? 0 : typeof body === "string" ? Buffer.byteLength(body) : body.byteLength;
@@ -982,7 +973,6 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
     this._edgeStatus = statusCode;
     this._edgeHeaders.set("Content-Type", "application/json; charset=utf-8");
     this._edgeHeaders.set("Server", "Volten/1.0.0");
-    this._edgeHeaders.set("Date", DATE_HEADER_BUF);
 
     let body: string;
     if (this._route === null || this.route.disableOpt) {
