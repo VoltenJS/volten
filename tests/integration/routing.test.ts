@@ -5,7 +5,6 @@ import path from "path";
 import { App } from "../../src/core/server.ts";
 import { ServiceUnavailableError } from "../../src/core/errors.ts";
 import { request } from "../helpers.ts"; // Assuming this handles server injection or local http fetch
-import type { AddressInfo } from "node:net";
 
 // Temporary asset setup for Static file testing paths
 const TMP_DIR = path.resolve("./.tmp_static_test_dir");

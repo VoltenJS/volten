@@ -274,12 +274,14 @@ test("Framework Edge Cases", async (t) => {
 
     const ctx = new RequestContext();
     (ctx._res as any) = {
+      writeHead: (x: any, y: any) => {},
       setHeader: (k: string, v: unknown) => {
         headers[k.toLowerCase()] = v;
       },
       end: (text: string) => {
         response += text;
       },
+      cork: () => {},
       uncork: () => {},
     };
 

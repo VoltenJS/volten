@@ -186,4 +186,106 @@ test("RouteTree Unit Tests", async (t) => {
     assert.equal(tree.matchPath("GET", "/nonexistent", ctx), null);
     assert.equal(tree.matchPath("POST", "/", ctx), null);
   });
+
+  await t.test("resolves duplicate parameter tokens by letting the rightmost token win", () => {
+    const tree = new RouteTree(false);
+    const dummyHandler = () => {};
+    const defaultOpts = { bodyLimit: 1048576, priority: "normal" as const };
+    tree.addPath("GET", "/orgs/:id/teams/:id", [dummyHandler], defaultOpts);
+
+    function createContext(initialParams: Record<string, string> = {}): RequestContext {
+      return {
+        inited: true,
+        params: { ...initialParams },
+      } as unknown as RequestContext;
+    }
+
+    // 1. Uncompiled matching
+    const uncompiledCtx = createContext();
+    const uncompiledMatch = tree.defaultMatchPath(
+      "GET",
+      "/orgs/alpha/teams/backend",
+      uncompiledCtx,
+    );
+    assert.ok(uncompiledMatch !== null, "Uncompiled route should match");
+    assert.equal(
+      uncompiledCtx.params.id,
+      "backend",
+      "Uncompiled tree: rightmost parameter must overwrite earlier tokens",
+    );
+
+    // 2. Trigger JIT compilation
+    const warmupCtx = createContext();
+    tree.matchPath("GET", "/orgs/init/teams/init", warmupCtx);
+
+    // 3. JIT-compiled matching
+    const compiledCtx = createContext();
+    const compiledMatch = tree.matchPath("GET", "/orgs/alpha/teams/backend", compiledCtx);
+    assert.ok(compiledMatch !== null, "Compiled route should match");
+    assert.equal(
+      compiledCtx.params.id,
+      "backend",
+      "Compiled JIT: rightmost parameter must overwrite earlier tokens",
+    );
+  });
+
+  await t.test("handles HEAD to GET fallback cleanly without leaking dirty state", () => {
+    const tree = new RouteTree(false);
+    const dummyHandler = () => {};
+    const defaultOpts = { bodyLimit: 1048576, priority: "normal" as const };
+    tree.addPath("GET", "/files/:fileId", [dummyHandler], defaultOpts);
+
+    function createContext(initialParams: Record<string, string> = {}): RequestContext {
+      return {
+        inited: true,
+        params: { ...initialParams },
+      } as unknown as RequestContext;
+    }
+
+    // Trigger JIT compilation
+    const warmupCtx = createContext();
+    tree.matchPath("GET", "/files/init", warmupCtx);
+
+    // Dispatch HEAD request to trigger fallback
+    const headCtx = createContext();
+    const match = tree.matchPath("HEAD", "/files/document_42", headCtx);
+
+    assert.ok(match !== null, "HEAD request should fall back to GET route");
+    assert.equal(
+      headCtx.params.fileId,
+      "document_42",
+      "Parameter should resolve cleanly on HEAD fallback",
+    );
+  });
+
+  await t.test(
+    "retains proper route matching when query strings are passed to dynamic routes",
+    () => {
+      const tree = new RouteTree(false);
+      const dummyHandler = () => {};
+      const defaultOpts = { bodyLimit: 1048576, priority: "normal" as const };
+      tree.addPath("GET", "/users/:userId/profile", [dummyHandler], defaultOpts);
+
+      function createContext(initialParams: Record<string, string> = {}): RequestContext {
+        return {
+          inited: true,
+          params: { ...initialParams },
+        } as unknown as RequestContext;
+      }
+
+      // Trigger JIT compilation
+      const warmupCtx = createContext();
+      tree.matchPath("GET", "/users/init/profile", warmupCtx);
+
+      const testCtx = createContext();
+      const match = tree.matchPath("GET", "/users/john/profile?ref=share&theme=dark", testCtx);
+
+      assert.ok(match !== null, "Route must match when query string is present");
+      assert.equal(
+        testCtx.params.userId,
+        "john",
+        "Parameter must extract cleanly before the query string",
+      );
+    },
+  );
 });
