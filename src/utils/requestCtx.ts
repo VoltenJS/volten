@@ -455,7 +455,6 @@ export class RequestContext<P extends string = string> {
     if (!this.headersSent) resObj.cork();
     resObj.writeHead(statusCode, {
       "Content-Type": "application/json; charset=utf-8",
-      Server: "Volten/1.0.0",
       "Content-Length": Buffer.byteLength(body),
     });
     this.endNodePayload(resObj, body);
