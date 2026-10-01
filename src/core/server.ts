@@ -42,7 +42,7 @@ export class App<CustomLevels extends string = never> extends Router {
   private availableContexts: NodeRequestContext[];
   private availableEdgeContexts: EdgeRequestContext[];
   private poolIndex: number = 0;
-  private poolSize: number = 2048;
+  private poolSize: number = 1024;
   public JITCache: JitCache = new JitCache();
   protected tree: RouteTree;
   customErrorHandler: ErrorHandler | null = null;

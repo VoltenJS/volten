@@ -121,7 +121,7 @@ export type VoltenAppOptions<CustomLevels extends string = never> = {
 export const DefaultVoltenOptions: Required<VoltenAppOptions> = {
   bodyLimit: 1024 * 1024,
   caseInsensitive: true,
-  RequestPoolSize: 2048,
+  RequestPoolSize: 1024,
   https: undefined,
   loggerOptions: {
     level: "warn",
