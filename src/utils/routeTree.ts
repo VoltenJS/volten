@@ -14,19 +14,51 @@ export class MethodStorage {
   public HEAD: PathData | null = null;
   public OPTIONS: PathData | null = null;
 
-  set(method: string, data: PathData) {
-    const m = method.toUpperCase();
-    if (m === "GET") this.GET = data;
-    else if (m === "POST") this.POST = data;
-    else if (m === "PUT") this.PUT = data;
-    else if (m === "PATCH") this.PATCH = data;
-    else if (m === "DELETE") this.DELETE = data;
-    else if (m === "HEAD") this.HEAD = data;
-    else if (m === "OPTIONS") this.OPTIONS = data;
+  set(method: string, data: PathData): void {
+    switch (method) {
+      case "GET":
+        this.GET = data;
+        break;
+      case "POST":
+        this.POST = data;
+        break;
+      case "PUT":
+        this.PUT = data;
+        break;
+      case "PATCH":
+        this.PATCH = data;
+        break;
+      case "DELETE":
+        this.DELETE = data;
+        break;
+      case "HEAD":
+        this.HEAD = data;
+        break;
+      case "OPTIONS":
+        this.OPTIONS = data;
+        break;
+    }
   }
 
   get(method: string): PathData | null {
-    return (this as unknown as Record<string, PathData | null>)[method] ?? null;
+    switch (method) {
+      case "GET":
+        return this.GET;
+      case "POST":
+        return this.POST;
+      case "PUT":
+        return this.PUT;
+      case "PATCH":
+        return this.PATCH;
+      case "DELETE":
+        return this.DELETE;
+      case "HEAD":
+        return this.HEAD;
+      case "OPTIONS":
+        return this.OPTIONS;
+      default:
+        return null;
+    }
   }
 }
 
@@ -53,9 +85,11 @@ export class RouteTree {
   private caseInsensitive;
   private compiled = false;
   private isMatchPathCompiled = false;
+  public matchPath: (method: string, path: string, ctx: RequestContext) => PathData | null;
 
   constructor(caseInsensitive: boolean) {
     this.caseInsensitive = caseInsensitive;
+    this.matchPath = this.defaultMatchPath.bind(this);
     this.clear();
   }
 
@@ -65,8 +99,7 @@ export class RouteTree {
     this.staticRoutes = [];
     this.compiled = false;
     this.isMatchPathCompiled = false;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
-    delete (this as any).matchPath;
+    this.matchPath = this.defaultMatchPath.bind(this);
   }
 
   public checkDuplicate(method: string, path: string) {
@@ -244,19 +277,23 @@ export class RouteTree {
     return route !== null ? route.priority : "normal";
   }
 
-  public matchPath(method: string, path: string, ctx: RequestContext): PathData | null {
+  public defaultMatchPath(method: string, path: string, ctx: RequestContext): PathData | null {
     if (!this.compiled && !isEdge() && ctx.inited) {
       this.createMatchPath();
       if (this.isMatchPathCompiled) {
         return this.matchPath(method, path, ctx);
       }
     }
+    const qIdx = path.indexOf("?");
+    const pathLen = qIdx === -1 ? path.length : qIdx;
     const originalPath = path;
-    const lookupPath = this.caseInsensitive ? path.toLowerCase() : path;
+    const lookupPath = this.caseInsensitive
+      ? path.substring(0, pathLen).toLowerCase()
+      : path.substring(0, pathLen);
 
     let currentNode = this.root;
     let i = 0;
-    const len = lookupPath.length;
+    const len = pathLen;
 
     const backtrackStack: {
       node: PathNode;
@@ -314,22 +351,23 @@ export class RouteTree {
             let j = i;
             while (j < len && lookupPath.charCodeAt(j) !== 47) j++;
 
-            const extractedValue = originalPath.slice(i, j);
-            paramMatches.push({
-              name: currentNode.paramName ?? "",
-              value: extractedValue,
-            });
+            if (j > i) {
+              const extractedValue = originalPath.slice(i, j);
+              paramMatches.push({
+                name: currentNode.paramName ?? "",
+                value: extractedValue,
+              });
 
-            i = j;
-            continue;
+              i = j;
+              continue;
+            }
           }
 
           if (currentNode.wildcardChild !== null) {
             currentNode = currentNode.wildcardChild;
-            const extractedValue = originalPath.slice(i);
+            const extractedValue = originalPath.slice(i, len);
             paramMatches.push({ name: "*", value: extractedValue });
 
-            // eslint-disable-next-line no-useless-assignment
             i = len;
             break;
           }
@@ -350,6 +388,12 @@ export class RouteTree {
 
         return result;
       }
+      if (currentNode.wildcardChild !== null) {
+        currentNode = currentNode.wildcardChild;
+        const extractedValue = originalPath.slice(i, len);
+        paramMatches.push({ name: "*", value: extractedValue });
+        continue;
+      }
       if (backtrackStack.length > 0) {
         const fallback = backtrackStack.pop();
         if (fallback === undefined) break;
@@ -361,19 +405,21 @@ export class RouteTree {
           let j = i;
           while (j < len && lookupPath.charCodeAt(j) !== 47) j++;
 
-          const extractedValue = originalPath.slice(i, j);
-          paramMatches.push({
-            name: currentNode.paramName ?? "",
-            value: extractedValue,
-          });
+          if (j > i) {
+            const extractedValue = originalPath.slice(i, j);
+            paramMatches.push({
+              name: currentNode.paramName ?? "",
+              value: extractedValue,
+            });
 
-          i = j;
-          continue;
+            i = j;
+            continue;
+          }
         }
 
         if (currentNode.wildcardChild != null) {
           currentNode = currentNode.wildcardChild;
-          const extractedValue = originalPath.slice(i);
+          const extractedValue = originalPath.slice(i, len);
           paramMatches.push({ name: "*", value: extractedValue });
 
           i = len;
@@ -395,6 +441,9 @@ export class RouteTree {
     const codeLines: string[] = [];
 
     // Fast path baseline checks
+    codeLines.push(`  let pStart = 0;`);
+    codeLines.push(`  let pEnd = 0;`);
+    codeLines.push(`  let wStart = 0;`);
     codeLines.push(`  const originalPath = path;`);
     codeLines.push(`  const qIdx = originalPath.indexOf('?');`);
     codeLines.push(`  const pathLen = qIdx === -1 ? originalPath.length : qIdx;`);
@@ -517,30 +566,33 @@ export class RouteTree {
       if (node.paramChild !== null) {
         const pChild = node.paramChild;
         const pIdx = paramCounter++;
-        const pStart = `pStart_${pIdx}`;
-        const pEnd = `pEnd_${pIdx}`;
+        const pStartConst = `pStart_${pIdx}`;
+        const pEndConst = `pEnd_${pIdx}`;
 
-        codeLines.push(`${indent}let ${pStart} = ${indexVar};`);
-        codeLines.push(`${indent}let ${pEnd} = ${pStart};`);
+        codeLines.push(`${indent}pStart = ${indexVar};`);
+        codeLines.push(`${indent}pEnd = pStart;`);
         codeLines.push(
-          `${indent}while (${pEnd} < pathLen && lookupPath.charCodeAt(${pEnd}) !== 47) ${pEnd}++;`,
+          `${indent}while (pEnd < pathLen && lookupPath.charCodeAt(pEnd) !== 47) pEnd++;`,
         );
-        codeLines.push(`${indent}if (${pEnd} > ${pStart}) {`);
+        codeLines.push(`${indent}if (pEnd > pStart) {`);
+        codeLines.push(`${indent}  const ${pStartConst} = pStart;`);
+        codeLines.push(`${indent}  const ${pEndConst} = pEnd;`);
 
         const newParams = [
           ...activeParams,
-          { name: pChild.paramName ?? "", start: pStart, end: pEnd },
+          { name: pChild.paramName ?? "", start: pStartConst, end: pEndConst },
         ];
-        compileNode(pChild, indent + "  ", pEnd, newParams);
+        compileNode(pChild, indent + "  ", pEndConst, newParams);
         codeLines.push(`${indent}}`);
       }
 
       if (node.wildcardChild !== null) {
         const pIdx = paramCounter++;
-        const wStart = `wStart_${pIdx}`;
+        const wStartConst = `wStart_${pIdx}`;
 
-        codeLines.push(`${indent}let ${wStart} = ${indexVar};`);
-        const newParams = [...activeParams, { name: "*", start: wStart, end: "pathLen" }];
+        codeLines.push(`${indent}wStart = ${indexVar};`);
+        codeLines.push(`${indent}const ${wStartConst} = wStart;`);
+        const newParams = [...activeParams, { name: "*", start: wStartConst, end: "pathLen" }];
         emitMethodResolution(node.wildcardChild, indent, newParams);
       }
 
@@ -570,17 +622,22 @@ export class RouteTree {
           codeLines.push(`${indent}  case "${m}": {`);
 
           const routeParamNames = data.paramNames ?? [];
-          const actualParams = activeParams.map((p, idx) => routeParamNames[idx] ?? p.name);
 
-          if (actualParams.length > 0) {
-            const className = getParamClass(actualParams) ?? "Object";
+          const actualParamsMap = new Map<string, { start: string; end: string }>();
+          activeParams.forEach((p, idx) => {
+            const paramName = routeParamNames[idx] ?? p.name;
+            actualParamsMap.set(paramName, p);
+          });
+
+          const uniqueParams = Array.from(actualParamsMap.keys());
+
+          if (uniqueParams.length > 0) {
+            const className = getParamClass(uniqueParams) ?? "Object";
 
             // Build the constructor arguments in alphabetical order!
-            const sortedParams = [...actualParams].sort();
+            const sortedParams = [...uniqueParams].sort();
             const args = sortedParams.map((paramName) => {
-              const origParam = activeParams.find(
-                (p, idx) => (routeParamNames[idx] ?? p.name) === paramName,
-              );
+              const origParam = actualParamsMap.get(paramName);
               const start = origParam?.start ?? "0";
               const end = origParam?.end ?? "0";
               return `originalPath.slice(${start}, ${end})`;
@@ -615,6 +672,7 @@ export class RouteTree {
       this.matchPath = (method: string, path: string, ctx: RequestContext) => {
         const result = compiledFn.call(this, method, path, ctx);
         if (result === null && method === "HEAD") {
+          ctx.params = {};
           return compiledFn.call(this, "GET", path, ctx);
         }
         return result;
