@@ -9,6 +9,7 @@ import type {
   VoltenAppOptions,
   Logger,
   CustomLoggerOptions,
+  RouteExecutionPlan,
 } from "./types.ts";
 import {
   DefaultVoltenOptions,
@@ -154,6 +155,21 @@ export class App<CustomLevels extends string = never> extends Router {
    */
   getRouteTree(): RouteTree {
     return this.tree;
+  }
+
+  /**
+   * Inspects the internal execution plan for a registered route.
+   *
+   * @param {string} method - HTTP method (e.g. 'GET', 'POST').
+   * @param {string} path - The request path.
+   * @returns {RouteExecutionPlan | null} The route's execution plan, or null if no route matches.
+   */
+  public inspectRoute(method: string, path: string): RouteExecutionPlan | null {
+    if (this.tree.routes.length === 0 && this.routes.length > 0) {
+      this.register(this);
+    }
+    const route = this.tree.matchPath(method, path, { params: {} } as RequestContext);
+    return route?.plan ?? null;
   }
 
   //#endregion
@@ -481,7 +497,8 @@ export class App<CustomLevels extends string = never> extends Router {
     if (route === null) return;
 
     try {
-      const result = route.composeChain(ctx);
+      const plan = route.plan;
+      const result = plan !== undefined ? plan.executeNode(ctx) : route.composeChain(ctx);
       if (
         result !== null &&
         typeof result === "object" &&
@@ -552,6 +569,7 @@ export class App<CustomLevels extends string = never> extends Router {
     env?: unknown,
     executionCtx?: unknown,
   ) => Promise<Response> {
+    this.tree.clear();
     this.compilePreflightHandler();
     this.register(this);
     this.tree.createMatchPath();
@@ -615,7 +633,8 @@ export class App<CustomLevels extends string = never> extends Router {
         }
 
         // 3. Synchronous-first Handler Chain
-        const chainResult = route.composeChain(ctx);
+        const plan = route.plan;
+        const chainResult = plan !== undefined ? plan.executeEdge(ctx) : route.composeChain(ctx);
         if (
           chainResult !== undefined &&
           typeof (chainResult as Promise<unknown>).then === "function"

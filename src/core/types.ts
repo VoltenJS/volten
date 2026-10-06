@@ -76,6 +76,9 @@ export type AdaptiveTriageOptions = {
   resolutionMs?: number;
   checkIntervalMs?: number;
 };
+import type { RouteExecutionPlan, ExecutionLevel } from "./engine.ts";
+
+export type { RouteExecutionPlan, ExecutionLevel };
 
 export type PathData = {
   method: string;
@@ -87,6 +90,7 @@ export type PathData = {
   disableOpt: boolean;
   methodStorage: MethodStorage;
   paramNames?: string[];
+  plan?: RouteExecutionPlan;
 };
 
 export type HTTPMethodParams = [path: string, ...handlers: VoltenHandler[]];
