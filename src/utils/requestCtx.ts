@@ -920,7 +920,6 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
     this.queryValue = null;
     this._bodyPromise = undefined;
     this._edgeStatus = 200;
-    this._edgeHeaders = new Headers();
     this._edgeBody = null;
     this._edgeBodySent = false;
     this._cookiesCache = null;
