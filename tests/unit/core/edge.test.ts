@@ -422,4 +422,77 @@ test("Edge Unit Tests", async (t) => {
       setIsEdge(null);
     }
   });
+
+  await t.test("Edge routing and URL semantics integration", async (st) => {
+    const app = new App();
+
+    app.get("/", (ctx) => ctx.send("root"));
+    app.get("/foo", (ctx) => ctx.send("foo"));
+    app.get("/foo/bar", (ctx) => ctx.send("foo/bar"));
+    app.get("/user/:id", (ctx) => ctx.json({ id: ctx.params.id }));
+    app.get("/files/*", (ctx) => ctx.send(`wildcard:${ctx.params["*"]}`));
+    app.get("/search", (ctx) => {
+      // Verify query is parsed on access
+      return ctx.json({ q: ctx.query.q ?? null, rawQuery: ctx.queryString });
+    });
+
+    const fetch = app.createFetch();
+
+    await st.test("static root route", async () => {
+      const res = await fetch(new Request("https://example.com/"));
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual(await res.text(), "root");
+    });
+
+    await st.test("static nested route", async () => {
+      const res = await fetch(new Request("https://example.com/foo/bar"));
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual(await res.text(), "foo/bar");
+    });
+
+    await st.test("trailing slash is treated as distinct path", async () => {
+      const res = await fetch(new Request("https://example.com/foo/"));
+      // RouteTree distinguishes /foo and /foo/ strictly
+      assert.strictEqual(res.status, 405);
+    });
+
+    await st.test("parameterized route", async () => {
+      const res = await fetch(new Request("https://example.com/user/123"));
+      assert.strictEqual(res.status, 200);
+      const data = (await res.json()) as { id: string };
+      assert.strictEqual(data.id, "123");
+    });
+
+    await st.test("parameterized route with query string", async () => {
+      const res = await fetch(new Request("https://example.com/user/456?filter=active&sort=desc"));
+      assert.strictEqual(res.status, 200);
+      const data = (await res.json()) as { id: string };
+      assert.strictEqual(data.id, "456");
+    });
+
+    await st.test("wildcard route", async () => {
+      const res = await fetch(new Request("https://example.com/files/docs/readme.txt"));
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual(await res.text(), "wildcard:docs/readme.txt");
+    });
+
+    await st.test("query string route and lazy query evaluation", async () => {
+      const res = await fetch(new Request("https://example.com/search?q=volten+framework"));
+      assert.strictEqual(res.status, 200);
+      const data = (await res.json()) as { q: string; rawQuery: string };
+      assert.strictEqual(data.q, "volten framework");
+      assert.strictEqual(data.rawQuery, "q=volten+framework");
+    });
+
+    await st.test("404 behavior for unknown route", async () => {
+      const res = await fetch(new Request("https://example.com/unknown/path"));
+      assert.strictEqual(res.status, 404);
+    });
+
+    await st.test("URL with fragment is handled cleanly without leaking fragment", async () => {
+      const res = await fetch(new Request("https://example.com/foo#section1"));
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual(await res.text(), "foo");
+    });
+  });
 });

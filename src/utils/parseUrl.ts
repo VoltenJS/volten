@@ -101,3 +101,154 @@ export function parseQuery(queryStr: string): Query {
   }
   return query;
 }
+
+/**
+ * Fast pathname and search extractor for Edge runtime Request URLs.
+ * Extracts `pathname + search` without the heavy overhead of WHATWG `new URL()`.
+ * Falls back to WHATWG `new URL()` when non-standard patterns, dot segments (/.),
+ * backslashes, non-ASCII characters, or non-http protocols are encountered.
+ */
+export function extractEdgePathAndSearch(urlStr: string): string {
+  let pathStart = -1;
+  const len = urlStr.length;
+
+  if (urlStr.charCodeAt(0) === 104 /* h */) {
+    let schemeLen = -1;
+    if (urlStr.startsWith("http://")) {
+      schemeLen = 7;
+    } else if (urlStr.startsWith("https://")) {
+      schemeLen = 8;
+    }
+
+    if (schemeLen !== -1) {
+      if (urlStr.charCodeAt(schemeLen) === 47 /* / */) {
+        // e.g. http:///a (empty host) -> WHATWG treats next component as host
+        try {
+          const u = new URL(urlStr);
+          return u.pathname + u.search;
+        } catch {
+          return urlStr;
+        }
+      }
+
+      const slashIdx = urlStr.indexOf("/", schemeLen);
+      const qIdx = urlStr.indexOf("?", schemeLen);
+      const hashIdx = urlStr.indexOf("#", schemeLen);
+
+      let authorityEnd = len;
+      if (qIdx !== -1 && qIdx < authorityEnd) authorityEnd = qIdx;
+      if (hashIdx !== -1 && hashIdx < authorityEnd) authorityEnd = hashIdx;
+
+      if (slashIdx !== -1 && slashIdx < authorityEnd) {
+        pathStart = slashIdx;
+      } else {
+        // No path slash before query or hash -> empty path e.g. http://example.com?query
+        const hostLen = authorityEnd - schemeLen;
+        if (hostLen <= 0) {
+          // e.g. https://#/ (empty host) -> invalid URL in WHATWG
+          try {
+            const u = new URL(urlStr);
+            return u.pathname + u.search;
+          } catch {
+            return urlStr;
+          }
+        }
+        if (qIdx !== -1 && (hashIdx === -1 || qIdx < hashIdx)) {
+          const search = hashIdx === -1 ? urlStr.slice(qIdx) : urlStr.slice(qIdx, hashIdx);
+          for (let i = 0; i < search.length; i++) {
+            const c = search.charCodeAt(i);
+            if (c <= 32 || c === 92 || c >= 127) {
+              try {
+                const u = new URL(urlStr);
+                return u.pathname + u.search;
+              } catch {
+                return urlStr;
+              }
+            }
+          }
+          return search.length <= 1 ? "/" : "/" + search;
+        }
+        return "/";
+      }
+    }
+  } else if (urlStr.charCodeAt(0) === 47 /* / */) {
+    if (urlStr.charCodeAt(1) === 47 /* / */) {
+      // Protocol-relative URLs are not valid absolute Request URLs in Web Standards
+      // Fallback directly to match WHATWG Request constructor / new URL behavior
+      try {
+        const u = new URL(urlStr);
+        return u.pathname + u.search;
+      } catch {
+        return urlStr;
+      }
+    } else {
+      // Relative path string provided directly in tests or internal callers
+      return urlStr;
+    }
+  }
+
+  if (pathStart === -1) {
+    // Unknown scheme or invalid -> fallback
+    try {
+      const u = new URL(urlStr);
+      return u.pathname + u.search;
+    } catch {
+      return urlStr;
+    }
+  }
+
+  const hashIdx = urlStr.indexOf("#", pathStart);
+  const end = hashIdx === -1 ? len : hashIdx;
+
+  const qIdx = urlStr.indexOf("?", pathStart);
+  let pathnameEnd = end;
+  let search = "";
+  if (qIdx !== -1 && qIdx < end) {
+    pathnameEnd = qIdx;
+    if (end > qIdx + 1) {
+      search = urlStr.slice(qIdx, end);
+    }
+  }
+
+  // Fast path safety scan across the candidate:
+  // 1. Whitespace, control chars (<= 32), backslash (92), or non-ASCII (>= 127)
+  // 2. Dot segments (/.) or percent-encoded dot segments (/%2e, /%2E)
+  for (let i = pathStart; i < end; i++) {
+    const code = urlStr.charCodeAt(i);
+    if (code <= 32 || code === 92 || code >= 127) {
+      try {
+        const u = new URL(urlStr);
+        return u.pathname + u.search;
+      } catch {
+        return urlStr.slice(pathStart, end);
+      }
+    } else if (i < pathnameEnd) {
+      if (code === 46 /* . */) {
+        if (i === pathStart || urlStr.charCodeAt(i - 1) === 47 /* / */) {
+          try {
+            const u = new URL(urlStr);
+            return u.pathname + u.search;
+          } catch {
+            return urlStr.slice(pathStart, end);
+          }
+        }
+      } else if (code === 37 /* % */ && i + 2 < pathnameEnd) {
+        const c1 = urlStr.charCodeAt(i + 1);
+        const c2 = urlStr.charCodeAt(i + 2);
+        if (c1 === 50 /* 2 */ && (c2 === 101 /* e */ || c2 === 69) /* E */) {
+          if (i === pathStart || urlStr.charCodeAt(i - 1) === 47 /* / */) {
+            try {
+              const u = new URL(urlStr);
+              return u.pathname + u.search;
+            } catch {
+              return urlStr.slice(pathStart, end);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  const pathname = urlStr.slice(pathStart, pathnameEnd);
+  return pathname + search;
+}
