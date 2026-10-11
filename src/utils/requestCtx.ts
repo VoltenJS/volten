@@ -23,6 +23,7 @@ import {
   VoltenError,
   BadRequestError,
   UnsupportedMediaTypeError,
+  PayloadTooLargeError,
 } from "../core/errors.ts";
 import { getMimeType } from "./mime.ts";
 import {
@@ -1172,22 +1173,39 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
 
   override async flush(): Promise<void> {}
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+  private _edgeTransformWriter: WritableStreamDefaultWriter<Uint8Array> | null = null;
+
   override async writeStatic(str: string): Promise<void> {
-    if (this._edgeBodySent) return;
-    if (this._edgeBody === null) {
-      this._edgeBody = "";
+    if (!this.isValid || this.disconnected || this._edgeBodySent) return;
+    if (this._edgeBody === null || typeof this._edgeBody === "string") {
+      const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+      const writer = writable.getWriter();
+      const previousBody = this._edgeBody;
+      this._edgeBody = readable;
+      if (typeof previousBody === "string" && previousBody.length > 0) {
+        await writer.write(new TextEncoder().encode(previousBody));
+      }
+      this._edgeTransformWriter = writer;
     }
-    this._edgeBody = String(this._edgeBody) + str;
+    if (this._edgeTransformWriter !== null) {
+      await this._edgeTransformWriter.write(new TextEncoder().encode(str));
+    }
   }
 
   private endEdgePayload(body: string | Buffer | Uint8Array | null): void {
+    if (this._edgeTransformWriter !== null) {
+      void this._edgeTransformWriter.close();
+      this._edgeTransformWriter = null;
+    }
     const status = this._edgeStatus;
     const payloadLength =
       body === null ? 0 : typeof body === "string" ? Buffer.byteLength(body) : body.byteLength;
 
     if (this.method === "HEAD") {
       this._edgeHeaders.set("Content-Length", String(payloadLength));
+      if (this._edgeBody instanceof ReadableStream) {
+        this._edgeBody.cancel().catch(() => {});
+      }
       this._edgeBody = null;
       this._edgeBodySent = true;
       this._resolveEdgeResponse(new Response(null, { status, headers: this._edgeHeaders }));
@@ -1214,11 +1232,39 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
       return;
     }
 
-    this._edgeBody = body;
+    const finalBody = body !== null ? body : this._edgeBody;
+    this._edgeBody = finalBody;
+    let wrappedBody = finalBody as BodyInit;
+    if (finalBody instanceof ReadableStream) {
+      const appRef = this._app;
+      const reader = finalBody.getReader();
+      wrappedBody = new ReadableStream({
+        pull: async (controller) => {
+          try {
+            const res = await reader.read();
+            if (res.done) {
+              controller.close();
+            } else {
+              controller.enqueue(res.value);
+            }
+          } catch (err) {
+            controller.error(err);
+            if (appRef !== null && !this._edgeBodySent) {
+              // Fallback triggered
+              void appRef.handleError(err, this);
+            } else if (appRef !== null) {
+              // Headers sent, just run error handler
+              void appRef.handleError(err, this);
+            }
+          }
+        },
+        cancel(reason) {
+          reader.cancel(reason).catch(() => {});
+        },
+      });
+    }
     this._edgeBodySent = true;
-    this._resolveEdgeResponse(
-      new Response(body as BodyInit, { status, headers: this._edgeHeaders }),
-    );
+    this._resolveEdgeResponse(new Response(wrappedBody, { status, headers: this._edgeHeaders }));
   }
 
   override json(data: unknown, statusCode: number = this._edgeStatus): this {
@@ -1285,7 +1331,17 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
   }
 
   override getHeaders(): Record<string, string | string[] | undefined> {
-    return Object.fromEntries(this._edgeHeaders.entries());
+    const headers: Record<string, string | string[]> = {};
+    for (const [key, val] of this._edgeHeaders.entries()) {
+      headers[key] = val;
+    }
+    if (typeof this._edgeHeaders.getSetCookie === "function") {
+      const cookies = this._edgeHeaders.getSetCookie();
+      if (cookies.length > 0) {
+        headers["set-cookie"] = cookies.length === 1 ? (cookies[0] ?? "") : cookies;
+      }
+    }
+    return headers;
   }
 
   override getHeader(header: string): string | undefined {
@@ -1332,7 +1388,32 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
   }
 
   override get bodyStream(): ReadableStream<Uint8Array> {
-    return this.req.body as ReadableStream<Uint8Array>;
+    if (this._webStream !== null) return this._webStream;
+
+    let limit = this.app.AppOptions.bodyLimit;
+    if (this._route?.bodyLimit !== undefined && this._route.bodyLimit !== null) {
+      limit = Math.min(this._route.bodyLimit, limit);
+    }
+
+    let received = 0;
+    const transform = new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk: Uint8Array, controller: TransformStreamDefaultController<Uint8Array>) {
+        received += chunk.byteLength;
+        if (received > limit) {
+          controller.error(new PayloadTooLargeError(limit.toString()));
+        } else {
+          controller.enqueue(chunk);
+        }
+      },
+    });
+
+    const body = this.req.body;
+    if (body !== null) {
+      this._webStream = body.pipeThrough(transform);
+    } else {
+      this._webStream = new ReadableStream<Uint8Array>();
+    }
+    return this._webStream;
   }
 
   override body(type: "json" | "text" = "json"): Promise<unknown> {
