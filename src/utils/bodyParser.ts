@@ -63,12 +63,21 @@ function fastParseUrlEncoded(input: string): Record<string, unknown> {
   return result;
 }
 
-export async function parseBody(
-  this: App,
+export async function parseBody<CustomLevels extends string = never>(
+  this: App<CustomLevels>,
   ctx: RequestContext,
   text: boolean = false,
-  limit = ctx._route?.bodyLimit ?? this.AppOptions.bodyLimit,
+  limitOptional?: number,
 ): Promise<unknown> {
+  const defaultLimit = this.AppOptions.bodyLimit;
+  let limit = limitOptional !== undefined ? limitOptional : defaultLimit;
+  if (
+    limitOptional === undefined &&
+    ctx._route?.bodyLimit !== undefined &&
+    ctx._route.bodyLimit !== null
+  ) {
+    limit = Math.min(ctx._route.bodyLimit, defaultLimit);
+  }
   const req = ctx.req as http.IncomingMessage;
 
   const contentType = req.headers["content-type"] ?? "";
@@ -162,7 +171,21 @@ export async function parseBody(
       }
     };
 
+    let timer: NodeJS.Timeout | null = null;
+    if (this.AppOptions.requestTimeoutMs > 0) {
+      timer = setTimeout(() => {
+        cleanup();
+        req.destroy(new Error("Request body timed out"));
+        reject(new Error("Request body timed out"));
+      }, this.AppOptions.requestTimeoutMs);
+      timer.unref();
+    }
+
     const cleanup = () => {
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
       req.off("data", onData);
       req.off("end", onEnd);
       req.off("error", onError);
@@ -192,6 +215,15 @@ export async function* parseMultipartStream(
   const boundaryLength = boundaryBuffer.length;
   const endBoundaryBuffer = Buffer.from(boundaryStr + "--");
 
+  const options = ctx._app?.AppOptions.multipart ?? {
+    maxTotalBytes: 1024 * 1024 * 100,
+    maxParts: 1000,
+    maxFields: 1000,
+    maxFieldSize: 1024 * 1024,
+    maxFileSize: 1024 * 1024 * 50,
+    maxHeaderSize: 1024 * 8,
+  };
+
   const partQueue: MultipartPart[] = [];
   let resolveNextPart: (() => void) | null = null;
   let isNetworkDone: boolean = false;
@@ -207,19 +239,53 @@ export async function* parseMultipartStream(
     contentType?: string;
   } | null = null;
 
+  let totalBytes = 0;
+  let partCount = 0;
+  let fieldCount = 0;
+  let currentFieldChunks: Buffer[] = [];
+  let currentFieldSize = 0;
+  let currentFileSize = 0;
+  let headerSizeCounter = 0;
+  let currentHeaderChunks: Buffer[] = [];
+
   const processChunk = (chunk: Buffer) => {
+    totalBytes += chunk.length;
+    if (totalBytes > (options.maxTotalBytes ?? Infinity)) {
+      throw new PayloadTooLargeError((options.maxTotalBytes ?? Infinity).toString());
+    }
+
     residue = Buffer.concat([residue, chunk]);
 
     while (residue.length >= boundaryLength) {
       if (inHeaderSection) {
         const headerEndIndex = residue.indexOf("\r\n\r\n");
-        if (headerEndIndex === -1) break;
+        if (headerEndIndex === -1) {
+          const keep = Math.min(residue.length, 3);
+          const pushLen = residue.length - keep;
+          if (pushLen > 0) {
+            currentHeaderChunks.push(residue.subarray(0, pushLen));
+            headerSizeCounter += pushLen;
+            if (headerSizeCounter > (options.maxHeaderSize ?? Infinity)) {
+              throw new Error("Multipart header too large");
+            }
+          }
+          residue = residue.subarray(residue.length - keep);
+          break;
+        }
 
-        const headersString = residue.subarray(0, headerEndIndex).toString("utf8");
+        currentHeaderChunks.push(residue.subarray(0, headerEndIndex));
+        const headersString = Buffer.concat(currentHeaderChunks).toString("utf8");
+        currentHeaderChunks = [];
+        headerSizeCounter = 0;
         residue = residue.subarray(headerEndIndex + 4);
         inHeaderSection = false;
 
         if (headersString.toLowerCase().includes("content-disposition: form-data")) {
+          partCount++;
+          if (partCount > (options.maxParts ?? Infinity)) {
+            throw new Error("Too many multipart parts");
+          }
+
           const nameMatch = headersString.match(/name="([^"]+)"/i);
           const filenameMatch = headersString.match(/filename="([^"]+)"/i);
           const contentTypeMatch = headersString.match(/Content-Type:\s*([^\r\n;]+)/i);
@@ -231,14 +297,17 @@ export async function* parseMultipartStream(
           };
 
           if (activePartMeta.filename !== undefined) {
+            currentFileSize = 0;
             const nodeCompatibleStream = new Readable({
               highWaterMark: 1024 * 1024,
-              read() {},
+              read() {
+                if (!isNetworkDone) req.resume();
+              },
             });
 
             currentFileController = {
               enqueue(c: Uint8Array) {
-                nodeCompatibleStream.push(c);
+                return nodeCompatibleStream.push(c);
               },
               close() {
                 nodeCompatibleStream.push(null);
@@ -258,6 +327,7 @@ export async function* parseMultipartStream(
               }
               return Buffer.concat(chunks);
             };
+
             partQueue.push({
               isFile: true,
               name: activePartMeta.name ?? "",
@@ -273,6 +343,13 @@ export async function* parseMultipartStream(
               resolveNextPart();
               resolveNextPart = null;
             }
+          } else {
+            fieldCount++;
+            if (fieldCount > (options.maxFields ?? Infinity)) {
+              throw new Error("Too many multipart fields");
+            }
+            currentFieldChunks = [];
+            currentFieldSize = 0;
           }
         }
         continue;
@@ -285,13 +362,26 @@ export async function* parseMultipartStream(
         if (residue.length > safeKeepLength) {
           const streamablePart = residue.subarray(0, residue.length - safeKeepLength);
           if (currentFileController !== null) {
-            currentFileController.enqueue(
+            currentFileSize += streamablePart.length;
+            if (currentFileSize > (options.maxFileSize ?? Infinity)) {
+              throw new Error("File too large");
+            }
+            const canContinue = currentFileController.enqueue(
               new Uint8Array(
                 streamablePart.buffer,
                 streamablePart.byteOffset,
                 streamablePart.byteLength,
               ),
             );
+            if (!canContinue) {
+              req.pause();
+            }
+          } else if (activePartMeta !== null) {
+            currentFieldChunks.push(streamablePart);
+            currentFieldSize += streamablePart.length;
+            if (currentFieldSize > (options.maxFieldSize ?? Infinity)) {
+              throw new Error("Field too large");
+            }
           }
           residue = residue.subarray(residue.length - safeKeepLength);
         }
@@ -308,6 +398,10 @@ export async function* parseMultipartStream(
         const exactDataBlock = residue.subarray(0, dataLength);
 
         if (currentFileController !== null) {
+          currentFileSize += exactDataBlock.length;
+          if (currentFileSize > (options.maxFileSize ?? Infinity)) {
+            throw new Error("File too large");
+          }
           currentFileController.enqueue(
             new Uint8Array(
               exactDataBlock.buffer,
@@ -318,10 +412,16 @@ export async function* parseMultipartStream(
           currentFileController.close();
           currentFileController = null;
         } else if (activePartMeta !== null && activePartMeta.filename === undefined) {
+          currentFieldChunks.push(exactDataBlock);
+          currentFieldSize += exactDataBlock.length;
+          if (currentFieldSize > (options.maxFieldSize ?? Infinity)) {
+            throw new Error("Field too large");
+          }
+
           partQueue.push({
             isFile: false,
             name: activePartMeta.name ?? "",
-            value: exactDataBlock.toString("utf8"),
+            value: Buffer.concat(currentFieldChunks).toString("utf8"),
           });
 
           if (resolveNextPart !== null) {
@@ -359,7 +459,6 @@ export async function* parseMultipartStream(
       inHeaderSection = true;
     }
   };
-
   const onData = (chunk: Buffer) => {
     try {
       processChunk(chunk);
