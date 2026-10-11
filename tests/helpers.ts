@@ -16,7 +16,7 @@ interface HTTPTestResponse {
 }
 
 export async function requestFetch(
-  app: App,
+  app: App<any>,
   path: string,
   options: RequestInit = {},
 ): Promise<FetchTestResponse> {
@@ -75,8 +75,8 @@ export async function requestFetch(
   });
 }
 
-export async function request(
-  app: App,
+export async function request<L extends string = never>(
+  app: App<L>,
   path: string,
   options: http.RequestOptions & { body?: string } = {},
 ): Promise<HTTPTestResponse> {
@@ -105,7 +105,7 @@ export async function request(
 
       // 2. Separate paths and query strings if an absolute URL was passed
       let targetPath = path;
-      let targetHost;
+      let targetHost: string | undefined;
 
       if (path.startsWith("http://") || path.startsWith("https://")) {
         try {
@@ -120,10 +120,13 @@ export async function request(
 
       // 3. Merge headers cleanly (ensuring user custom overrides take priority)
       const userHeaders = options.headers || {};
-      const mixedHeaders = {
+      const mixedHeaders: Record<string, any> = {
         Connection: "close",
         ...userHeaders,
       };
+      if (targetHost && !mixedHeaders["Host"] && !mixedHeaders["host"]) {
+        mixedHeaders["Host"] = targetHost;
+      }
 
       // 4. Configure strict HTTP wire options
       const reqOptions: http.RequestOptions = {

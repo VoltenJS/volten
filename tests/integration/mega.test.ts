@@ -1,5 +1,4 @@
 import { test } from "node:test";
-import assert from "node:assert/strict";
 import { App } from "../../src/core/server.ts";
 import { request } from "../helpers.ts";
 
@@ -15,14 +14,18 @@ test("Mega Integration for Coverage", async () => {
   app.get("/file", async (ctx) => {
     try {
       await ctx.sendFile("package.json");
-    } catch {}
+    } catch {
+      ctx.status(400).send("err");
+    }
   });
 
   app.post("/body", async (ctx) => {
     try {
       const b = await ctx.body();
       ctx.send(JSON.stringify(b));
-    } catch {}
+    } catch {
+      ctx.status(400).send("err");
+    }
   });
 
   app.get("/empty", (ctx) => {
