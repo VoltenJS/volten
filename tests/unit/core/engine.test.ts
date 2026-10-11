@@ -322,33 +322,65 @@ async function assertDifferentialEquivalence(
     candidateThrown = err;
   }
 
-  // 3. Differential assertions
+  // 4. Differential assertions: exceptions
   assert.equal(
     candidateThrown,
     baselineThrown,
     `[${name}] Thrown exceptions must match: candidate=${String(candidateThrown)}, baseline=${String(baselineThrown)}`,
   );
 
-  assert.deepEqual(candidateReturn, baselineReturn, `[${name}] Factory return values must match`);
+  // 5. Compare return values.
+  // Native Web Responses are compared by observable semantics.
+  if (baselineReturn instanceof Response && candidateReturn instanceof Response) {
+    assert.equal(
+      candidateReturn.status,
+      baselineReturn.status,
+      `[${name}] Response status must match`,
+    );
 
+    assert.equal(
+      candidateReturn.statusText,
+      baselineReturn.statusText,
+      `[${name}] Response status text must match`,
+    );
+
+    assert.deepEqual(
+      [...candidateReturn.headers.entries()],
+      [...baselineReturn.headers.entries()],
+      `[${name}] Response headers must match`,
+    );
+
+    assert.equal(
+      await candidateReturn.clone().text(),
+      await baselineReturn.clone().text(),
+      `[${name}] Response bodies must match`,
+    );
+  } else {
+    assert.deepEqual(candidateReturn, baselineReturn, `[${name}] Factory return values must match`);
+  }
+
+  // 6. Sent payloads
   assert.deepEqual(
     candidateMock.state.sentData,
     baselineMock.state.sentData,
     `[${name}] Sent payloads must match`,
   );
 
+  // 7. Status codes
   assert.deepEqual(
     candidateMock.state.statusCodes,
     baselineMock.state.statusCodes,
     `[${name}] Status codes must match`,
   );
 
+  // 8. Final context state
   assert.equal(
     candidateMock.ctx.sent,
     baselineMock.ctx.sent,
     `[${name}] Final ctx.sent flag must match`,
   );
 
+  // 9. Error handling
   assert.equal(
     candidateMock.state.errorsHandled.length,
     baselineMock.state.errorsHandled.length,
@@ -358,12 +390,20 @@ async function assertDifferentialEquivalence(
   if (candidateMock.state.errorsHandled.length > 0) {
     const cErr = candidateMock.state.errorsHandled[0] as Error;
     const bErr = baselineMock.state.errorsHandled[0] as Error;
+
     assert.equal(cErr.message, bErr.message, `[${name}] Handled error messages must match`);
   }
 
+  // 10. Edge response resolution
   if (options.isEdge) {
-    const cEdge = candidateMock.state as { resolvedEdgeResponse: unknown };
-    const bEdge = baselineMock.state as { resolvedEdgeResponse: unknown };
+    const cEdge = candidateMock.state as {
+      resolvedEdgeResponse: unknown;
+    };
+
+    const bEdge = baselineMock.state as {
+      resolvedEdgeResponse: unknown;
+    };
+
     assert.equal(
       cEdge.resolvedEdgeResponse !== null,
       bEdge.resolvedEdgeResponse !== null,
