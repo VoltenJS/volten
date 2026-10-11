@@ -13,7 +13,8 @@ import type {
 import { App } from "../core/server.ts";
 import { parseUrl, parseQuery } from "./parseUrl.ts";
 import { createCompiledStringifier } from "./stringifyJson.ts";
-import { isFileInFolder } from "./security.ts";
+import { isFileInFolder, openContainedFile } from "./security.ts";
+import type { OpenedFile } from "./security.ts";
 import {
   MethodNotAllowedError,
   SendAfterSentError,
@@ -428,19 +429,36 @@ export class RequestContext<P extends string = string> {
     const app = this.app;
     const pathname = this.path;
     const staticPath = app.serverStaticMap;
-    if (staticPath !== null) {
+    if (
+      staticPath !== null &&
+      (this.method === "GET" || this.method === "HEAD" || this.method === "OPTIONS")
+    ) {
       const pathModule = await import("path");
-      const filePath = pathModule.join(staticPath, pathname);
-      if (await isFileInFolder(staticPath, filePath)) {
+      let decoded: string | null;
+      try {
+        decoded = decodeURIComponent(pathname);
+      } catch {
+        decoded = null;
+      }
+      if (decoded !== null && !decoded.includes("\0")) {
+        // Resolve against an absolute root so containment checks never depend on cwd-relative joins.
+        const absRoot = pathModule.resolve(staticPath);
+        const relative = decoded.replace(/^[/\\]+/, "");
         if (this.method === "OPTIONS") {
-          this.statusCode = 204;
-          this.setHeader("Allow", "GET, HEAD, OPTIONS");
-          this.setHeader("Content-Length", 0);
-          this.send();
-          return;
+          if (await isFileInFolder(absRoot, pathModule.join(absRoot, relative))) {
+            this.statusCode = 204;
+            this.setHeader("Allow", "GET, HEAD, OPTIONS");
+            this.send();
+            return;
+          }
+        } else {
+          try {
+            await this.sendFile(relative, 200, { root: absRoot });
+            return;
+          } catch (err) {
+            if (!(err instanceof NotFoundError)) throw err;
+          }
         }
-        await this.sendFile(filePath, 200, {});
-        return;
       }
     }
 
@@ -463,7 +481,7 @@ export class RequestContext<P extends string = string> {
   public routePath(): void | Promise<void> {
     if (!this.inited) return;
     const app = this.app;
-    const route = app.getRoute(this.method, this.url, this);
+    const route = app.getRoute(this.method, this.path, this);
     if (route !== null) {
       this._route = route;
       return;
@@ -858,21 +876,45 @@ export class RequestContext<P extends string = string> {
       this.logWarn("Attempted to send file after response was sent");
       return this;
     }
+    const gen = this.generation;
+    let opened: OpenedFile | null = null;
+    let streaming = false;
     try {
+      const pathModule = await import("path");
       const fsModule = await import("fs");
-      const stats = await fsModule.promises.stat(filePath);
-      const regApp = this.app;
-
-      if (!stats.isFile()) {
-        const error = new NotFoundError("Resource Not Found");
-        if (options?.errCallback !== undefined) {
-          void options.errCallback(error, this);
+      if (options?.root !== undefined) {
+        // Root-confined mode: open-then-validate (see openContainedFile).
+        opened = await openContainedFile(options.root, filePath);
+        if (opened === null) {
+          const error = new NotFoundError("Resource Not Found");
+          if (options.errCallback !== undefined) {
+            void options.errCallback(error, this);
+          }
+          throw error;
         }
-        throw error;
+      } else if (!pathModule.isAbsolute(filePath)) {
+        throw new BadRequestError("path must be absolute or specify root to res.sendFile");
+      } else {
+        // Trusted mode: caller vouches for the path. Still fstat the opened descriptor so
+        // the type/size we advertise belong to the object we actually stream.
+        const handle = await fsModule.promises.open(filePath, "r");
+        const st = await handle.stat();
+        if (!st.isFile()) {
+          await handle.close();
+          const error = new NotFoundError("Resource Not Found");
+          if (options?.errCallback !== undefined) {
+            void options.errCallback(error, this);
+          }
+          throw error;
+        }
+        opened = { handle, stats: st, realPath: filePath };
       }
 
-      const pathModule = await import("path");
-      const ext = pathModule.extname(filePath).toLowerCase().slice(1);
+      if (this.generation !== gen || this.disconnected) {
+        return this;
+      }
+      const stats = opened.stats;
+      const ext = pathModule.extname(opened.realPath).toLowerCase().slice(1);
       const contentType = getMimeType(ext);
 
       const mtimeStr = stats.mtime.getTime().toString(16);
@@ -905,6 +947,7 @@ export class RequestContext<P extends string = string> {
       try {
         resObj.statusCode = statusCode;
         this.setHeader("Content-Type", contentType);
+        this.setHeader("X-Content-Type-Options", "nosniff");
         this.setHeader("Content-Length", stats.size);
         this.setHeader("Last-Modified", stats.mtime.toUTCString());
         this.setHeader("ETag", etag);
@@ -921,14 +964,13 @@ export class RequestContext<P extends string = string> {
         return this;
       }
 
-      const stream = fsModule.createReadStream(filePath);
+      const stream = opened.handle.createReadStream({ autoClose: true });
+      streaming = true;
+      const app = this.app;
       stream.pipe(resObj);
 
-      resObj.on("close", () => {
+      resObj.once("close", () => {
         stream.destroy();
-        if (this instanceof NodeRequestContext) {
-          regApp.resetCtx(this);
-        }
       });
 
       stream.on("error", (streamErr) => {
@@ -939,9 +981,9 @@ export class RequestContext<P extends string = string> {
         if (options?.errCallback !== undefined) {
           void options.errCallback(normalizedErr, this);
         }
-        void this.app.handleError(normalizedErr, this);
-        if (!resObj.headersSent && this instanceof NodeRequestContext) {
-          regApp.resetCtx(this);
+        // The context is only recycled after the response closes, but guard anyway.
+        if (this.generation === gen) {
+          void app.handleError(normalizedErr, this);
         }
       });
     } catch {
@@ -950,6 +992,14 @@ export class RequestContext<P extends string = string> {
         void options.errCallback(error, this);
       }
       throw error;
+    } finally {
+      if (opened !== null && !streaming) {
+        try {
+          await opened.handle.close();
+        } catch {
+          /* already closed */
+        }
+      }
     }
 
     return this;
