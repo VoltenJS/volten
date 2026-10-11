@@ -42,7 +42,7 @@ export function parseUrl(url: string) {
     const qIdx = url.indexOf("?");
     return { pathname: "/", queryStr: qIdx === -1 ? "" : url.slice(qIdx + 1) };
   }
-  const remaining = pathStart === -1 ? url : url.substring(pathStart);
+  const remaining = pathStart <= 0 ? url : url.substring(pathStart);
   const queryIndex = remaining.indexOf("?");
 
   if (queryIndex === -1) {

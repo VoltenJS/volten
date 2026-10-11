@@ -669,4 +669,242 @@ test("RequestContext Identity Isolation Adversarial Suite", async (t) => {
       }
     },
   );
+
+  await t.test(
+    "12. Pre-captured references (state, params, headers, query, cookies) and double release while B owns recycled storage",
+    async () => {
+      const app = new App({ RequestPoolSize: 1 });
+      let staleCtxA: NodeRequestContext | null = null;
+      let activeCtxB: NodeRequestContext | null = null;
+      let stateRefA: Record<string, unknown> | null = null;
+      let paramsRefA: Record<string, string> | null = null;
+      let headersRefA: Record<string, string | string[] | undefined> | null = null;
+      let queryRefA: Record<string, unknown> | null = null;
+      let cookiesRefA: Record<string, string> | null = null;
+
+      let bStarted: (() => void) | null = null;
+      let resumeB: (() => void) | null = null;
+
+      app.get("/items/:id", async (ctx) => {
+        if (ctx.params.id === "item-a") {
+          staleCtxA = ctx as NodeRequestContext;
+          ctx.state["owner"] = "A";
+          stateRefA = ctx.state;
+          paramsRefA = ctx.params;
+          headersRefA = ctx.headers;
+          queryRefA = ctx.query;
+          cookiesRefA = ctx.cookies;
+          ctx.send("A done");
+          return;
+        }
+
+        activeCtxB = ctx as NodeRequestContext;
+        ctx.state["owner"] = "B";
+        // Touch B's lazy properties
+        void ctx.params;
+        void ctx.headers;
+        void ctx.query;
+        void ctx.cookies;
+        if (bStarted) bStarted();
+        await new Promise<void>((resolve) => {
+          resumeB = resolve;
+        });
+        ctx.setHeader("x-owner", String(ctx.state["owner"]));
+        ctx.send(`B:${ctx.params.id}:${String(ctx.query["q"])}:${ctx.cookies["sid"]}`);
+      });
+
+      const server = app.listen(0);
+      const port = (server.address() as { port: number }).port;
+
+      try {
+        await new Promise<void>((resolve, reject) => {
+          http
+            .get(
+              `http://127.0.0.1:${port}/items/item-a?q=alpha`,
+              { headers: { Cookie: "sid=cookie-a", "x-custom": "hdr-a" } },
+              (res) => {
+                res.resume();
+                res.on("end", resolve);
+              },
+            )
+            .on("error", reject);
+        });
+
+        assert.ok(staleCtxA !== null);
+        const ctxA = staleCtxA as NodeRequestContext;
+        assert.strictEqual(ctxA.isValid, false);
+
+        const bStartedPromise = new Promise<void>((resolve) => {
+          bStarted = resolve;
+        });
+
+        const reqBPromise = new Promise<{
+          statusCode: number | undefined;
+          body: string;
+          headers: http.IncomingHttpHeaders;
+        }>((resolve, reject) => {
+          http
+            .get(
+              `http://127.0.0.1:${port}/items/item-b?q=beta`,
+              { headers: { Cookie: "sid=cookie-b", "x-custom": "hdr-b" } },
+              (res) => {
+                let body = "";
+                res.on("data", (c) => (body += c));
+                res.on("end", () =>
+                  resolve({ statusCode: res.statusCode, body, headers: res.headers }),
+                );
+              },
+            )
+            .on("error", reject);
+        });
+
+        await bStartedPromise;
+        assert.ok(activeCtxB !== null);
+        const ctxB = activeCtxB as NodeRequestContext;
+
+        // Confirm storage was recycled from A to B
+        assert.strictEqual(ctxA._storage, ctxB._storage);
+        assert.strictEqual(ctxA.isValid, false);
+        assert.strictEqual(ctxB.isValid, true);
+
+        // Double release of A while B actively owns the storage must not affect B
+        app.resetCtx(ctxA);
+        assert.strictEqual(ctxB.isValid, true);
+        assert.strictEqual(ctxB._storage.activeToken, ctxB.token);
+
+        // Stale reads on A (even after query/cookies were cached during A) must return empty objects
+        assert.deepEqual(ctxA.state, {});
+        assert.deepEqual(ctxA.params, Object.create(null));
+        assert.deepEqual(ctxA.headers, {});
+        assert.deepEqual(ctxA.query, {});
+        assert.deepEqual(ctxA.cookies, {});
+
+        // Pre-captured references from A must never alias B's objects or data
+        assert.notStrictEqual(stateRefA, ctxB.state);
+        assert.notStrictEqual(paramsRefA, ctxB.params);
+        assert.notStrictEqual(headersRefA, ctxB.headers);
+        assert.notStrictEqual(queryRefA, ctxB.query);
+        assert.notStrictEqual(cookiesRefA, ctxB.cookies);
+
+        assert.strictEqual(stateRefA!["owner"], "A");
+        assert.strictEqual(paramsRefA!["id"], "item-a");
+        assert.strictEqual(headersRefA!["x-custom"], "hdr-a");
+        assert.strictEqual(queryRefA!["q"], "alpha");
+        assert.strictEqual(cookiesRefA!["sid"], "cookie-a");
+
+        // Mutating A's pre-captured references must not affect B
+        stateRefA!["owner"] = "MUTATED_BY_A";
+        paramsRefA!["id"] = "MUTATED_ID";
+        queryRefA!["q"] = "MUTATED_Q";
+
+        if (resumeB) (resumeB as () => void)();
+        const resB = await reqBPromise;
+
+        assert.strictEqual(resB.statusCode, 200);
+        assert.strictEqual(resB.headers["x-owner"], "B");
+        assert.strictEqual(resB.body, "B:item-b:beta:cookie-b");
+      } finally {
+        if (resumeB) (resumeB as () => void)();
+        await app.close();
+      }
+    },
+  );
+
+  await t.test(
+    "13. Edge pre-captured references and double release while Edge B owns recycled storage",
+    async () => {
+      const app = new App({ RequestPoolSize: 1 });
+      let staleEdgeA: EdgeRequestContext | null = null;
+      let activeEdgeB: EdgeRequestContext | null = null;
+      let stateRefA: Record<string, unknown> | null = null;
+      let paramsRefA: Record<string, string> | null = null;
+      let headersRefA: Record<string, string | string[] | undefined> | null = null;
+      let queryRefA: Record<string, unknown> | null = null;
+      let cookiesRefA: Record<string, string> | null = null;
+
+      let bStarted: (() => void) | null = null;
+      let resumeB: (() => void) | null = null;
+
+      app.get("/edge/:id", async (ctx) => {
+        if (ctx.params.id === "a") {
+          staleEdgeA = ctx as unknown as EdgeRequestContext;
+          ctx.state["role"] = "edge-a";
+          stateRefA = ctx.state;
+          paramsRefA = ctx.params;
+          headersRefA = ctx.headers;
+          queryRefA = ctx.query;
+          cookiesRefA = ctx.cookies;
+          ctx.send("edge-a-ok");
+          return;
+        }
+
+        activeEdgeB = ctx as unknown as EdgeRequestContext;
+        ctx.state["role"] = "edge-b";
+        void ctx.params;
+        void ctx.headers;
+        void ctx.query;
+        void ctx.cookies;
+        if (bStarted) bStarted();
+        await new Promise<void>((resolve) => {
+          resumeB = resolve;
+        });
+        ctx.send(`edge-${ctx.params.id}:${String(ctx.state["role"])}:${String(ctx.query["k"])}`);
+      });
+
+      const fetch = app.createFetch();
+
+      const resA = await fetch(
+        new Request("http://localhost/edge/a?k=v1", {
+          headers: { cookie: "token=t1", "x-edge-hdr": "h1" },
+        }),
+      );
+      assert.strictEqual(await resA.text(), "edge-a-ok");
+
+      const edgeA = staleEdgeA!;
+      assert.strictEqual(edgeA.isValid, false);
+
+      const bStartedPromise = new Promise<void>((resolve) => {
+        bStarted = resolve;
+      });
+
+      const resBPromise = fetch(
+        new Request("http://localhost/edge/b?k=v2", {
+          headers: { cookie: "token=t2", "x-edge-hdr": "h2" },
+        }),
+      );
+
+      await bStartedPromise;
+      const edgeB = activeEdgeB!;
+
+      assert.strictEqual(edgeA._storage, edgeB._storage);
+      assert.strictEqual(edgeA.isValid, false);
+      assert.strictEqual(edgeB.isValid, true);
+
+      // Double release of edgeA while edgeB owns the recycled storage
+      app.resetEdgeCtx(edgeA);
+      assert.strictEqual(edgeB.isValid, true);
+
+      // Stale reads on edgeA must return empty objects
+      assert.deepEqual(edgeA.state, {});
+      assert.deepEqual(edgeA.params, Object.create(null));
+      assert.deepEqual(edgeA.headers, {});
+      assert.deepEqual(edgeA.query, {});
+      assert.deepEqual(edgeA.cookies, {});
+
+      // Pre-captured references from edgeA must not alias edgeB
+      assert.notStrictEqual(stateRefA, edgeB.state);
+      assert.notStrictEqual(paramsRefA, edgeB.params);
+      assert.notStrictEqual(headersRefA, edgeB.headers);
+      assert.notStrictEqual(queryRefA, edgeB.query);
+      assert.notStrictEqual(cookiesRefA, edgeB.cookies);
+
+      stateRefA!["role"] = "corrupted";
+      paramsRefA!["id"] = "corrupted";
+
+      if (resumeB) (resumeB as () => void)();
+      const resB = await resBPromise;
+      assert.strictEqual(await resB.text(), "edge-b:edge-b:v2");
+    },
+  );
 });
+

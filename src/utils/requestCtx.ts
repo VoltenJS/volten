@@ -103,7 +103,9 @@ export class ContextStorage {
     this.generation++;
     this.bufferOffset = 0;
     this.isFlushing = false;
-    this.writeQueue = [];
+    if (this.writeQueue.length > 0) {
+      this.writeQueue = [];
+    }
   }
 }
 
@@ -138,8 +140,10 @@ export class RequestContext<P extends string = string> {
     this._res = null;
     this._req = null;
     this._headers = null;
-    this._params = Object.create(null) as ExtractParams<P>;
-    this._state = {};
+    this._params = null;
+    this._state = null;
+    this.queryValue = null;
+    this._cookiesCache = null;
   }
 
   public _app: App<string> | null = null;
@@ -159,15 +163,31 @@ export class RequestContext<P extends string = string> {
       this.token = ++nextContextToken;
       this._storage.activeToken = this.token;
     }
-    this.reqGeneration = this.generation;
+    this.reqGeneration = this._storage.generation;
   }
 
   private _ensureParsedUrl(): void {
-    if (this._path === null) {
-      const { pathname, queryStr } = parseUrl(this.url);
-      this._path = pathname;
-      this._queryString = queryStr;
+    if (this._path !== null) return;
+    const url = this.url;
+    if (
+      url.charCodeAt(0) === 47 &&
+      url.charCodeAt(1) !== 47 &&
+      url.indexOf("\0") === -1 &&
+      url.indexOf("#") === -1
+    ) {
+      const qIdx = url.indexOf("?");
+      if (qIdx === -1) {
+        this._path = url;
+        this._queryString = "";
+      } else {
+        this._path = qIdx > 0 ? url.slice(0, qIdx) : "/";
+        this._queryString = url.substring(qIdx + 1);
+      }
+      return;
     }
+    const { pathname, queryStr } = parseUrl(url);
+    this._path = pathname;
+    this._queryString = queryStr;
   }
 
   get path(): string {
@@ -188,19 +208,19 @@ export class RequestContext<P extends string = string> {
   public _queryString: string | null = null;
   public _headers: http.IncomingHttpHeaders | Record<string, string | string[] | undefined> | null =
     null;
-  protected _state: Record<string, unknown> = {};
+  protected _state: Record<string, unknown> | null = null;
   get state(): Record<string, unknown> {
     if (!this.isValid) return {};
-    return this._state;
+    return (this._state ??= {});
   }
   set state(val: Record<string, unknown>) {
     if (!this.isValid) throw new Error("Context expired");
     this._state = val;
   }
-  protected _params: ExtractParams<P> = Object.create(null) as ExtractParams<P>;
+  protected _params: ExtractParams<P> | null = null;
   get params(): ExtractParams<P> {
     if (!this.isValid) return Object.create(null) as ExtractParams<P>;
-    return this._params;
+    return (this._params ??= Object.create(null) as ExtractParams<P>);
   }
   set params(val: ExtractParams<P>) {
     if (!this.isValid) throw new Error("Context expired");
@@ -265,32 +285,33 @@ export class RequestContext<P extends string = string> {
     resOrEnv?: http.ServerResponse | unknown,
     _executionCtx?: unknown,
   ): void {
-    if (this._storage.activeToken === 0) {
-      this._storage.activeToken = this.token;
-    }
-    if (this._storage.activeToken !== this.token) {
+    const storage = this._storage;
+    if (storage.activeToken === 0) {
+      storage.activeToken = this.token;
+    } else if (storage.activeToken !== this.token) {
       throw new Error("Context expired");
     }
     const reqNode = req as http.IncomingMessage;
     const resNode = resOrEnv as http.ServerResponse | undefined;
-    const urlStr = reqNode.url ?? "/";
 
-    this.reqGeneration = this.generation;
+    this.reqGeneration = storage.generation;
     this._app = app;
     this._req = reqNode;
     this._res = resNode !== undefined ? resNode : null;
 
-    this.url = urlStr;
+    this.url = reqNode.url ?? "/";
     this._path = null;
     this._queryString = null;
 
     this.queryValue = null;
-    this._params = Object.create(null) as ExtractParams<P>;
+    this._params = null;
+    this._state = null;
+    this._cookiesCache = null;
     this._headers = reqNode.headers;
     this.method = reqNode.method ?? "GET";
 
     this._bodyPromise = undefined;
-    this._storage.bufferOffset = 0;
+    storage.bufferOffset = 0;
     this.inited = true;
   }
 
@@ -306,7 +327,7 @@ export class RequestContext<P extends string = string> {
   }
 
   get res(): http.ServerResponse | null {
-    if (!this.isValid || this.disconnected) return null;
+    if (!this.isValid) return null;
     return this._res;
   }
 
@@ -331,7 +352,7 @@ export class RequestContext<P extends string = string> {
   }
 
   set statusCode(code: number) {
-    if (!this.isValid || this.disconnected) return;
+    if (!this.isValid) return;
     if (this._res !== null) {
       this._res.statusCode = code;
     }
@@ -401,6 +422,7 @@ export class RequestContext<P extends string = string> {
   }
 
   get query(): Query {
+    if (!this.isValid) return {};
     if (this.queryValue === null) {
       this.queryValue = parseQuery(this.queryString);
     }
@@ -408,7 +430,7 @@ export class RequestContext<P extends string = string> {
   }
 
   public status(code: number): this {
-    if (!this.isValid || this.disconnected) return this;
+    if (!this.isValid) return this;
     this.statusCode = code;
     return this;
   }
@@ -499,8 +521,8 @@ export class RequestContext<P extends string = string> {
     this._res = null;
     this._route = null;
     this._headers = null;
-    this._params = Object.create(null) as ExtractParams<P>;
-    this._state = {};
+    this._params = null;
+    this._state = null;
     this.queryValue = null;
     this._bodyPromise = undefined;
     this._cookiesCache = null;
@@ -509,7 +531,6 @@ export class RequestContext<P extends string = string> {
   }
 
   public async flush(): Promise<void> {
-    if (!this.isValid) return;
     const resObj = this.res;
     if (resObj === null) return;
     if ((this.bufferOffset === 0 && this.writeQueue.length === 0) || this.isFlushing) return;
@@ -600,17 +621,16 @@ export class RequestContext<P extends string = string> {
   }
 
   public json(data: unknown, statusCode: number = this.statusCode): this {
-    if (!this.isValid || this.disconnected) return this;
     const resObj = this.res;
     if (resObj === null) return this;
     resObj.statusCode = statusCode;
 
-    if (this.sent) {
+    if (resObj.writableEnded) {
       throw new SendAfterSentError("json");
     }
 
     const body = JSON.stringify(data);
-    if (!this.headersSent) resObj.cork();
+    if (!resObj.headersSent) resObj.cork();
     resObj.writeHead(statusCode, {
       "Content-Type": "application/json; charset=utf-8",
       "Content-Length": Buffer.byteLength(body),
@@ -620,38 +640,37 @@ export class RequestContext<P extends string = string> {
   }
 
   public text(data: string, statusCode: number = this.statusCode): this {
-    if (!this.isValid || this.disconnected) return this;
     const resObj = this.res;
     if (resObj === null) return this;
-    const body = data;
-    if (this.sent) {
+    if (resObj.writableEnded) {
       throw new SendAfterSentError("text");
     }
     resObj.statusCode = statusCode;
-    if (!this.headersSent) {
-      this.setHeader("Content-Type", "text/plain; charset=utf-8");
+    if (!resObj.headersSent) {
+      resObj.setHeader("Content-Type", "text/plain; charset=utf-8");
     } else {
       this.logWarn("Headers Already Sent, Sending Only Body");
     }
-    this.endNodePayload(resObj, body);
+    this.endNodePayload(resObj, data);
     return this;
   }
 
   public buffer(data: Buffer, statusCode: number = this.statusCode): this {
-    if (!this.isValid || this.disconnected) return this;
     const resObj = this.res;
     if (resObj === null) return this;
-    if (this.sent) {
+    if (resObj.writableEnded) {
       throw new SendAfterSentError("buffer");
     }
     resObj.statusCode = statusCode;
-    this.setHeader("Content-Type", "application/octet-stream");
+    if (resObj.headersSent) {
+      throw new HeadersSentError();
+    }
+    resObj.setHeader("Content-Type", "application/octet-stream");
     this.endNodePayload(resObj, data);
     return this;
   }
 
   public send(data?: unknown, statusCode: number = this.statusCode): this {
-    if (!this.isValid || this.disconnected) return this;
     const resObj = this.res;
     if (resObj === null) return this;
     if (data === undefined) {
@@ -672,9 +691,10 @@ export class RequestContext<P extends string = string> {
 
   protected endNodePayload(resObj: http.ServerResponse, body: string | Buffer | null): void {
     let pendingChunk: Buffer | null = null;
-    if (this.bufferOffset > 0) {
-      pendingChunk = Buffer.from(this.responseBuffer.subarray(0, this.bufferOffset));
-      this.bufferOffset = 0;
+    const storage = this._storage;
+    if (storage.bufferOffset > 0) {
+      pendingChunk = Buffer.from(storage.responseBuffer.subarray(0, storage.bufferOffset));
+      storage.bufferOffset = 0;
     }
 
     const status = resObj.statusCode;
@@ -682,8 +702,8 @@ export class RequestContext<P extends string = string> {
       body === null ? 0 : Buffer.isBuffer(body) ? body.length : Buffer.byteLength(body);
 
     if (this.method === "HEAD") {
-      if (!this.headersSent) {
-        this.setHeader("Content-Length", payloadLength);
+      if (!resObj.headersSent) {
+        resObj.setHeader("Content-Length", payloadLength);
       }
       resObj.end();
       resObj.uncork();
@@ -691,17 +711,17 @@ export class RequestContext<P extends string = string> {
     }
 
     if (!shouldSendContent(this.method, status)) {
-      if (!this.headersSent) {
+      if (!resObj.headersSent) {
         if (status === 204) {
           resObj.removeHeader("Content-Length");
           resObj.removeHeader("Content-Type");
         } else if (status === 304) {
           // RFC 9110: 304 must not force Content-Length: 0. Preserve representation length if known.
           if (resObj.getHeader("Content-Length") === undefined && payloadLength > 0) {
-            this.setHeader("Content-Length", payloadLength);
+            resObj.setHeader("Content-Length", payloadLength);
           }
         } else {
-          this.setHeader("Content-Length", 0);
+          resObj.setHeader("Content-Length", 0);
         }
       }
       resObj.end();
@@ -716,12 +736,12 @@ export class RequestContext<P extends string = string> {
       return;
     }
 
-    if (!this.headersSent) {
+    if (!resObj.headersSent) {
       // Note: If there's a pending chunk, we can't accurately set Content-Length here unless we add it
       if (pendingChunk !== null) {
-        this.setHeader("Content-Length", payloadLength + pendingChunk.length);
+        resObj.setHeader("Content-Length", payloadLength + pendingChunk.length);
       } else {
-        this.setHeader("Content-Length", payloadLength);
+        resObj.setHeader("Content-Length", payloadLength);
       }
     }
     if (pendingChunk !== null) resObj.write(pendingChunk);
@@ -730,12 +750,14 @@ export class RequestContext<P extends string = string> {
   }
 
   public getHeaders(): http.OutgoingHttpHeaders {
-    return this.res !== null ? this.res.getHeaders() : {};
+    const resObj = this.res;
+    return resObj !== null ? resObj.getHeaders() : {};
   }
 
   public getHeader(header: string): string | undefined {
-    if (this.res === null) return undefined;
-    const raw = this.res.getHeader(header);
+    const resObj = this.res;
+    if (resObj === null) return undefined;
+    const raw = resObj.getHeader(header);
     if (raw === undefined) return undefined;
     if (Array.isArray(raw)) {
       if (isSetCookieHeaderName(header)) {
@@ -748,43 +770,42 @@ export class RequestContext<P extends string = string> {
   }
 
   public getRawHeader(header: string): string | number | string[] | null | undefined {
-    return this.res !== null ? this.res.getHeader(header) : undefined;
+    const resObj = this.res;
+    return resObj !== null ? resObj.getHeader(header) : undefined;
   }
 
   public setHeader(key: string, value: string | number | readonly string[]): this {
-    if (!this.isValid || this.disconnected) return this;
-    if (this.headersSent) {
+    const resObj = this.res;
+    if (resObj === null) return this;
+    if (resObj.headersSent) {
       throw new HeadersSentError();
     }
-    if (this.res !== null) {
-      this.res.setHeader(key, value);
-    }
+    resObj.setHeader(key, value);
     return this;
   }
 
   removeHeader(key: string): this {
-    if (!this.isValid || this.disconnected) return this;
-    if (this.headersSent) {
+    const resObj = this.res;
+    if (resObj === null) return this;
+    if (resObj.headersSent) {
       throw new HeadersSentError();
     }
-    if (this.res !== null) {
-      this.res.removeHeader(key);
-    }
+    resObj.removeHeader(key);
     return this;
   }
 
   flushHeaders(): this {
-    if (!this.isValid || this.disconnected) return this;
-    if (this.headersSent) {
+    const resObj = this.res;
+    if (resObj === null) return this;
+    if (resObj.headersSent) {
       throw new HeadersSentError();
     }
-    if (this.res !== null) {
-      this.res.flushHeaders();
-    }
+    resObj.flushHeaders();
     return this;
   }
 
   get cookies(): Record<string, string> {
+    if (!this.isValid) return {};
     if (this._cookiesCache !== null) {
       return this._cookiesCache;
     }
@@ -803,9 +824,10 @@ export class RequestContext<P extends string = string> {
   }
 
   public setCookie(name: string, value: string, options: CookieOptions = {}): this {
-    if (!this.isValid || this.disconnected) return this;
+    const resObj = this.res;
+    if (resObj === null) return this;
     const str = serializeSetCookie(name, value, options);
-    const existing = this.res !== null ? this.res.getHeader("Set-Cookie") : undefined;
+    const existing = resObj.getHeader("Set-Cookie");
 
     if (existing === undefined) {
       this.setHeader("Set-Cookie", str);
@@ -1072,7 +1094,8 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
     this._path = null;
     this._queryString = null;
     this.queryValue = null;
-    this._params = Object.create(null) as ExtractParams<P>;
+    this._params = null;
+    this._state = null;
 
     const headersObj: Record<string, string> = {};
     edgeReq.headers.forEach((val: string, key: string) => {
@@ -1114,7 +1137,7 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
   }
 
   override set statusCode(code: number) {
-    if (!this.isValid || this.disconnected || this._edgeBodySent) return;
+    if (!this.isValid || this._edgeBodySent) return;
     this._edgeStatus = code;
   }
 
@@ -1124,6 +1147,7 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
   }
 
   override set type(value: string) {
+    if (!this.isValid || this._edgeBodySent) return;
     this._edgeHeaders.set("Content-Type", value);
   }
 
@@ -1150,6 +1174,7 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
   }
 
   override get headers(): Record<string, string | string[] | undefined> {
+    if (!this.isValid) return {};
     return this._headers ?? {};
   }
 
@@ -1176,7 +1201,7 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
   private _edgeTransformWriter: WritableStreamDefaultWriter<Uint8Array> | null = null;
 
   override async writeStatic(str: string): Promise<void> {
-    if (!this.isValid || this.disconnected || this._edgeBodySent) return;
+    if (!this.isValid || this._edgeBodySent) return;
     if (this._edgeBody === null || typeof this._edgeBody === "string") {
       const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
       const writer = writable.getWriter();
@@ -1268,7 +1293,7 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
   }
 
   override json(data: unknown, statusCode: number = this._edgeStatus): this {
-    if (!this.isValid || this.disconnected || this._edgeBodySent) return this;
+    if (!this.isValid || this._edgeBodySent) return this;
     this._edgeStatus = statusCode;
     this._edgeHeaders.set("Content-Type", "application/json; charset=utf-8");
     this._edgeHeaders.set("Server", "Volten/1.0.0");
@@ -1298,7 +1323,7 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
   }
 
   override text(data: string, statusCode: number = this._edgeStatus): this {
-    if (!this.isValid || this.disconnected || this._edgeBodySent) return this;
+    if (!this.isValid || this._edgeBodySent) return this;
     this._edgeStatus = statusCode;
     this._edgeHeaders.set("Content-Type", "text/plain; charset=utf-8");
     this.endEdgePayload(data);
@@ -1306,7 +1331,7 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
   }
 
   override buffer(data: Buffer | Uint8Array, statusCode: number = this._edgeStatus): this {
-    if (!this.isValid || this.disconnected || this._edgeBodySent) return this;
+    if (!this.isValid || this._edgeBodySent) return this;
     this._edgeStatus = statusCode;
     this._edgeHeaders.set("Content-Type", "application/octet-stream");
     this.endEdgePayload(data);
@@ -1314,7 +1339,7 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
   }
 
   override send(data?: unknown, statusCode: number = this._edgeStatus): this {
-    if (!this.isValid || this.disconnected || this._edgeBodySent) return this;
+    if (!this.isValid || this._edgeBodySent) return this;
     if (data === undefined) {
       this._edgeStatus = statusCode;
       this.endEdgePayload(null);
@@ -1357,7 +1382,7 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
   }
 
   override setHeader(key: string, value: string | number | readonly string[]): this {
-    if (!this.isValid || this.disconnected) return this;
+    if (!this.isValid) return this;
     if (this._edgeBodySent) throw new Error("Headers already sent");
     if (Array.isArray(value)) {
       this._edgeHeaders.delete(key);
@@ -1371,7 +1396,7 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
   }
 
   override removeHeader(key: string): this {
-    if (!this.isValid || this.disconnected) return this;
+    if (!this.isValid) return this;
     if (this._edgeBodySent) throw new Error("Headers already sent");
     this._edgeHeaders.delete(key);
     return this;
@@ -1382,7 +1407,7 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
   }
 
   override setCookie(name: string, value: string, options: CookieOptions = {}): this {
-    if (!this.isValid || this.disconnected || this._edgeBodySent) return this;
+    if (!this.isValid || this._edgeBodySent) return this;
     this._edgeHeaders.append("Set-Cookie", serializeSetCookie(name, value, options));
     return this;
   }
@@ -1417,6 +1442,7 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
   }
 
   override body(type: "json" | "text" = "json"): Promise<unknown> {
+    if (!this.isValid) return Promise.reject(new Error("Context expired"));
     if (this._bodyPromise !== undefined) return this._bodyPromise;
     if (this.isMultipart) {
       this._bodyPromise = Promise.reject(
@@ -1452,6 +1478,7 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
   }
 
   override async *multipart(): AsyncGenerator<MultipartPart, void, unknown> {
+    if (!this.isValid) return;
     if (!this.isMultipart) return;
     try {
       const formData = await this.req.formData();

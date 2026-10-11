@@ -504,6 +504,10 @@ export class App<CustomLevels extends string = never> extends Router {
   }
 
   private compilePreflightHandler() {
+    if (this.preflightHandlers.length === 0) {
+      this.preflightHandler = null;
+      return;
+    }
     this.preflightHandler = async (ctx: RequestContext) => {
       try {
         for (const fn of this.preflightHandlers) {
@@ -873,7 +877,7 @@ export class App<CustomLevels extends string = never> extends Router {
     // closed AND the handler chain has settled. A client disconnect alone never recycles it.
     const token = ctx.token;
     this.activeContexts++;
-    let closed = false;
+    let closed = false as boolean;
     let settled = false;
     let forceTimer: NodeJS.Timeout | null = null;
     let detached = false;
@@ -885,23 +889,29 @@ export class App<CustomLevels extends string = never> extends Router {
       // token guards against a double release recycling storage a newer request owns
       if (ctx.token === token && ctx._storage.activeToken === token) {
         this.activeContexts--;
-        this.resetCtx(ctx, !detached);
+        let canReturnToPool = !detached;
+        if (detached && settled && this.nodeContextsCreated < this.poolSize) {
+          this.nodeContextsCreated++;
+          canReturnToPool = true;
+        }
+        this.resetCtx(ctx, canReturnToPool);
       }
     };
-    const maybeRelease = () => {
-      if (closed && settled) release();
-    };
-    res.once("close", () => {
+    res.on("close", () => {
+      if (closed) return;
       closed = true;
-      ctx.disconnected = true;
       if (settled) {
+        ctx.disconnected = true;
         release();
         return;
       }
-      // Handler still running: the context is detached from pool accounting (a fresh context may
-      // be created for new requests) and is discarded once it is released.
-      detached = true;
-      this.nodeContextsCreated--;
+      if (!res.writableEnded) {
+        ctx.disconnected = true;
+        // Handler still running: the context is detached from pool accounting (a fresh context may
+        // be created for new requests) and is discarded once it is released.
+        detached = true;
+        this.nodeContextsCreated--;
+      }
       // Last-resort bound so a handler
       // that never settles cannot leak the slot forever (generation bump makes late access inert).
       const limit = this.AppOptions.requestTimeoutMs;
@@ -910,23 +920,25 @@ export class App<CustomLevels extends string = never> extends Router {
         forceTimer.unref();
       }
     });
-    const onSettled = () => {
-      settled = true;
-      maybeRelease();
-    };
     try {
       const pending = this.handleRequest(ctx);
       if (pending !== undefined && typeof pending.then === "function") {
+        const onSettled = () => {
+          settled = true;
+          if (closed) release();
+        };
         pending.then(onSettled, (err: unknown) => {
           this.logger.error("Unexpected request pipeline failure:", err);
           onSettled();
         });
       } else {
-        onSettled();
+        settled = true;
+        if (closed) release();
       }
     } catch (err: unknown) {
       void this.handleError(err, ctx);
-      onSettled();
+      settled = true;
+      if (closed) release();
     }
   }
 

@@ -132,25 +132,64 @@ export function handleHandlerResult(res: unknown, ctx: RequestContext): unknown 
   return res;
 }
 
+const RESOLVED_PROMISE = Promise.resolve();
+
 export function createDynamicMiddlewareChain(chain: VoltenHandler[]): VoltenChainHandler {
   const len = chain.length;
   if (len === 0) {
     return function (): Promise<void> {
-      return Promise.resolve();
+      return RESOLVED_PROMISE;
     };
   }
 
-  return function (ctx: RequestContext): Promise<void> {
+  if (len === 1) {
+    const fn0 = chain[0];
+    if (fn0 !== undefined) {
+      return function (ctx: RequestContext): Promise<void> | void {
+        if (ctx.sent) {
+          if (ctx._app !== null) {
+            return ctx._app.handleError(VoltenError.from(new InvalidNextCallError()), ctx);
+          }
+          return;
+        }
+        let nextCalled = false;
+        const next = (): Promise<void> => {
+          if (nextCalled) throw new InvalidNextCallError();
+          nextCalled = true;
+          return RESOLVED_PROMISE;
+        };
+        try {
+          const res = handleHandlerResult(fn0(ctx, next), ctx);
+          if (isPromiseLike(res)) {
+            return Promise.resolve(res).then(noop, (err: unknown) => {
+              if (ctx._app !== null) {
+                return ctx._app.handleError(VoltenError.from(err), ctx);
+              }
+              return undefined;
+            });
+          }
+          return;
+        } catch (err) {
+          if (ctx._app !== null) {
+            return ctx._app.handleError(VoltenError.from(err), ctx);
+          }
+          return;
+        }
+      };
+    }
+  }
+
+  return function (ctx: RequestContext): Promise<void> | void {
     let index = -1;
     // Every downstream promise is tracked so the chain only settles when ALL of them settled,
     // even if a middleware called next() without awaiting it. This is what lets the server keep
     // the pooled context alive until no framework-started work can still touch it.
-    const tracked: Promise<void>[] = [];
+    let tracked: Promise<void>[] | null = null as Promise<void>[] | null;
 
     const dispatch = (i: number): Promise<void> => {
       if (i <= index) throw new InvalidNextCallError();
       index = i;
-      if (i === len) return Promise.resolve();
+      if (i === len) return RESOLVED_PROMISE;
       if (ctx.sent) throw new InvalidNextCallError();
 
       let res: unknown;
@@ -174,7 +213,7 @@ export function createDynamicMiddlewareChain(chain: VoltenHandler[]): VoltenChai
         // Observes the rejection (no unhandledRejection). If nobody awaited the promise, the
         // framework reports the error itself; this happens inside the tracked promise so the
         // chain does not settle (and the context is not recycled) before it ran.
-        tracked.push(
+        (tracked ??= []).push(
           p.then(
             noop,
             (err: unknown) =>
@@ -220,10 +259,11 @@ export function createDynamicMiddlewareChain(chain: VoltenHandler[]): VoltenChai
         });
         return wrapper;
       }
-      return Promise.resolve();
+      return RESOLVED_PROMISE;
     };
 
     const drainTracked = async (): Promise<void> => {
+      if (tracked === null) return;
       let seen = 0;
       while (seen < tracked.length) {
         const batch = tracked.slice(seen);
@@ -240,7 +280,11 @@ export function createDynamicMiddlewareChain(chain: VoltenHandler[]): VoltenChai
     };
 
     try {
-      return dispatch(0)
+      const p0 = dispatch(0);
+      if (tracked === null) {
+        return;
+      }
+      return p0
         .catch((err: unknown) => reportError(err))
         .then(drainTracked);
     } catch (err) {
