@@ -9,6 +9,7 @@ import type {
   VoltenAppOptions,
   Logger,
   CustomLoggerOptions,
+  MultipartPart,
 } from "./types.ts";
 import {
   DefaultVoltenOptions,
@@ -47,11 +48,17 @@ export class App<CustomLevels extends string = never> extends Router {
   protected tree: RouteTree;
   customErrorHandler: ErrorHandler | null = null;
   public serverStaticMap: string | null = null;
-  public AppOptions = DefaultVoltenOptions;
+  public AppOptions: Required<VoltenAppOptions<CustomLevels>>;
   public static readonly EMPTY_OBJECT = Object.freeze({});
 
-  public parseBody = parseBody.bind(this);
-  public parseMultipartStream = parseMultipartStream.bind(this);
+  public parseBody = (
+    ctx: RequestContext,
+    text: boolean = false,
+    limitOptional?: number,
+  ): Promise<unknown> => parseBody.call(this, ctx, text, limitOptional);
+  public parseMultipartStream = (
+    ctx: RequestContext,
+  ): AsyncGenerator<MultipartPart, void, unknown> => parseMultipartStream(ctx);
   public server: http.Server | https.Server;
   private acceptIncomming = true;
   public logger: Logger<CustomLevels>;
@@ -118,14 +125,95 @@ export class App<CustomLevels extends string = never> extends Router {
    */
   constructor(options: VoltenAppOptions<CustomLevels> = {}) {
     super();
-    Object.assign(this.AppOptions, options);
+    this.AppOptions = {
+      ...DefaultVoltenOptions,
+      ...options,
+      multipart: { ...DefaultVoltenOptions.multipart, ...options.multipart },
+      adaptiveTriage: { ...DefaultVoltenOptions.adaptiveTriage, ...options.adaptiveTriage },
+      loggerOptions: { ...DefaultVoltenOptions.loggerOptions, ...options.loggerOptions },
+    } as unknown as Required<VoltenAppOptions<CustomLevels>>;
+
+    const opts = this.AppOptions;
+    if (
+      typeof opts.bodyLimit !== "number" ||
+      opts.bodyLimit < 0 ||
+      !Number.isSafeInteger(opts.bodyLimit)
+    ) {
+      throw new TypeError("Invalid bodyLimit");
+    }
+    if (
+      typeof opts.RequestPoolSize !== "number" ||
+      opts.RequestPoolSize <= 0 ||
+      !Number.isSafeInteger(opts.RequestPoolSize)
+    ) {
+      throw new TypeError("Invalid RequestPoolSize");
+    }
+    if (
+      typeof opts.shutdownTimeoutMs !== "number" ||
+      opts.shutdownTimeoutMs < 0 ||
+      !Number.isSafeInteger(opts.shutdownTimeoutMs)
+    ) {
+      throw new TypeError("Invalid shutdownTimeoutMs");
+    }
+    if (
+      typeof opts.requestTimeoutMs !== "number" ||
+      opts.requestTimeoutMs < 0 ||
+      !Number.isSafeInteger(opts.requestTimeoutMs)
+    ) {
+      throw new TypeError("Invalid requestTimeoutMs");
+    }
+    const mp = opts.multipart;
+    if (
+      typeof mp.maxTotalBytes !== "number" ||
+      mp.maxTotalBytes < 0 ||
+      !Number.isSafeInteger(mp.maxTotalBytes)
+    )
+      throw new TypeError("Invalid multipart.maxTotalBytes");
+    if (typeof mp.maxParts !== "number" || mp.maxParts < 0 || !Number.isSafeInteger(mp.maxParts))
+      throw new TypeError("Invalid multipart.maxParts");
+    if (typeof mp.maxFields !== "number" || mp.maxFields < 0 || !Number.isSafeInteger(mp.maxFields))
+      throw new TypeError("Invalid multipart.maxFields");
+    if (
+      typeof mp.maxFieldSize !== "number" ||
+      mp.maxFieldSize < 0 ||
+      !Number.isSafeInteger(mp.maxFieldSize)
+    )
+      throw new TypeError("Invalid multipart.maxFieldSize");
+    if (
+      typeof mp.maxFileSize !== "number" ||
+      mp.maxFileSize < 0 ||
+      !Number.isSafeInteger(mp.maxFileSize)
+    )
+      throw new TypeError("Invalid multipart.maxFileSize");
+    if (
+      typeof mp.maxHeaderSize !== "number" ||
+      mp.maxHeaderSize < 0 ||
+      !Number.isSafeInteger(mp.maxHeaderSize)
+    )
+      throw new TypeError("Invalid multipart.maxHeaderSize");
+
     const serverOptions =
-      this.AppOptions.https !== undefined ? { https: this.AppOptions.https } : {};
+      this.AppOptions.https !== undefined
+        ? {
+            https: this.AppOptions.https,
+            requestTimeout: this.AppOptions.requestTimeoutMs,
+            headersTimeout: this.AppOptions.requestTimeoutMs,
+          }
+        : {
+            requestTimeout: this.AppOptions.requestTimeoutMs,
+            headersTimeout: this.AppOptions.requestTimeoutMs,
+          };
     this.server = createServer(serverOptions, this.onRequest.bind(this));
+    if ("requestTimeout" in this.server) {
+      this.server.requestTimeout = this.AppOptions.requestTimeoutMs;
+    }
+    if ("headersTimeout" in this.server) {
+      this.server.headersTimeout = this.AppOptions.requestTimeoutMs;
+    }
     this.poolSize = this.AppOptions.RequestPoolSize;
     this.tree = new RouteTree(this.AppOptions.caseInsensitive);
     this.onRequest = this.onRequest.bind(this);
-    this.logger = createLogger(this.AppOptions.loggerOptions) as Logger<CustomLevels>;
+    this.logger = createLogger(this.AppOptions.loggerOptions);
     this.adaptiveEngine = new AdaptiveEngine(this.AppOptions.adaptiveTriage, this.logger);
     this.availableContexts = [];
     this.availableEdgeContexts = [];
@@ -494,6 +582,64 @@ export class App<CustomLevels extends string = never> extends Router {
     }
   }
 
+  private shutdownHandlersAdded = false;
+  private isShuttingDown = false;
+
+  private setupGracefulShutdown() {
+    if (this.shutdownHandlersAdded) return;
+    this.shutdownHandlersAdded = true;
+
+    const shutdown = (signal: string) => {
+      if (this.isShuttingDown) return;
+      this.isShuttingDown = true;
+      this.logger.info(`Received ${signal}. Starting graceful shutdown...`);
+
+      this.acceptIncomming = false; // Stop accepting new requests? Actually Volten handles this gracefully? server.close() stops accepting new requests.
+
+      const timeout = setTimeout(() => {
+        this.logger.warn(
+          `Shutdown timeout of ${this.AppOptions.shutdownTimeoutMs.toString()}ms exceeded. Forcing connection close.`,
+        );
+        if (
+          "closeAllConnections" in this.server &&
+          typeof this.server.closeAllConnections === "function"
+        ) {
+          this.server.closeAllConnections();
+        }
+      }, this.AppOptions.shutdownTimeoutMs);
+      timeout.unref();
+
+      this.server.close((err) => {
+        clearTimeout(timeout);
+        if (err !== undefined) {
+          this.logger.error(`Error during shutdown: ${err.message}`);
+        } else {
+          this.logger.info("Graceful shutdown complete.");
+        }
+      });
+
+      if (
+        "closeIdleConnections" in this.server &&
+        typeof this.server.closeIdleConnections === "function"
+      ) {
+        this.server.closeIdleConnections();
+      }
+    };
+
+    try {
+      if (process.getMaxListeners() <= process.listenerCount("SIGINT") + 1) {
+        process.setMaxListeners(process.getMaxListeners() + 5);
+      }
+    } catch {
+      // ignore
+    }
+    process.once("SIGINT", () => {
+      shutdown("SIGINT");
+    });
+    process.once("SIGTERM", () => {
+      shutdown("SIGTERM");
+    });
+  }
   /**
    * Starts the HTTP/HTTPS server listening for incoming connections.
    *
@@ -507,7 +653,7 @@ export class App<CustomLevels extends string = never> extends Router {
    *   console.log('Server is running on port 3000');
    * });
    */
-  /* eslint-disable @typescript-eslint/unified-signatures, @typescript-eslint/no-explicit-any */
+  /* eslint-disable @typescript-eslint/unified-signatures */
   listen(
     port?: number,
     hostname?: string,
@@ -519,14 +665,13 @@ export class App<CustomLevels extends string = never> extends Router {
   listen(port?: number, listeningListener?: () => void): http.Server;
   listen(path: string, backlog?: number, listeningListener?: () => void): http.Server;
   listen(path: string, listeningListener?: () => void): http.Server;
-  listen(options: import("net").ListenOptions, listeningListener?: () => void): http.Server;
-  listen(handle: any, backlog?: number, listeningListener?: () => void): http.Server;
-  listen(handle: any, listeningListener?: () => void): http.Server;
-  /* eslint-enable @typescript-eslint/unified-signatures, @typescript-eslint/no-explicit-any */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  listen(...args: any[]): http.Server {
+  listen(handle: unknown, backlog?: number, listeningListener?: () => void): http.Server;
+  listen(handle: unknown, listeningListener?: () => void): http.Server;
+  /* eslint-enable @typescript-eslint/unified-signatures */
+
+  listen(...args: unknown[]): http.Server {
     if (this.server.listening) {
-      const lastArg = args[args.length - 1] as unknown;
+      const lastArg = args[args.length - 1];
       if (typeof lastArg === "function") {
         process.nextTick(lastArg);
       }
@@ -537,8 +682,12 @@ export class App<CustomLevels extends string = never> extends Router {
     this.compilePreflightHandler();
     this.register(this);
     this.tree.createMatchPath();
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-    this.server.listen(...args);
+    this.setupGracefulShutdown();
+    Object.freeze(this.AppOptions);
+    Object.freeze(this.AppOptions.multipart);
+    Object.freeze(this.AppOptions.adaptiveTriage);
+    Object.freeze(this.AppOptions.loggerOptions);
+    (this.server.listen as (...a: unknown[]) => http.Server)(...args);
     return this.server;
   }
 
