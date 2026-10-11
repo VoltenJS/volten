@@ -21,7 +21,13 @@ import {
   PAYLOAD_TOO_LARGE_HEADERS,
 } from "./types.ts";
 import { RouteTree } from "../utils/routeTree.ts";
-import { RequestContext, NodeRequestContext, EdgeRequestContext } from "../utils/requestCtx.ts";
+import {
+  RequestContext,
+  NodeRequestContext,
+  EdgeRequestContext,
+  NodeContextStorage,
+  EdgeContextStorage,
+} from "../utils/requestCtx.ts";
 import { JitCache } from "../utils/jitCache.ts";
 import { MethodNotAllowedError, PayloadTooLargeError, VoltenError } from "./errors.ts";
 import { parseBody, parseMultipartStream } from "../utils/bodyParser.ts";
@@ -40,10 +46,15 @@ import { buildDevErrorPage, isDevMode } from "../utils/devErrorPage.ts";
  * @template CustomLevels - Type defining custom logger levels.
  */
 export class App<CustomLevels extends string = never> extends Router {
-  private availableContexts: NodeRequestContext[];
-  private availableEdgeContexts: EdgeRequestContext[];
+  private availableStorage: NodeContextStorage[];
+  private availableEdgeStorage: EdgeContextStorage[];
   private poolIndex: number = 0;
+  private nodeContextsCreated: number = 0;
+  private tokenCounter: number = 0;
+
   private poolSize: number = 1024;
+  /** Contexts currently owned by an in-flight request (including disconnected-but-unsettled ones). */
+  private activeContexts: number = 0;
   public JITCache: JitCache = new JitCache();
   protected tree: RouteTree;
   customErrorHandler: ErrorHandler | null = null;
@@ -104,17 +115,27 @@ export class App<CustomLevels extends string = never> extends Router {
     this.serverStaticMap = absolutePath;
   }
 
-  resetCtx(ctx: NodeRequestContext) {
+  resetCtx(ctx: NodeRequestContext, recycle: boolean = true) {
     if (ctx.inited) {
-      ctx.reset();
-      this.availableContexts.push(ctx);
+      ctx.inited = false;
+      const storage = ctx._storage;
+      if (storage.activeToken === ctx.token) {
+        storage.reset();
+        ctx.invalidate();
+        if (recycle) this.availableStorage.push(storage);
+      }
     }
   }
 
   resetEdgeCtx(ctx: EdgeRequestContext) {
     if (ctx.inited) {
-      ctx.reset();
-      this.availableEdgeContexts.push(ctx);
+      ctx.inited = false;
+      const storage = ctx._storage;
+      if (storage.activeToken === ctx.token) {
+        storage.reset();
+        ctx.invalidate();
+        this.availableEdgeStorage.push(storage);
+      }
     }
   }
 
@@ -215,12 +236,11 @@ export class App<CustomLevels extends string = never> extends Router {
     this.onRequest = this.onRequest.bind(this);
     this.logger = createLogger(this.AppOptions.loggerOptions);
     this.adaptiveEngine = new AdaptiveEngine(this.AppOptions.adaptiveTriage, this.logger);
-    this.availableContexts = [];
-    this.availableEdgeContexts = [];
-    for (let i = 0; i < this.poolSize; i++) {
-      this.availableContexts.push(new NodeRequestContext());
-      this.availableEdgeContexts.push(new EdgeRequestContext());
-    }
+    this.availableStorage = [];
+    this.availableEdgeStorage = [];
+    this.nodeContextsCreated = 0;
+    this.tokenCounter = 0;
+    // Lazily allocate context pools only when needed (e.g. upon first request)
   }
 
   /**
@@ -371,7 +391,7 @@ export class App<CustomLevels extends string = never> extends Router {
         }
       }
     } else {
-      const edgeCtx = ctx as EdgeRequestContext;
+      const edgeCtx = ctx as unknown as import("../utils/requestCtx.ts").EdgeRequestContext;
       if (!edgeCtx.headersSent) {
         edgeCtx.statusCode = status;
         for (const [key, value] of Object.entries(headers)) {
@@ -431,9 +451,9 @@ export class App<CustomLevels extends string = never> extends Router {
         if (res !== null && !res.destroyed) {
           res.destroy();
         }
-        this.resetCtx(ctx);
+        // Recycling happens in onRequest once the response has closed and the chain settled.
       } else {
-        const edgeCtx = ctx as EdgeRequestContext;
+        const edgeCtx = ctx as unknown as import("../utils/requestCtx.ts").EdgeRequestContext;
         if (!edgeCtx.sent) {
           edgeCtx.send("Internal Server Error", 500);
         }
@@ -502,8 +522,14 @@ export class App<CustomLevels extends string = never> extends Router {
     req: http.IncomingMessage,
     res: http.ServerResponse,
   ): NodeRequestContext | null {
-    const ctx = this.availableContexts.pop();
-    if (ctx == undefined) {
+    let storage = this.availableStorage.pop();
+    if (storage === undefined) {
+      if (this.nodeContextsCreated < this.poolSize) {
+        storage = new NodeContextStorage();
+        this.nodeContextsCreated++;
+      }
+    }
+    if (storage === undefined) {
       res.setHeader("Connection", "close");
       res.writeHead(503, SERVICE_UNAVAILABLE_HEADERS);
       res.end(SERVICE_UNAVAILABLE_BUF);
@@ -511,6 +537,10 @@ export class App<CustomLevels extends string = never> extends Router {
     }
     this.poolIndex = (this.poolIndex + 1) % this.poolSize;
 
+    const token = ++this.tokenCounter;
+    storage.activeToken = token;
+    storage.generation++;
+    const ctx = new NodeRequestContext(storage, token);
     ctx.init(this, req, res);
     if (!ctx.inited) {
       return null;
@@ -518,52 +548,52 @@ export class App<CustomLevels extends string = never> extends Router {
     return ctx;
   }
 
-  private handleRequest(ctx: RequestContext): void {
+  /**
+   * Runs the whole request pipeline. Returns a promise (or undefined when everything completed
+   * synchronously) that settles only once preflight, routing and the full handler chain are done.
+   * The pooled context must not be recycled before this settles.
+   */
+  private handleRequest(ctx: RequestContext): void | Promise<void> {
     // 1. Preflight execution
     const preflightHandler = this.getPreflightHandler();
     if (preflightHandler !== null) {
       try {
         const result = preflightHandler(ctx);
         if (typeof (result as Promise<unknown> | undefined)?.then === "function") {
-          (result as Promise<unknown>)
+          return (result as Promise<unknown>)
             .then(() => {
-              if (!ctx.sent) this.executeRouting(ctx);
+              if (!ctx.sent) return this.executeRouting(ctx);
+              return undefined;
             })
             .catch((err: unknown) => this.handleError(err, ctx));
-          return;
         }
       } catch (err: unknown) {
-        void this.handleError(err, ctx);
-        return;
+        return this.handleError(err, ctx);
       }
 
       if (ctx.sent) return;
     }
 
-    this.executeRouting(ctx);
+    return this.executeRouting(ctx);
   }
 
-  private executeRouting(ctx: RequestContext): void {
+  private executeRouting(ctx: RequestContext): void | Promise<void> {
     // 2. Route matching (Sync fast-path, async fallback)
     try {
       const routeResult = ctx.routePath();
       if (typeof (routeResult as Promise<unknown> | undefined)?.then === "function") {
-        (routeResult as Promise<unknown>)
-          .then(() => {
-            this.executeChain(ctx);
-          })
+        return (routeResult as Promise<unknown>)
+          .then(() => this.executeChain(ctx))
           .catch((err: unknown) => this.handleError(err, ctx));
-        return;
       }
     } catch (err: unknown) {
-      void this.handleError(err, ctx);
-      return;
+      return this.handleError(err, ctx);
     }
 
-    this.executeChain(ctx);
+    return this.executeChain(ctx);
   }
 
-  private executeChain(ctx: RequestContext): void {
+  private executeChain(ctx: RequestContext): void | Promise<void> {
     // 3. Handler chain execution
     const route = ctx._route;
     if (route === null) return;
@@ -575,11 +605,14 @@ export class App<CustomLevels extends string = never> extends Router {
         typeof result === "object" &&
         typeof (result as Promise<unknown>).then === "function"
       ) {
-        (result as Promise<unknown>).catch((err: unknown) => this.handleError(err, ctx));
+        return (result as Promise<unknown>).catch((err: unknown) =>
+          this.handleError(err, ctx),
+        ) as Promise<void>;
       }
     } catch (err: unknown) {
-      void this.handleError(err, ctx);
+      return this.handleError(err, ctx);
     }
+    return;
   }
 
   private shutdownHandlersAdded = false;
@@ -729,7 +762,11 @@ export class App<CustomLevels extends string = never> extends Router {
         }
       }
 
-      const ctx = this.availableEdgeContexts.pop() ?? new EdgeRequestContext();
+      const storage = this.availableEdgeStorage.pop() ?? new EdgeContextStorage();
+      const token = ++this.tokenCounter;
+      storage.activeToken = token;
+      storage.generation++;
+      const ctx = new EdgeRequestContext(storage, token);
       ctx.init(this, request, env, executionCtx);
 
       try {
@@ -832,13 +869,64 @@ export class App<CustomLevels extends string = never> extends Router {
     if (ctx === null) {
       return;
     }
-    res.on("close", () => {
-      this.resetCtx(ctx);
+    // Lifetime invariant: the context returns to the pool only after BOTH the response has
+    // closed AND the handler chain has settled. A client disconnect alone never recycles it.
+    const token = ctx.token;
+    this.activeContexts++;
+    let closed = false;
+    let settled = false;
+    let forceTimer: NodeJS.Timeout | null = null;
+    let detached = false;
+    const release = () => {
+      if (forceTimer !== null) {
+        clearTimeout(forceTimer);
+        forceTimer = null;
+      }
+      // token guards against a double release recycling storage a newer request owns
+      if (ctx.token === token && ctx._storage.activeToken === token) {
+        this.activeContexts--;
+        this.resetCtx(ctx, !detached);
+      }
+    };
+    const maybeRelease = () => {
+      if (closed && settled) release();
+    };
+    res.once("close", () => {
+      closed = true;
+      ctx.disconnected = true;
+      if (settled) {
+        release();
+        return;
+      }
+      // Handler still running: the context is detached from pool accounting (a fresh context may
+      // be created for new requests) and is discarded once it is released.
+      detached = true;
+      this.nodeContextsCreated--;
+      // Last-resort bound so a handler
+      // that never settles cannot leak the slot forever (generation bump makes late access inert).
+      const limit = this.AppOptions.requestTimeoutMs;
+      if (limit > 0) {
+        forceTimer = setTimeout(release, limit);
+        forceTimer.unref();
+      }
     });
+    const onSettled = () => {
+      settled = true;
+      maybeRelease();
+    };
     try {
-      this.handleRequest(ctx);
+      const pending = this.handleRequest(ctx);
+      if (pending !== undefined && typeof pending.then === "function") {
+        pending.then(onSettled, (err: unknown) => {
+          this.logger.error("Unexpected request pipeline failure:", err);
+          onSettled();
+        });
+      } else {
+        onSettled();
+      }
     } catch (err: unknown) {
       void this.handleError(err, ctx);
+      onSettled();
     }
   }
 
@@ -898,7 +986,7 @@ export class App<CustomLevels extends string = never> extends Router {
 
     const timeoutMs = this.AppOptions.shutdownTimeoutMs;
     const startTime = Date.now();
-    while (this.availableContexts.length < this.poolSize) {
+    while (this.activeContexts > 0) {
       if (Date.now() - startTime > timeoutMs) {
         break;
       }
