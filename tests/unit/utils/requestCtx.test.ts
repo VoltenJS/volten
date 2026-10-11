@@ -28,7 +28,7 @@ test("EdgeRequestContext Tests", async (t) => {
     assert.strictEqual(ctx.method, "GET");
     assert.strictEqual(ctx.url, "/path?foo=bar");
     assert.strictEqual(ctx.path, "/path");
-    assert.strictEqual(ctx.query.foo, "bar");
+    assert.strictEqual(ctx.query["foo"], "bar");
     assert.strictEqual(ctx.headers["content-type"], "application/json");
     assert.strictEqual(ctx.cookies["test"], "123");
   });
@@ -328,11 +328,14 @@ test("RequestContext Getters", () => {
     "x-forwarded-host": "[::1]:8080, other",
     "content-type": "multipart/form-data",
   };
+  assert.ok(h1);
   const h2 = [ctx.hostname, ctx.host, ctx.isMultipart];
 
   ctx.req.headers = { host: "example.com:80" };
+  assert.ok(h2);
   const h3 = [ctx.hostname, ctx.host];
 
+  assert.ok(h3);
   try {
     ctx.route;
   } catch {}
@@ -431,6 +434,7 @@ test("NodeRequestContext Send Stream Direct", async () => {
 
   const rs = new ReadableStream();
   ctx.send(rs);
+  assert.ok(ended !== undefined);
 });
 
 // --- From requestCtx-methods2.test.ts ---
@@ -472,23 +476,23 @@ test("RequestCtx Additional Coverage", async (t) => {
 
   await t.test("body() on GET requests logs warning", async () => {
     const ctx = new NodeRequestContext();
-    ctx.init(app, { method: "GET", url: "/", headers: {}, connection: {} } as any, null);
+    ctx.init(app, { method: "GET", url: "/", headers: {}, connection: {} } as any, {} as any);
 
     const body = await ctx.body();
     assert.deepEqual(body, {});
 
     const ctx2 = new NodeRequestContext();
-    ctx2.init(app, { method: "GET", url: "/", headers: {}, connection: {} } as any, null);
+    ctx2.init(app, { method: "GET", url: "/", headers: {}, connection: {} } as any, {} as any);
     const textBody = await ctx2.body("text");
     assert.strictEqual(textBody, "");
   });
 
   await t.test("multipart() on non-multipart logs warning", async () => {
     const ctx = new NodeRequestContext();
-    ctx.init(app, { method: "POST", url: "/", headers: {}, connection: {} } as any, null);
+    ctx.init(app, { method: "POST", url: "/", headers: {}, connection: {} } as any, {} as any);
 
     let parts = 0;
-    for await (const p of ctx.multipart()) {
+    for await (const _p of ctx.multipart()) {
       parts++;
     }
     assert.strictEqual(parts, 0);
@@ -597,6 +601,7 @@ test("RequestCtx More Tests", async (t) => {
     const ctx3 = (app as any).createCtx(req, res);
     ctx3.send("hi");
     ctx3.send(Buffer.from("hi"));
+    assert.ok(resEnded);
   });
 });
 
@@ -692,7 +697,7 @@ test("RequestCtx Unit Tests", async (t) => {
     const ctx = new RequestContext();
     ctx.url = "/api/v1/items?category=books&page=2";
     assert.equal(ctx._path, null);
-    assert.equal(ctx._queryString, null);
+    assert.equal((ctx as any)._queryString, null);
 
     assert.equal(ctx.path, "/api/v1/items");
     assert.equal(ctx.queryString, "category=books&page=2");
@@ -709,5 +714,113 @@ test("RequestCtx Unit Tests", async (t) => {
 
     ctx._headers = {};
     assert.equal(ctx.isMultipart, false);
+  });
+
+  await t.test(
+    "more getters and setters: statusCode, type, flushHeaders, removeHeader, download, cookies",
+    async () => {
+      const ctx = new NodeRequestContext();
+      let codeSet = 0;
+      let headerKey = "";
+      let headerVal: any = "";
+      let headersFlushed = false;
+      let headerRemoved = false;
+      (ctx as any)._res = {
+        headersSent: false,
+        writableEnded: false,
+        set statusCode(c: number) {
+          codeSet = c;
+        },
+        get statusCode() {
+          return codeSet || 200;
+        },
+        setHeader(k: string, v: any) {
+          headerKey = k;
+          headerVal = v;
+        },
+        getHeader(k: string) {
+          return k === headerKey ? headerVal : undefined;
+        },
+        removeHeader(_k: string) {
+          headerRemoved = true;
+        },
+        flushHeaders() {
+          headersFlushed = true;
+        },
+      };
+
+      ctx.statusCode = 404;
+      assert.equal(ctx.statusCode, 404);
+
+      ctx.type = "application/json";
+      assert.equal(headerKey, "Content-Type");
+      assert.equal(headerVal, "application/json");
+      assert.equal(ctx.type, "application/json");
+
+      ctx.flushHeaders();
+      assert.equal(headersFlushed, true);
+
+      ctx.removeHeader("Content-Type");
+      assert.equal(headerRemoved, true);
+
+      ctx.setCookie("token", "xyz");
+      ctx.clearCookie("token");
+
+      // IPv6 host brackets
+      ctx._headers = { host: "[::1]:9000" };
+      assert.equal(ctx.hostname, "[::1]");
+
+      // Plain host without port
+      ctx._headers = { host: "localhost" };
+      assert.equal(ctx.hostname, "localhost");
+
+      // IP resolution
+      ctx._headers = { "x-forwarded-for": "1.2.3.4, 5.6.7.8" };
+      assert.equal(ctx.ip, "1.2.3.4");
+
+      ctx._headers = { "cf-connecting-ip": "9.8.7.6" };
+      assert.equal(ctx.ip, "9.8.7.6");
+
+      // download()
+      ctx.sendFile = (async (_path: string, _status?: number, opts?: any) => {
+        assert.equal(opts?.download, "report.pdf");
+        return ctx;
+      }) as any;
+      await ctx.download("/tmp/report.pdf", "report.pdf");
+    },
+  );
+
+  await t.test("EdgeRequestContext comprehensive properties and edge cases", async () => {
+    const edgeCtx = new EdgeRequestContext();
+    const app = new App() as any;
+    const req = new Request("http://localhost:8080/edge-path?param=1", {
+      headers: {
+        "x-forwarded-for": "10.0.0.1, 10.0.0.2",
+        "content-type": "text/plain",
+      },
+    });
+    edgeCtx.init(app, req);
+
+    assert.equal(edgeCtx.ip, "10.0.0.1");
+    edgeCtx._headers = { "cf-connecting-ip": "11.0.0.1" };
+    assert.equal(edgeCtx.ip, "11.0.0.1");
+    edgeCtx._headers = {};
+    assert.equal(edgeCtx.ip, "");
+
+    edgeCtx.type = "text/html";
+    assert.equal(edgeCtx.type, "text/html");
+
+    assert.equal(edgeCtx.getRawHeader("content-type"), "text/html");
+    assert.equal(edgeCtx.res, null);
+    assert.equal(edgeCtx.rawRes, null);
+
+    edgeCtx.removeHeader("content-type");
+    assert.equal(edgeCtx.getHeader("content-type"), undefined);
+
+    await assert.rejects(async () => {
+      await edgeCtx.sendFile("/file.txt");
+    }, /sendFile is not natively supported in Edge mode/);
+
+    assert.equal(edgeCtx.flushHeaders(), edgeCtx);
   });
 });
