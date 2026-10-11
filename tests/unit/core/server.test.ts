@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { App } from "../../../src/core/server.ts";
 import { NodeRequestContext, EdgeRequestContext } from "../../../src/utils/requestCtx.ts";
+import { request } from "../../helpers.ts";
 
 function captureLogs(fn: () => void): any[] {
   const originalInfo = console.info;
@@ -142,6 +143,44 @@ test("Server Unit Tests", async (t) => {
     const res = await fetch(req);
     assert.strictEqual(res.status, 204);
   });
+
+  await t.test(
+    "synchronous onRequest preflight hook that sends a response stops Node HTTP routing",
+    async () => {
+      const app = new App({ loggerOptions: { level: "fatal" } });
+      let preflightExecuted = false;
+      let downstreamRouteExecuted = false;
+
+      const syncPreflightHook = (ctx: any) => {
+        preflightExecuted = true;
+        ctx.setHeader("X-Preflight-Short-Circuit", "true");
+        ctx.status(401).send("Halted by preflight");
+      };
+
+      app.preflight(syncPreflightHook);
+      const origCompile = (app as any).compilePreflightHandler.bind(app);
+      (app as any).compilePreflightHandler = () => {
+        origCompile();
+        (app as any).preflightHandler = syncPreflightHook;
+      };
+
+      app.get("/protected", (ctx) => {
+        downstreamRouteExecuted = true;
+        ctx.status(200).json({ ok: true });
+      });
+
+      const res = await request(app, "/protected", { method: "GET" });
+      assert.strictEqual(res.status, 401);
+      assert.strictEqual(res.headers["x-preflight-short-circuit"], "true");
+      assert.strictEqual(res.body, "Halted by preflight");
+      assert.strictEqual(preflightExecuted, true);
+      assert.strictEqual(
+        downstreamRouteExecuted,
+        false,
+        "Downstream route handler must not execute after synchronous preflight hook sends response",
+      );
+    },
+  );
 
   await t.test("executeFallback catches crashes in custom errorHandler (Node)", async () => {
     const app = new App({ loggerOptions: { level: "fatal" } });
