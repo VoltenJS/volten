@@ -690,30 +690,68 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("rejects when requestTimeoutMs is exceeded", async () => {
-    const app = new App<any>({ requestTimeoutMs: 10 });
-    const ctx = new RequestContext();
-    const listeners: Record<string, Array<(...a: unknown[]) => void>> = {};
-    let destroyed = false;
-    const req = {
-      headers: {},
-      on(ev: string, cb: (...a: unknown[]) => void) {
-        (listeners[ev] ||= []).push(cb);
-        return this;
-      },
-      off(ev: string, cb: (...a: unknown[]) => void) {
-        if (listeners[ev]) listeners[ev] = listeners[ev].filter((c) => c !== cb);
-        return this;
-      },
-      destroy() {
-        destroyed = true;
-      },
-    };
-    (ctx as any)._req = req as any;
-    (ctx as any)._res = {} as any;
-    ctx._app = app;
-    await assert.rejects(() => parseBody.call(app, ctx, false), /Request body timed out/);
-    assert.strictEqual(destroyed, true);
-    app.close();
+    const TIMEOUT_MS = 50;
+    const app = new App<any>({ requestTimeoutMs: TIMEOUT_MS });
+    try {
+      const ctx = new RequestContext();
+      const listeners: Record<string, Array<(...a: unknown[]) => void>> = {};
+      let destroyed = false;
+
+      const req = {
+        headers: {},
+        on(ev: string, cb: (...a: unknown[]) => void) {
+          (listeners[ev] ||= []).push(cb);
+          return this;
+        },
+        off(ev: string, cb: (...a: unknown[]) => void) {
+          if (listeners[ev]) listeners[ev] = listeners[ev].filter((c) => c !== cb);
+          return this;
+        },
+        removeListener(ev: string, cb: (...a: unknown[]) => void) {
+          return this.off(ev, cb);
+        },
+        destroy() {
+          destroyed = true;
+        },
+      };
+
+      (ctx as any)._req = req as any;
+      (ctx as any)._res = {} as any;
+      ctx._app = app;
+
+      const started = Date.now();
+      let caught: unknown;
+      try {
+        await parseBody.call(app, ctx, false);
+        assert.fail("parseBody should have rejected");
+      } catch (err) {
+        caught = err;
+      }
+      const elapsed = Date.now() - started;
+
+      // 1. Timeout must actually have fired, not some earlier failure.
+      assert.ok(
+        elapsed >= TIMEOUT_MS - 5,
+        `Expected to wait ~${TIMEOUT_MS}ms for timeout, only waited ${elapsed}ms. ` +
+          `Rejection was: ${caught instanceof Error ? caught.stack : String(caught)}`,
+      );
+
+      // 2. The rejection must be a timeout error (not a generic Error, not ECONNRESET).
+      assert.ok(
+        caught instanceof Error,
+        `Expected an Error, got: ${Object.prototype.toString.call(caught)}`,
+      );
+      assert.match(
+        caught.message,
+        /Request body timed out/,
+        `Unexpected rejection message: ${caught.message}`,
+      );
+
+      // 3. The socket must have been destroyed.
+      assert.strictEqual(destroyed, true, "req.destroy() must be called on timeout");
+    } finally {
+      await app.close();
+    }
   });
 
   await t.test("file part text() and buffer() methods return content", async () => {
