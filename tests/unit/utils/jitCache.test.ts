@@ -16,7 +16,7 @@ test("JitCache Unit Tests", async (t) => {
   await t.test("setCompiler throws when the fingerprint is missing", () => {
     const cache = new JitCache();
     assert.throws(
-      () => cache.setCompiler(99, () => {}),
+      () => cache.setCompiler(99, () => ""), // return string
       /Attempting to set a compiler for a fingerprint that doesn't exist/,
     );
   });
@@ -69,5 +69,68 @@ test("JitCache Unit Tests", async (t) => {
     // 2 was evicted
     assert.throws(() => cache.getCount(2), /Fingerprint does not exist/);
     assert.equal(cache.getCount(3), 0);
+  });
+
+  await t.test("getShapeFingerprint covers all data types and caching", () => {
+    const cache = new JitCache();
+
+    // Primitives and objects
+    const obj = {
+      n: 123,
+      s: "hello",
+      b: true,
+      u: undefined,
+      nil: null,
+      fn: () => {},
+      big: BigInt(9007199254740991),
+      sym: Symbol("test"),
+      d: new Date(),
+      arr: [1, 2, 3],
+    };
+
+    const fp1 = cache.getShapeFingerprint(obj);
+    assert.ok(typeof fp1 === "number" && fp1 > 0);
+
+    // Calling again returns cached fingerprint WeakMap
+    const fp2 = cache.getShapeFingerprint(obj);
+    assert.equal(fp1, fp2);
+
+    // Deep object with > 32 keys to trigger stack growth
+    const largeObj: Record<string, unknown> = {};
+    for (let i = 0; i < 40; i++) {
+      largeObj[`key_${i}`] = { nested: i };
+    }
+    const fpLarge = cache.getShapeFingerprint(largeObj);
+    assert.ok(typeof fpLarge === "number");
+
+    // Null object
+    const fpNull = cache.getShapeFingerprint(null);
+    assert.ok(typeof fpNull === "number");
+  });
+
+  await t.test("set and get operations with existing and non-existing fingerprints", () => {
+    const cache = new JitCache(5);
+    assert.equal(cache.get(999), undefined);
+
+    const fn1 = () => "fn1";
+    // set on non-existing fingerprint creates it
+    cache.set(100, fn1 as any);
+    assert.equal(cache.get(100), fn1);
+
+    // set on existing fingerprint updates it
+    const fn2 = () => "fn2";
+    cache.set(100, fn2 as any);
+    assert.equal(cache.get(100), fn2);
+
+    // addCount and resetCount on existing fingerprint
+    assert.equal(cache.getCount(100), 0);
+    cache.addCount(100);
+    assert.equal(cache.getCount(100), 1);
+    cache.resetCount(100);
+    assert.equal(cache.getCount(100), 0);
+
+    // delete
+    cache.delete(100);
+    assert.throws(() => cache.getCount(100), /Fingerprint does not exist/);
   });
 });
