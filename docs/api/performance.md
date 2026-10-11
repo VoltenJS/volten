@@ -1,16 +1,16 @@
 # Performance & Architecture
 
-Volten was engineered from the ground up to minimize latency, eliminate memory allocations, and maximize throughput under extreme concurrency. Its performance advantages stem from three core architectural pillars:
+Volten was engineered from the ground up to minimize latency, reduce memory allocations, and maximize throughput under high concurrency. Its performance advantages stem from three core architectural pillars:
 
-1. **Object Pooling (`RequestPoolSize`)** – Eliminates V8 Garbage Collection (GC) pauses by recycling request and response contexts.
-2. **JitCache & Shape Fingerprinting** – Accelerates JSON serialization up to 2-3x faster than standard `JSON.stringify`.
+1. **Object Pooling (`RequestPoolSize`)** – Reduces V8 Garbage Collection (GC) pauses by recycling request and response contexts.
+2. **JitCache & Shape Fingerprinting** – Caches structural fingerprints and coordinates fast JSON serialization.
 3. **AdaptiveEngine (Traffic Triage)** – Protects critical endpoints from latency spikes via real-time event loop delay monitoring and load shedding.
 
 ---
 
 ## Architectural Flow
 
-The sequence below illustrates the end-to-end lifecycle of an incoming request traversing the **AdaptiveEngine**, the **Object Pool**, the **Handler pipeline**, and the **JitCache** compilation tier:
+The sequence below illustrates the end-to-end lifecycle of an incoming request traversing the **AdaptiveEngine**, the **Object Pool**, the **Handler pipeline**, and the **JitCache** tier:
 
 ```mermaid
 sequenceDiagram
@@ -36,7 +36,7 @@ sequenceDiagram
     deactivate Engine
     Engine->>Pool: Pop available RequestContext (O(1))
     activate Pool
-    Pool-->>Router: ctx initialized in-place (Zero Allocation)
+    Pool-->>Router: ctx initialized in-place (Low Allocation)
     deactivate Pool
 
     activate Router
@@ -71,7 +71,7 @@ sequenceDiagram
 
 In traditional Node.js web frameworks, every incoming request instantiates several transient JavaScript objects: wrapper request abstractions, response handles, header dictionaries, route parameter holders, and middleware state bags. Under high concurrency (e.g., 50,000+ requests/sec), this creates massive heap churn, triggering frequent V8 Minor GC (Scavenger) and Major GC (Mark-Sweep) pauses that degrade p99 latency.
 
-### Zero-Allocation Context Lifecycle
+### Low-Allocation Context Lifecycle
 
 Volten solves this problem by maintaining pre-allocated object pools for both Node.js (`NodeRequestContext`) and Edge (`EdgeRequestContext`) environments:
 

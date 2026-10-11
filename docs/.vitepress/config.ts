@@ -219,7 +219,7 @@ export default withMermaid({
             link: "/guide/context/dual-runtime-portability",
           },
           {
-            text: "Zero-Allocation Context Pooling",
+            text: "Context & Buffer Pooling",
             link: "/guide/context/zero-allocation-context-pooling",
           },
           {
