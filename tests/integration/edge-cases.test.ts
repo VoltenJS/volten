@@ -274,7 +274,7 @@ test("Framework Edge Cases", async (t) => {
 
     const ctx = new RequestContext();
     (ctx._res as any) = {
-      writeHead: (x: any, y: any) => {},
+      writeHead: () => {},
       setHeader: (k: string, v: unknown) => {
         headers[k.toLowerCase()] = v;
       },
@@ -313,4 +313,83 @@ test("Framework Edge Cases", async (t) => {
     ctx.text("†¨†¥¨†˚˜˚˜©¨¥†¨√¥†∂¨®¥∂ßπæ˚˙ˆ¨˙©§∫˜µ∫µ˜¡™£¢§¶•∞•¶ªº•º••ˆ˙∫µ∫˜ç≈");
     assert.equal(Buffer.byteLength(response), headers["content-length"]);
   });
+
+  await t.test(
+    "Web Response backpressure: producer couples to slow socket and cancels when client disconnects",
+    async () => {
+      const app = new App({ loggerOptions: { level: "fatal" } });
+
+      let chunksProduced = 0;
+      let streamCancelled = false;
+      const CHUNK_SIZE = 64 * 1024;
+
+      app.get("/stream-backpressure", () => {
+        const stream = new ReadableStream<Uint8Array>({
+          pull(controller) {
+            chunksProduced++;
+            const buffer = new Uint8Array(CHUNK_SIZE);
+            buffer.fill(65);
+            controller.enqueue(buffer);
+          },
+          cancel() {
+            streamCancelled = true;
+          },
+        });
+
+        return new Response(stream, {
+          headers: { "Content-Type": "application/octet-stream" },
+        });
+      });
+
+      const server = app.listen(0);
+      const port = (server.address() as { port: number }).port;
+
+      try {
+        await new Promise<void>((resolve) => {
+          const req = http.request(
+            {
+              hostname: "127.0.0.1",
+              port,
+              path: "/stream-backpressure",
+              method: "GET",
+            },
+            (res) => {
+              let chunksRead = 0;
+              res.on("data", () => {
+                chunksRead++;
+                res.pause();
+                setTimeout(() => {
+                  if (chunksRead < 5) {
+                    res.resume();
+                  } else {
+                    req.destroy();
+                    res.destroy();
+                    resolve();
+                  }
+                }, 20);
+              });
+            },
+          );
+          req.on("error", () => {});
+          req.end();
+        });
+
+        for (let i = 0; i < 30 && !streamCancelled; i++) {
+          await new Promise((r) => setTimeout(r, 50));
+        }
+
+        assert.equal(
+          streamCancelled,
+          true,
+          "ReadableStream must be cancelled when socket disconnects",
+        );
+        assert.ok(
+          chunksProduced < 20,
+          `Producer produced ${chunksProduced} chunks; must be coupled to consumer (<20)`,
+        );
+      } finally {
+        await app.close();
+      }
+    },
+  );
 });
