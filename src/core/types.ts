@@ -99,6 +99,7 @@ export type JSONResponseOptions = {
 export type SendFileOptions = {
   download?: string;
   errCallback?: ErrorHandler;
+  root?: string;
 };
 
 export type VoltenHttpsOptions = {
@@ -108,7 +109,17 @@ export type VoltenHttpsOptions = {
   cert: string;
 };
 
+export type MultipartOptions = {
+  maxTotalBytes?: number;
+  maxParts?: number;
+  maxFields?: number;
+  maxFieldSize?: number;
+  maxFileSize?: number;
+  maxHeaderSize?: number;
+};
+
 export type VoltenAppOptions<CustomLevels extends string = never> = {
+  multipart?: MultipartOptions;
   bodyLimit?: number;
   caseInsensitive?: boolean;
   RequestPoolSize?: number;
@@ -116,12 +127,13 @@ export type VoltenAppOptions<CustomLevels extends string = never> = {
   loggerOptions?: CustomLoggerOptions<CustomLevels>;
   adaptiveTriage?: AdaptiveTriageOptions;
   shutdownTimeoutMs?: number;
+  requestTimeoutMs?: number;
 };
 
 export const DefaultVoltenOptions: Required<VoltenAppOptions> = {
   bodyLimit: 1024 * 1024,
   caseInsensitive: true,
-  RequestPoolSize: 2048,
+  RequestPoolSize: 1024,
   https: undefined,
   loggerOptions: {
     level: "warn",
@@ -134,6 +146,15 @@ export const DefaultVoltenOptions: Required<VoltenAppOptions> = {
     checkIntervalMs: 500,
   },
   shutdownTimeoutMs: 10000,
+  requestTimeoutMs: 15000,
+  multipart: {
+    maxTotalBytes: 1024 * 1024 * 100, // 100MB
+    maxParts: 1000,
+    maxFields: 1000,
+    maxFieldSize: 1024 * 1024, // 1MB
+    maxFileSize: 1024 * 1024 * 50, // 50MB
+    maxHeaderSize: 1024 * 8, // 8KB
+  },
 };
 
 export type RouteOptions = {
@@ -151,7 +172,7 @@ export type CookieOptions = {
   domain?: string;
 };
 
-export type FileController = { enqueue: (c: Uint8Array) => void; close: () => void };
+export type FileController = { enqueue: (c: Uint8Array) => boolean; close: () => void };
 export interface MultipartFile {
   isFile: true;
   name: string;
@@ -226,7 +247,7 @@ export interface CustomLoggerOptions<CustomLevels extends string = never> {
 }
 
 export type Logger<CustomLevels extends string = never> = {
-  [K in DefaultLevels | CustomLevels]: LogFn;
+  [K in DefaultLevels | (string extends CustomLevels ? never : CustomLevels)]: LogFn;
 } & {
   level: DefaultLevels | CustomLevels;
   child(bindings: Record<string, unknown>): Logger<CustomLevels>;

@@ -1,32 +1,93 @@
 import type { VoltenChainHandler, VoltenHandler } from "./types.ts";
 import { InvalidNextCallError, VoltenError } from "./errors.ts";
+import http from "node:http";
 
 import type { RequestContext, EdgeRequestContext } from "../utils/requestCtx.ts";
-import { isEdge } from "../utils/isEdge.ts";
 
-async function writeWebResponseToNode(webRes: Response, ctx: RequestContext) {
+function isPromiseLike(val: unknown): val is PromiseLike<unknown> {
+  return val !== null && typeof val === "object" && "then" in val && typeof val.then === "function";
+}
+
+const noop = (): void => {};
+
+/** Resolves when the response drains, closes or errors (whichever comes first); never leaks listeners. */
+function waitForDrain(res: http.ServerResponse): Promise<void> {
+  if (typeof res.once !== "function") return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    const done = (): void => {
+      if (typeof res.off === "function") {
+        res.off("drain", done);
+        res.off("close", done);
+        res.off("error", done);
+      }
+      resolve();
+    };
+    res.once("drain", done);
+    res.once("close", done);
+    res.once("error", done);
+  });
+}
+
+/**
+ * Pipes a Web Response body into the Node response with real backpressure: the next chunk is only
+ * pulled from the Web stream once the socket accepted the previous one. If the Node response
+ * closes, the Web stream is cancelled so the producer stops.
+ */
+async function writeWebResponseToNode(webRes: Response, ctx: RequestContext): Promise<void> {
+  const resObj = ctx.res;
+  if (resObj === null) {
+    if (webRes.body !== null) await webRes.body.cancel().catch(noop);
+    return;
+  }
   ctx.statusCode = webRes.status;
   webRes.headers.forEach((val, key) => {
     ctx.setHeader(key, val);
   });
-  if (webRes.body !== null) {
-    const reader = webRes.body.getReader();
-    try {
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const resObj = ctx.res;
-        if (resObj !== null) {
-          resObj.write(value);
-        }
-      }
-    } finally {
-      reader.releaseLock();
-    }
-  }
-  const resObj = ctx.res;
-  if (resObj !== null) {
+  if (webRes.body === null) {
     resObj.end();
+    return;
+  }
+  const reader = webRes.body.getReader();
+  let aborted = resObj.destroyed;
+  const nodeReq = ctx._req instanceof http.IncomingMessage ? ctx._req : null;
+  const onClose = (): void => {
+    aborted = true;
+    reader.cancel().catch(noop);
+  };
+  if (typeof resObj.once === "function") {
+    resObj.once("close", onClose);
+  }
+  if (nodeReq !== null && typeof nodeReq.once === "function") {
+    nodeReq.once("close", onClose);
+  }
+  try {
+    while (!aborted) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (resObj.destroyed) break;
+      const accepted = resObj.write(value);
+      if (!accepted) {
+        await waitForDrain(resObj);
+      }
+    }
+    if (aborted || resObj.destroyed) {
+      await reader.cancel().catch(noop);
+    } else {
+      resObj.end();
+    }
+  } catch (err) {
+    await reader.cancel(err).catch(noop);
+    throw err;
+  } finally {
+    resObj.off("close", onClose);
+    if (nodeReq !== null && typeof nodeReq.off === "function") {
+      nodeReq.off("close", onClose);
+    }
+    try {
+      reader.releaseLock();
+    } catch {
+      // ignore
+    }
   }
 }
 
@@ -42,7 +103,7 @@ export function handleHandlerResult(res: unknown, ctx: RequestContext): unknown 
       if (val !== undefined && !ctx.sent) {
         if (typeof Response !== "undefined" && val instanceof Response) {
           if (ctx.runtime === "edge") {
-            const edgeCtx = ctx as EdgeRequestContext;
+            const edgeCtx = ctx as unknown as EdgeRequestContext;
             edgeCtx._edgeBodySent = true;
             edgeCtx._resolveEdgeResponse(val);
           } else {
@@ -58,7 +119,7 @@ export function handleHandlerResult(res: unknown, ctx: RequestContext): unknown 
   if (!ctx.sent) {
     if (typeof Response !== "undefined" && res instanceof Response) {
       if (ctx.runtime === "edge") {
-        const edgeCtx = ctx as EdgeRequestContext;
+        const edgeCtx = ctx as unknown as EdgeRequestContext;
         edgeCtx._edgeBodySent = true;
         edgeCtx._resolveEdgeResponse(res);
       } else {
@@ -71,141 +132,167 @@ export function handleHandlerResult(res: unknown, ctx: RequestContext): unknown 
   return res;
 }
 
+const RESOLVED_PROMISE = Promise.resolve();
+
 export function createDynamicMiddlewareChain(chain: VoltenHandler[]): VoltenChainHandler {
   const len = chain.length;
   if (len === 0) {
     return function (): Promise<void> {
-      return Promise.resolve();
+      return RESOLVED_PROMISE;
     };
   }
 
-  return function (ctx: RequestContext): Promise<void> {
-    let index = -1;
+  if (len === 1) {
+    const fn0 = chain[0];
+    if (fn0 !== undefined) {
+      return function (ctx: RequestContext): Promise<void> | void {
+        if (ctx.sent) {
+          if (ctx._app !== null) {
+            return ctx._app.handleError(VoltenError.from(new InvalidNextCallError()), ctx);
+          }
+          return;
+        }
+        let nextCalled = false;
+        const next = (): Promise<void> => {
+          if (nextCalled) throw new InvalidNextCallError();
+          nextCalled = true;
+          return RESOLVED_PROMISE;
+        };
+        try {
+          const res = handleHandlerResult(fn0(ctx, next), ctx);
+          if (isPromiseLike(res)) {
+            return Promise.resolve(res).then(noop, (err: unknown) => {
+              if (ctx._app !== null) {
+                return ctx._app.handleError(VoltenError.from(err), ctx);
+              }
+              return undefined;
+            });
+          }
+          return;
+        } catch (err) {
+          if (ctx._app !== null) {
+            return ctx._app.handleError(VoltenError.from(err), ctx);
+          }
+          return;
+        }
+      };
+    }
+  }
 
-    const dispatch = (i: number): Promise<void> | void => {
-      if (i <= index) {
-        throw new InvalidNextCallError();
-      }
+  return function (ctx: RequestContext): Promise<void> | void {
+    let index = -1;
+    // Every downstream promise is tracked so the chain only settles when ALL of them settled,
+    // even if a middleware called next() without awaiting it. This is what lets the server keep
+    // the pooled context alive until no framework-started work can still touch it.
+    let tracked: Promise<void>[] | null = null as Promise<void>[] | null;
+
+    const dispatch = (i: number): Promise<void> => {
+      if (i <= index) throw new InvalidNextCallError();
       index = i;
-      if (i === len) {
-        return Promise.resolve();
+      if (i === len) return RESOLVED_PROMISE;
+      if (ctx.sent) throw new InvalidNextCallError();
+
+      let res: unknown;
+      try {
+        const fn = chain[i];
+        if (fn !== undefined) {
+          res = handleHandlerResult(
+            fn(ctx, () => dispatch(i + 1)),
+            ctx,
+          );
+        }
+      } catch (err) {
+        res = Promise.reject(err instanceof Error ? err : new Error(String(err)));
       }
-      if (ctx.sent) {
-        throw new InvalidNextCallError();
+
+      if (isPromiseLike(res)) {
+        const p = Promise.resolve(res);
+        let isAwaited = false;
+
+        const appRef = ctx._app;
+        // Observes the rejection (no unhandledRejection). If nobody awaited the promise, the
+        // framework reports the error itself; this happens inside the tracked promise so the
+        // chain does not settle (and the context is not recycled) before it ran.
+        (tracked ??= []).push(
+          p.then(
+            noop,
+            (err: unknown) =>
+              new Promise<void>((resolve) => {
+                setImmediate(() => {
+                  if (!isAwaited && appRef !== null) {
+                    Promise.resolve(appRef.handleError(VoltenError.from(err), ctx)).then(
+                      resolve,
+                      resolve,
+                    );
+                  } else {
+                    resolve();
+                  }
+                });
+              }),
+          ),
+        );
+
+        const wrapper = Object.create(p) as Promise<void>;
+        void Object.defineProperty(wrapper, "then", {
+          value: (...args: unknown[]) => {
+            isAwaited = true;
+            return (p.then as (...a: unknown[]) => unknown)(...args);
+          },
+          writable: true,
+          configurable: true,
+        });
+        void Object.defineProperty(wrapper, "catch", {
+          value: (...args: unknown[]) => {
+            isAwaited = true;
+            return (p.catch as (...a: unknown[]) => unknown)(...args);
+          },
+          writable: true,
+          configurable: true,
+        });
+        void Object.defineProperty(wrapper, "finally", {
+          value: (...args: unknown[]) => {
+            isAwaited = true;
+            return (p.finally as (...a: unknown[]) => unknown)(...args);
+          },
+          writable: true,
+          configurable: true,
+        });
+        return wrapper;
       }
-      return handleHandlerResult(
-        chain[i](ctx, () => dispatch(i + 1)),
-        ctx,
-      ) as Promise<void> | void;
+      return RESOLVED_PROMISE;
+    };
+
+    const drainTracked = async (): Promise<void> => {
+      if (tracked === null) return;
+      let seen = 0;
+      while (seen < tracked.length) {
+        const batch = tracked.slice(seen);
+        seen = tracked.length;
+        await Promise.all(batch);
+      }
+    };
+
+    const reportError = (err: unknown): Promise<void> | void => {
+      if (ctx._app !== null) {
+        return ctx._app.handleError(VoltenError.from(err), ctx);
+      }
+      return undefined;
     };
 
     try {
-      index = 0;
-      const res = handleHandlerResult(
-        chain[0](ctx, () => dispatch(1)),
-        ctx,
-      );
-      if (
-        res !== null &&
-        typeof res === "object" &&
-        typeof (res as { then?: unknown }).then === "function"
-      ) {
-        const thenable = res as { catch: (cb: (err: unknown) => unknown) => Promise<unknown> };
-        if (typeof thenable.catch === "function") {
-          return thenable.catch(function (err: unknown) {
-            if (ctx._app !== null) {
-              void ctx._app.handleError(VoltenError.from(err), ctx);
-            }
-          }) as Promise<void>;
-        }
+      const p0 = dispatch(0);
+      if (tracked === null) {
+        return;
       }
-      return Promise.resolve();
+      return p0
+        .catch((err: unknown) => reportError(err))
+        .then(drainTracked);
     } catch (err) {
-      if (ctx._app !== null) {
-        void ctx._app.handleError(VoltenError.from(err), ctx);
-      }
-      return Promise.resolve();
+      return Promise.resolve(reportError(err)).then(drainTracked);
     }
   };
 }
 
 export function compileMiddlewareChain(chain: VoltenHandler[]): VoltenChainHandler {
-  const len = chain.length;
-  if (len === 0) {
-    return function (): Promise<void> {
-      return Promise.resolve();
-    };
-  }
-
-  if (isEdge()) {
-    return createDynamicMiddlewareChain(chain);
-  }
-
-  try {
-    const lines: string[] = [];
-    lines.push("return function(ctx) {");
-    lines.push("  let index = -1;");
-
-    lines.push(`  const next_${String(len)} = () => {`);
-    lines.push(`    if (${String(len)} <= index) {`);
-    lines.push(`      throw new InvalidNextCallError();`);
-    lines.push(`    }`);
-    lines.push(`    index = ${String(len)};`);
-    lines.push(`    return Promise.resolve();`);
-    lines.push(`  };`);
-
-    for (let i = len - 1; i >= 1; i--) {
-      lines.push(`  const next_${String(i)} = () => {`);
-      lines.push(`    if (${String(i)} <= index) {`);
-      lines.push(`      throw new InvalidNextCallError();`);
-      lines.push(`    }`);
-      lines.push(`    index = ${String(i)};`);
-      lines.push(`    if (ctx.sent) {`);
-      lines.push(`      throw new InvalidNextCallError();`);
-      lines.push(`    }`);
-      lines.push(
-        `    return handleHandlerResult(chain[${String(i)}](ctx, next_${String(i + 1)}), ctx);`,
-      );
-      lines.push(`  };`);
-    }
-
-    lines.push("  try {");
-    lines.push("    index = 0;");
-    lines.push("    const res = handleHandlerResult(chain[0](ctx, next_1), ctx);");
-    lines.push(
-      '    if (res !== null && typeof res === "object" && typeof res.then === "function") {',
-    );
-    lines.push("      return res.catch(function(err) {");
-    lines.push("        if (ctx._app !== null) {");
-    lines.push("          void ctx._app.handleError(VoltenError.from(err), ctx);");
-    lines.push("        }");
-    lines.push("      });");
-    lines.push("    }");
-    lines.push("    return Promise.resolve();");
-    lines.push("  } catch (err) {");
-    lines.push("    if (ctx._app !== null) {");
-    lines.push("      void ctx._app.handleError(VoltenError.from(err), ctx);");
-    lines.push("    }");
-    lines.push("    return Promise.resolve();");
-    lines.push("  }");
-    lines.push("};");
-
-    /* eslint-disable-next-line @typescript-eslint/no-implied-eval */
-    const factory = new Function(
-      "chain",
-      "InvalidNextCallError",
-      "VoltenError",
-      "handleHandlerResult",
-      lines.join("\n"),
-    );
-    /* eslint-disable @typescript-eslint/no-unsafe-call */
-    return factory(
-      chain,
-      InvalidNextCallError,
-      VoltenError,
-      handleHandlerResult,
-    ) as VoltenChainHandler;
-  } catch {
-    return createDynamicMiddlewareChain(chain);
-  }
+  return createDynamicMiddlewareChain(chain);
 }

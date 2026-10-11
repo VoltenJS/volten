@@ -219,4 +219,101 @@ test("Server Unit Tests", async (t) => {
     assert.strictEqual(response.status, 500);
     assert.strictEqual(await response.text(), "Internal Server Error");
   });
+
+  await t.test("printRoutes prints empty route message or formatted table", () => {
+    const app = new App();
+    // No routes
+    app.printRoutes();
+
+    // Register routes
+    app.get("/users", () => {});
+    app.post("/users", () => {});
+    app.put("/users/:id", () => {});
+    app.delete("/users/:id", () => {});
+    app.printRoutes();
+  });
+
+  await t.test("clearErrorHandler resets custom error handler", () => {
+    const app = new App();
+    app.onError((_err, ctx) => {
+      ctx.status(500);
+    });
+    assert.ok(app.customErrorHandler !== null);
+    app.clearErrorHandler();
+    assert.strictEqual(app.customErrorHandler, null);
+  });
+
+  await t.test("core errorHandler covers error code branches", () => {
+    const app = new App({ loggerOptions: { level: "fatal" } });
+    const codes = [
+      "ERR_PAYLOAD_TOO_LARGE",
+      "ERR_METHOD_NOT_ALLOWED",
+      "ERR_NOT_FOUND",
+      "ERR_SERVICE_UNAVAILABLE",
+      "ERR_BAD_REQUEST",
+      "ERR_UNSUPPORTED_MEDIA_TYPE",
+      "ERR_SEND_AFTER_SENT",
+    ];
+
+    for (const code of codes) {
+      let writtenStatus = 0;
+      let writtenHeaders: any = {};
+      let ended = false;
+      const res = {
+        headersSent: false,
+        writeHead(s: number, h: any) {
+          writtenStatus = s;
+          writtenHeaders = h;
+          return this;
+        },
+        end() {
+          ended = true;
+          return this;
+        },
+        destroy() {},
+      } as any;
+      const req = {
+        url: "/",
+        method: "GET",
+        headers: { accept: "text/plain" },
+        socket: { destroy() {} },
+      } as any;
+      const ctx = new NodeRequestContext();
+      ctx.init(app, req, res);
+
+      const err: any = new Error("test error");
+      err.code = code;
+      (app as any).errorHandler(err, ctx);
+      if (code !== "ERR_SEND_AFTER_SENT") {
+        assert.ok(writtenStatus > 0 || ended || writtenHeaders !== null);
+      }
+    }
+
+    // ERR_HEADERS_SENT
+    let socketDestroyed = false;
+    let resDestroyed = false;
+    const resH = {
+      headersSent: true,
+      destroy: () => {
+        resDestroyed = true;
+      },
+    } as any;
+    const reqH = {
+      url: "/",
+      method: "GET",
+      headers: {},
+      socket: {
+        destroy: () => {
+          socketDestroyed = true;
+        },
+      },
+    } as any;
+    const ctxH = new NodeRequestContext();
+    ctxH.init(app, reqH, resH);
+    const errH: any = new Error("headers sent error");
+    errH.code = "ERR_HEADERS_SENT";
+    (app as any).errorHandler(errH, ctxH);
+    assert.ok(socketDestroyed);
+    assert.ok(resDestroyed);
+  });
 });

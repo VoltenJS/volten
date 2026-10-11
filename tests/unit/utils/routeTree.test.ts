@@ -42,7 +42,7 @@ test("RouteTree Unit Tests", async (t) => {
   await t.test("addPath, checkDuplicate, checkMethodAllowed, getRoutePriority, setDeOpt", () => {
     const tree = new RouteTree(false);
     const dummyHandler = () => {};
-    const options = { bodyLimit: 1024, priority: "high" as const };
+    const options = { bodyLimit: 1024, priority: "critical" as const };
 
     tree.addPath("GET", "/api/v1/users", [dummyHandler], options);
     tree.addPath("POST", "/api/v1/users", [dummyHandler], options);
@@ -53,7 +53,7 @@ test("RouteTree Unit Tests", async (t) => {
     const allowed = tree.checkMethodAllowed("/api/v1/users");
     assert.deepEqual(allowed, ["GET", "HEAD", "POST", "OPTIONS"]);
 
-    assert.equal(tree.getRoutePriority("GET", "/api/v1/users"), "high");
+    assert.equal(tree.getRoutePriority("GET", "/api/v1/users"), "critical");
     assert.equal(tree.getRoutePriority("GET", "/nonexistent"), "normal");
 
     const dummyCtx = { inited: false, params: {} } as unknown as RequestContext;
@@ -185,5 +185,247 @@ test("RouteTree Unit Tests", async (t) => {
     assert.ok(tree.matchPath("GET", "/", ctx) !== null);
     assert.equal(tree.matchPath("GET", "/nonexistent", ctx), null);
     assert.equal(tree.matchPath("POST", "/", ctx), null);
+  });
+
+  await t.test("resolves duplicate parameter tokens by letting the rightmost token win", () => {
+    const tree = new RouteTree(false);
+    const dummyHandler = () => {};
+    const defaultOpts = { bodyLimit: 1048576, priority: "normal" as const };
+    tree.addPath("GET", "/orgs/:id/teams/:id", [dummyHandler], defaultOpts);
+
+    function createContext(initialParams: Record<string, string> = {}): RequestContext {
+      return {
+        inited: true,
+        params: { ...initialParams },
+      } as unknown as RequestContext;
+    }
+
+    // 1. Uncompiled matching
+    const uncompiledCtx = createContext();
+    const uncompiledMatch = tree.defaultMatchPath(
+      "GET",
+      "/orgs/alpha/teams/backend",
+      uncompiledCtx,
+    );
+    assert.ok(uncompiledMatch !== null, "Uncompiled route should match");
+    assert.equal(
+      uncompiledCtx.params["id"],
+      "backend",
+      "Uncompiled tree: rightmost parameter must overwrite earlier tokens",
+    );
+
+    // 2. Trigger JIT compilation
+    const warmupCtx = createContext();
+    tree.matchPath("GET", "/orgs/init/teams/init", warmupCtx);
+
+    // 3. JIT-compiled matching
+    const compiledCtx = createContext();
+    const compiledMatch = tree.matchPath("GET", "/orgs/alpha/teams/backend", compiledCtx);
+    assert.ok(compiledMatch !== null, "Compiled route should match");
+    assert.equal(
+      compiledCtx.params["id"],
+      "backend",
+      "Compiled JIT: rightmost parameter must overwrite earlier tokens",
+    );
+  });
+
+  await t.test("handles HEAD to GET fallback cleanly without leaking dirty state", () => {
+    const tree = new RouteTree(false);
+    const dummyHandler = () => {};
+    const defaultOpts = { bodyLimit: 1048576, priority: "normal" as const };
+    tree.addPath("GET", "/files/:fileId", [dummyHandler], defaultOpts);
+
+    function createContext(initialParams: Record<string, string> = {}): RequestContext {
+      return {
+        inited: true,
+        params: { ...initialParams },
+      } as unknown as RequestContext;
+    }
+
+    // Trigger JIT compilation
+    const warmupCtx = createContext();
+    tree.matchPath("GET", "/files/init", warmupCtx);
+
+    // Dispatch HEAD request to trigger fallback
+    const headCtx = createContext();
+    const match = tree.matchPath("HEAD", "/files/document_42", headCtx);
+
+    assert.ok(match !== null, "HEAD request should fall back to GET route");
+    assert.equal(
+      headCtx.params["fileId"],
+      "document_42",
+      "Parameter should resolve cleanly on HEAD fallback",
+    );
+  });
+
+  await t.test(
+    "retains proper route matching when query strings are passed to dynamic routes",
+    () => {
+      const tree = new RouteTree(false);
+      const dummyHandler = () => {};
+      const defaultOpts = { bodyLimit: 1048576, priority: "normal" as const };
+      tree.addPath("GET", "/users/:userId/profile", [dummyHandler], defaultOpts);
+
+      function createContext(initialParams: Record<string, string> = {}): RequestContext {
+        return {
+          inited: true,
+          params: { ...initialParams },
+        } as unknown as RequestContext;
+      }
+
+      // Trigger JIT compilation
+      const warmupCtx = createContext();
+      tree.matchPath("GET", "/users/init/profile", warmupCtx);
+
+      const testCtx = createContext();
+      const match = tree.matchPath("GET", "/users/john/profile?ref=share&theme=dark", testCtx);
+
+      assert.ok(match !== null, "Route must match when query string is present");
+      assert.equal(
+        testCtx.params["userId"],
+        "john",
+        "Parameter must extract cleanly before the query string",
+      );
+    },
+  );
+
+  await t.test("Router JIT Compiled Matcher Direct Verification", async (st) => {
+    const tree = new RouteTree(false);
+    const handler = () => {};
+    const opts = { bodyLimit: 1048576, priority: "normal" as const };
+    tree.addPath("GET", "/users/:id", [handler], opts);
+    tree.addPath("GET", "/files/:name", [handler], opts);
+    tree.addPath("GET", "/orgs/:orgId/repos/:repoId/pulls/:prNumber", [handler], opts);
+    tree.addPath("GET", "/assets/*", [handler], opts);
+    tree.addPath("POST", "/api/v1/submit", [handler], opts);
+
+    tree.createMatchPath();
+    assert.equal(tree.isMatchPathCompiled, true, "JIT compilation must succeed");
+
+    function createMockCtx(): RequestContext {
+      return {
+        inited: true,
+        params: Object.create(null),
+        isValid: true,
+        disconnected: false,
+      } as unknown as RequestContext;
+    }
+
+    await st.test("matches /users/:id with plain and numeric values", () => {
+      const ctx = createMockCtx();
+      const match = tree.matchPath("GET", "/users/12345", ctx);
+      assert.ok(match !== null, "Route must match");
+      assert.equal(ctx.params["id"], "12345");
+    });
+
+    await st.test("matches /files/:name with encoded %2F as ONE parameter value 'a/b'", () => {
+      const ctx = createMockCtx();
+      const match = tree.matchPath("GET", "/files/a%2Fb", ctx);
+      assert.ok(match !== null, "Route must match /files/:name without splitting on %2F");
+      assert.equal(ctx.params["name"], "a/b", "safeDecode must decode %2F into 'a/b'");
+    });
+
+    await st.test("matches /files/:name with space %20 and unicode %E2%9C%A8", () => {
+      const ctx1 = createMockCtx();
+      const match1 = tree.matchPath("GET", "/files/my%20file.txt", ctx1);
+      assert.ok(match1 !== null);
+      assert.equal(ctx1.params["name"], "my file.txt");
+
+      const ctx2 = createMockCtx();
+      const match2 = tree.matchPath("GET", "/files/%E2%9C%A8sparkle%E2%9C%A8", ctx2);
+      assert.ok(match2 !== null);
+      assert.equal(ctx2.params["name"], "✨sparkle✨");
+    });
+
+    await st.test(
+      "matches multiple parameters in /orgs/:orgId/repos/:repoId/pulls/:prNumber",
+      () => {
+        const ctx = createMockCtx();
+        const match = tree.matchPath("GET", "/orgs/acme%2Fcorp/repos/volten/pulls/42", ctx);
+        assert.ok(match !== null);
+        assert.equal(ctx.params["orgId"], "acme/corp");
+        assert.equal(ctx.params["repoId"], "volten");
+        assert.equal(ctx.params["prNumber"], "42");
+      },
+    );
+
+    await st.test("matches wildcard /assets/* correctly", () => {
+      const ctx = createMockCtx();
+      const match = tree.matchPath("GET", "/assets/css/main.bundle.css", ctx);
+      assert.ok(match !== null);
+      assert.equal(ctx.params["*"], "css/main.bundle.css");
+    });
+
+    await st.test("returns null for non-matching routes or wrong methods", () => {
+      const ctx1 = createMockCtx();
+      assert.equal(tree.matchPath("POST", "/users/123", ctx1), null);
+
+      const ctx2 = createMockCtx();
+      assert.equal(tree.matchPath("GET", "/users/123/extra", ctx2), null);
+
+      const ctx3 = createMockCtx();
+      assert.equal(tree.matchPath("GET", "/nonexistent", ctx3), null);
+    });
+  });
+
+  await t.test("Differential fuzz testing harness", () => {
+    const tree = new RouteTree(false);
+    const methods = ["GET", "POST", "PUT"];
+    const staticSegments = ["api", "v1", "users", "posts", "files"];
+    const paramSegments = [":id", ":slug", ":uuid"];
+    const routes: string[] = [];
+
+    for (let i = 0; i < 30; i++) {
+      const depth = Math.floor(Math.random() * 4) + 1;
+      let path = "";
+      for (let j = 0; j < depth; j++) {
+        const type = Math.random();
+        if (type < 0.6) {
+          path += "/" + staticSegments[Math.floor(Math.random() * staticSegments.length)];
+        } else if (type < 0.9) {
+          path += "/" + paramSegments[Math.floor(Math.random() * paramSegments.length)];
+        } else {
+          path += "/*";
+          break;
+        }
+      }
+      routes.push(path);
+    }
+
+    routes.forEach((route) => {
+      methods.forEach((m) => {
+        try {
+          tree.addPath(m, route, [() => {}] as any, { bodyLimit: 1024, priority: "normal" as any });
+        } catch {
+          // ignore wildcard not at end
+        }
+      });
+    });
+
+    tree.createMatchPath();
+
+    for (let i = 0; i < 1000; i++) {
+      const depth = Math.floor(Math.random() * 5) + 1;
+      let path = "";
+      for (let j = 0; j < depth; j++) {
+        const type = Math.random();
+        if (type < 0.5) {
+          path += "/" + staticSegments[Math.floor(Math.random() * staticSegments.length)];
+        } else if (type < 0.8) {
+          path += "/" + Math.random().toString(36).slice(2, 8);
+        } else {
+          path += "/" + Math.random().toString(36).slice(2, 5);
+        }
+      }
+
+      const m = methods[Math.floor(Math.random() * methods.length)]!;
+      const ctxInterpreted = { params: {} } as RequestContext;
+      const ctxCompiled = { params: {} } as RequestContext;
+
+      const resInterpreted = tree.defaultMatchPath(m, path, ctxInterpreted as any) as any;
+      const resCompiled = tree.matchPath(m, path, ctxCompiled as any) as any;
+
+      assert.strictEqual(!!resInterpreted, !!resCompiled, `Mismatch on ${m} ${path}`);
+    }
   });
 });

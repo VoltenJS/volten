@@ -48,7 +48,7 @@ export class AdaptiveEngine {
       }
     } catch {
       if (this.logger !== undefined) {
-        this.logger["warn"]?.(
+        this.logger.warn(
           "[Volten] Adaptive Triage is enabled but node:perf_hooks is not available in this environment. Running in fallback mode.",
         );
       } else {

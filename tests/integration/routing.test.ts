@@ -2,10 +2,10 @@ import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import fs from "fs";
 import path from "path";
+import net from "node:net";
 import { App } from "../../src/core/server.ts";
 import { ServiceUnavailableError } from "../../src/core/errors.ts";
 import { request } from "../helpers.ts"; // Assuming this handles server injection or local http fetch
-import type { AddressInfo } from "node:net";
 
 // Temporary asset setup for Static file testing paths
 const TMP_DIR = path.resolve("./.tmp_static_test_dir");
@@ -392,6 +392,135 @@ test("Router & Core Integration", async (t) => {
     assert.equal(res503.status, 503);
     assert.equal(res503.headers["retry-after"], "1");
     await isolatedApp.close();
+  });
+
+  await t.test("HTTP Wire-Level Semantics (GET, HEAD, 204, 304, Content-Length)", async (st) => {
+    const wireApp = new App({ loggerOptions: { level: "fatal" } });
+
+    wireApp.get("/wire-data", (ctx) => {
+      ctx.setHeader("ETag", '"v1"');
+      ctx.send("Hello World Data");
+    });
+
+    wireApp.get("/wire-no-content", (ctx) => {
+      ctx.status(204).send();
+    });
+
+    wireApp.get("/wire-conditional", (ctx) => {
+      const ifNoneMatch = ctx.headers["if-none-match"];
+      if (ifNoneMatch === '"v1"') {
+        ctx.setHeader("ETag", '"v1"');
+        ctx.setHeader("Content-Length", 16);
+        ctx.status(304).send();
+        return;
+      }
+      ctx.setHeader("ETag", '"v1"');
+      ctx.send("Hello World Data");
+    });
+
+    wireApp.post("/wire-echo-chunked", async (ctx) => {
+      const body = await ctx.body("text");
+      ctx.send(body);
+    });
+
+    const srv = wireApp.listen(0);
+    const port = (srv.address() as { port: number }).port;
+
+    const sendRaw = (rawRequest: string) => {
+      return new Promise<{ headersText: string; bodyText: string; raw: string }>(
+        (resolve, reject) => {
+          const client = net.createConnection({ host: "127.0.0.1", port }, () => {
+            client.write(rawRequest);
+          });
+
+          let data = "";
+          client.on("data", (chunk) => {
+            data += chunk.toString("latin1");
+          });
+
+          client.on("end", () => {
+            const splitIdx = data.indexOf("\r\n\r\n");
+            if (splitIdx === -1) {
+              resolve({ headersText: data, bodyText: "", raw: data });
+            } else {
+              resolve({
+                headersText: data.substring(0, splitIdx),
+                bodyText: data.substring(splitIdx + 4),
+                raw: data,
+              });
+            }
+          });
+
+          client.on("error", reject);
+        },
+      );
+    };
+
+    try {
+      await st.test("GET 200 emits Content-Length and body bytes", async () => {
+        const wire = await sendRaw(
+          `GET /wire-data HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n`,
+        );
+        assert.ok(wire.headersText.startsWith("HTTP/1.1 200 OK"));
+        assert.ok(wire.headersText.toLowerCase().includes("content-length: 16"));
+        assert.equal(wire.bodyText, "Hello World Data");
+      });
+
+      await st.test(
+        "HEAD 200 emits representation Content-Length but SUPPRESSES body bytes",
+        async () => {
+          const wire = await sendRaw(
+            `HEAD /wire-data HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n`,
+          );
+          assert.ok(wire.headersText.startsWith("HTTP/1.1 200 OK"));
+          assert.ok(wire.headersText.toLowerCase().includes("content-length: 16"));
+          assert.equal(wire.bodyText.length, 0);
+        },
+      );
+
+      await st.test(
+        "204 No Content suppresses body AND strips Content-Length & Content-Type",
+        async () => {
+          const wire = await sendRaw(
+            `GET /wire-no-content HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n`,
+          );
+          assert.ok(wire.headersText.startsWith("HTTP/1.1 204 No Content"));
+          assert.equal(wire.headersText.toLowerCase().includes("content-length:"), false);
+          assert.equal(wire.headersText.toLowerCase().includes("content-type:"), false);
+          assert.equal(wire.bodyText.length, 0);
+        },
+      );
+
+      await st.test(
+        "304 Not Modified preserves representation Content-Length and suppresses body",
+        async () => {
+          const wire = await sendRaw(
+            `GET /wire-conditional HTTP/1.1\r\nHost: 127.0.0.1\r\nIf-None-Match: "v1"\r\nConnection: close\r\n\r\n`,
+          );
+          assert.ok(wire.headersText.startsWith("HTTP/1.1 304 Not Modified"));
+          assert.equal(wire.headersText.toLowerCase().includes("content-length: 0"), false);
+          assert.ok(wire.headersText.toLowerCase().includes("content-length: 16"));
+          assert.equal(wire.bodyText.length, 0);
+        },
+      );
+
+      await st.test("chunked request body is consumed correctly", async () => {
+        const chunkedReq =
+          `POST /wire-echo-chunked HTTP/1.1\r\n` +
+          `Host: 127.0.0.1\r\n` +
+          `Transfer-Encoding: chunked\r\n` +
+          `Connection: close\r\n\r\n` +
+          `5\r\nHello\r\n` +
+          `6\r\n World\r\n` +
+          `0\r\n\r\n`;
+
+        const wire = await sendRaw(chunkedReq);
+        assert.ok(wire.headersText.startsWith("HTTP/1.1 200 OK"));
+        assert.equal(wire.bodyText, "Hello World");
+      });
+    } finally {
+      await wireApp.close();
+    }
   });
 
   volten.close();

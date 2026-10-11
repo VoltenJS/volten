@@ -55,7 +55,7 @@ function makeReqRes(headers: Record<string, string>, chunks: Buffer[] = []) {
 
 test("BodyParser Unit Tests", async (t) => {
   await t.test("rejects multipart/form-data explicitly", async () => {
-    const app = new App({});
+    const app = new App<any>({});
     const { req, res } = makeReqRes({
       "content-type": "multipart/form-data; boundary=---xyz",
     });
@@ -80,7 +80,7 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("returns empty object for Content-Length: 0", async () => {
-    const app = new App({});
+    const app = new App<any>({});
     const ctx = new RequestContext();
     const { req, res } = makeReqRes({ "content-length": "0" });
     (ctx as any)._req = req as any;
@@ -92,7 +92,7 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("rejects Content-Length above limit with 413", async () => {
-    const app = new App({});
+    const app = new App<any>({});
     const ctx = new RequestContext();
     const res = {
       headersSent: false,
@@ -115,7 +115,7 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("parses JSON body when content-type is application/json", async () => {
-    const app = new App({});
+    const app = new App<any>({});
     const ctx = new RequestContext();
     const { req, res } = makeReqRes({ "content-type": "application/json" }, [
       Buffer.from('{"hello":"world"}'),
@@ -129,7 +129,7 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("parses raw text body when text=true", async () => {
-    const app = new App({});
+    const app = new App<any>({});
     const ctx = new RequestContext();
     const { req, res } = makeReqRes({ "content-type": "text/plain" }, [
       Buffer.from("plain text payload"),
@@ -143,7 +143,7 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("parses urlencoded text body correctly (with fastParseUrlEncoded)", async () => {
-    const app = new App({});
+    const app = new App<any>({});
     const ctx = new RequestContext();
     const { req, res } = makeReqRes({ "content-type": "application/x-www-form-urlencoded" }, [
       Buffer.from("a=1&b=2"),
@@ -159,7 +159,7 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("rejects with PayloadTooLargeError when streaming exceeds limit", async () => {
-    const app = new App({});
+    const app = new App<any>({});
     const ctx = new RequestContext();
     // Build a req that emits many chunks
     const listeners: Record<string, Array<(...a: unknown[]) => void>> = {
@@ -212,7 +212,7 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("returns empty object when stream ends with zero chunks", async () => {
-    const app = new App({});
+    const app = new App<any>({});
     const ctx = new RequestContext();
     const { req, res } = makeReqRes({});
     (ctx as any)._req = req as any;
@@ -224,7 +224,7 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("end handler runs cleanup and resolves empty object", async () => {
-    const app = new App({});
+    const app = new App<any>({});
     const ctx = new RequestContext();
     const { req, res } = makeReqRes({ "content-type": "application/json" }, []);
     (ctx as any)._req = req as any;
@@ -236,7 +236,7 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("uses route.bodyLimit when present", async () => {
-    const app = new App({});
+    const app = new App<any>({});
     const ctx = new RequestContext();
     ctx._route = {
       bodyLimit: 50,
@@ -288,7 +288,7 @@ test("BodyParser Unit Tests", async (t) => {
   }
 
   await t.test("throws when boundary is missing", async () => {
-    const app = new App({});
+    const app = new App<any>({});
     const ctx = new RequestContext();
     const { req } = makeMultipartReq("multipart/form-data", Buffer.from(""));
     (ctx as any)._req = req;
@@ -298,7 +298,7 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("yields a text field and finishes", async () => {
-    const app = new App({});
+    const app = new App<any>({});
     const ctx = new RequestContext();
     const boundary = "----TestBoundary123";
     const body = Buffer.from(
@@ -323,7 +323,7 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("yields multiple text fields in order", async () => {
-    const app = new App({});
+    const app = new App<any>({});
     const ctx = new RequestContext();
     const boundary = "BOUND";
     const body = Buffer.from(
@@ -352,7 +352,7 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("yields a file part with content-type header", async () => {
-    const app = new App({});
+    const app = new App<any>({});
     const ctx = new RequestContext();
     const boundary = "FILEBOUND";
     const fileContent = "file body content here";
@@ -386,7 +386,7 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("file part save() writes the streamed content to disk", async () => {
-    const app = new App({});
+    const app = new App<any>({});
     const ctx = new RequestContext();
     const boundary = "FILEBOUND_SAVE";
     const fileContent = "saveable content";
@@ -419,7 +419,7 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("supports quoted boundary parameter", async () => {
-    const app = new App({});
+    const app = new App<any>({});
     const ctx = new RequestContext();
     const boundary = "QBOUND";
     const body = Buffer.from(
@@ -441,7 +441,7 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("handles split chunks (data spans multiple buffers)", async () => {
-    const app = new App({});
+    const app = new App<any>({});
     const ctx = new RequestContext();
     const boundary = "SPLITBND";
     const fullBody = Buffer.from(
@@ -476,7 +476,7 @@ test("BodyParser Unit Tests", async (t) => {
   // the request that exercises the no-cl, no-content-type branch with chunks).
   // =========================================================================
   await t.test("real HTTP request with body but no Content-Length header", async () => {
-    const app = new App({ RequestPoolSize: 4 });
+    const app = new App<any>({ RequestPoolSize: 4 });
     app.post("/body", async (ctx) => {
       const body = await ctx.body("text");
       ctx.text(String(body));
@@ -495,9 +495,9 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("real HTTP request with urlencoded body", async () => {
-    const app = new App({});
+    const app = new App<any>({});
     app.post("/url", async (ctx) => {
-      const body = await ctx.body("urlencoded");
+      const body = await ctx.body();
       ctx.json(body);
     });
 
@@ -511,7 +511,7 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("real HTTP request with invalid json body returns 400", async () => {
-    const app = new App({ loggerOptions: { level: "fatal" } });
+    const app = new App<any>({ loggerOptions: { level: "fatal" } });
     app.post("/json", async (ctx) => {
       const body = await ctx.body();
       ctx.json({ raw: body });
@@ -528,7 +528,7 @@ test("BodyParser Unit Tests", async (t) => {
   });
 
   await t.test("real HTTP request with unsupported media type returns 415", async () => {
-    const app = new App({ loggerOptions: { level: "fatal" } });
+    const app = new App<any>({ loggerOptions: { level: "fatal" } });
     app.post("/json", async (ctx) => {
       await ctx.body();
       ctx.text("ok");
@@ -541,5 +541,334 @@ test("BodyParser Unit Tests", async (t) => {
     });
 
     assert.equal(res.status, 415);
+  });
+
+  await t.test(
+    "urlencoded parsing handles key without value and multiple array values",
+    async () => {
+      const app = new App<any>({ loggerOptions: { level: "fatal" } });
+      app.post("/url", async (ctx) => {
+        const b = await ctx.body();
+        ctx.json(b);
+      });
+
+      const res = await request(app, "/url", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: "solo&tag=a&tag=b&tag=c",
+      });
+
+      assert.equal(res.status, 200);
+      assert.deepEqual(res.json(), { solo: "", tag: ["a", "b", "c"] });
+      await app.close();
+    },
+  );
+
+  await t.test("multipart parsing throws on missing boundary header", async () => {
+    const app = new App<any>({ loggerOptions: { level: "fatal" } });
+    const ctx = new RequestContext();
+    (ctx as any)._req = { headers: { "content-type": "multipart/form-data" } };
+    ctx._app = app;
+
+    await assert.rejects(async () => {
+      for await (const _part of parseMultipartStream(ctx)) {
+      }
+    }, /No boundary found/);
+    await app.close();
+  });
+
+  await t.test("multipart parsing enforces maxParts, maxFields, maxFieldSize", async () => {
+    const app = new App<any>({
+      multipart: { maxParts: 1, maxFields: 1, maxFieldSize: 5 },
+      loggerOptions: { level: "fatal" },
+    });
+
+    // 1. Exceeding maxParts (two file parts)
+    const boundary = "---------------------------974767299852498929531610575";
+    const bodyMultiParts =
+      `--${boundary}\r\nContent-Disposition: form-data; name="f1"; filename="a.txt"\r\nContent-Type: text/plain\r\n\r\nhello\r\n` +
+      `--${boundary}\r\nContent-Disposition: form-data; name="f2"; filename="b.txt"\r\nContent-Type: text/plain\r\n\r\nworld\r\n` +
+      `--${boundary}--\r\n`;
+
+    app.post("/multi-parts", async (ctx) => {
+      try {
+        for await (const part of ctx.multipart()) {
+          if (part.isFile) await part.buffer();
+        }
+        ctx.send("ok");
+      } catch (err: any) {
+        ctx.status(400).send(err.message);
+      }
+    });
+
+    const resParts = await request(app, "/multi-parts", {
+      method: "POST",
+      headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+      body: bodyMultiParts,
+    });
+    assert.ok(resParts.body.includes("Too many multipart parts"));
+
+    // 2. Exceeding maxFieldSize
+    const bodyBigField =
+      `--${boundary}\r\nContent-Disposition: form-data; name="field1"\r\n\r\nTOO_LONG_FOR_LIMIT\r\n` +
+      `--${boundary}--\r\n`;
+
+    app.post("/multi-field", async (ctx) => {
+      try {
+        for await (const _part of ctx.multipart()) {
+        }
+        ctx.send("ok");
+      } catch (err: any) {
+        ctx.status(400).send(err.message);
+      }
+    });
+
+    const resField = await request(app, "/multi-field", {
+      method: "POST",
+      headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+      body: bodyBigField,
+    });
+    assert.ok(resField.body.includes("Field too large"));
+
+    await app.close();
+  });
+
+  await t.test("rejects when socket closes before body ends", async () => {
+    const app = new App<any>({});
+    const ctx = new RequestContext();
+    const listeners: Record<string, Array<(...a: unknown[]) => void>> = {};
+    const req = {
+      headers: {},
+      on(ev: string, cb: (...a: unknown[]) => void) {
+        (listeners[ev] ||= []).push(cb);
+        return this;
+      },
+      off(ev: string, cb: (...a: unknown[]) => void) {
+        if (listeners[ev]) listeners[ev] = listeners[ev].filter((c) => c !== cb);
+        return this;
+      },
+      destroy() {},
+    };
+    (ctx as any)._req = req as any;
+    (ctx as any)._res = {} as any;
+    ctx._app = app;
+    queueMicrotask(() => {
+      for (const cb of listeners["data"] || []) cb(Buffer.from("part"));
+      for (const cb of listeners["close"] || []) cb();
+    });
+    await assert.rejects(
+      () => parseBody.call(app, ctx, false),
+      /Client disconnected before body was fully received/,
+    );
+    app.close();
+  });
+
+  await t.test("rejects when req emits error", async () => {
+    const app = new App<any>({});
+    const ctx = new RequestContext();
+    const listeners: Record<string, Array<(...a: unknown[]) => void>> = {};
+    const req = {
+      headers: {},
+      on(ev: string, cb: (...a: unknown[]) => void) {
+        (listeners[ev] ||= []).push(cb);
+        return this;
+      },
+      off(ev: string, cb: (...a: unknown[]) => void) {
+        if (listeners[ev]) listeners[ev] = listeners[ev].filter((c) => c !== cb);
+        return this;
+      },
+      destroy() {},
+    };
+    (ctx as any)._req = req as any;
+    (ctx as any)._res = {} as any;
+    ctx._app = app;
+    queueMicrotask(() => {
+      for (const cb of listeners["error"] || []) cb(new Error("socket network error"));
+    });
+    await assert.rejects(() => parseBody.call(app, ctx, false), /socket network error/);
+    app.close();
+  });
+
+  await t.test("rejects when requestTimeoutMs is exceeded", async (t) => {
+    const TIMEOUT_MS = 10;
+    const app = new App<any>({ requestTimeoutMs: TIMEOUT_MS });
+    try {
+      const ctx = new RequestContext();
+      const listeners: Record<string, Array<(...a: unknown[]) => void>> = {};
+      let destroyed = false;
+
+      const req = {
+        headers: {},
+        socket: { setTimeout() {}, destroy() {} },
+        readable: true,
+        readableEnded: false,
+        aborted: false,
+        setTimeout() {
+          return this;
+        },
+        pause() {
+          return this;
+        },
+        resume() {
+          return this;
+        },
+        on(ev: string, cb: (...a: unknown[]) => void) {
+          (listeners[ev] ||= []).push(cb);
+          return this;
+        },
+        off(ev: string, cb: (...a: unknown[]) => void) {
+          if (listeners[ev]) listeners[ev] = listeners[ev].filter((c) => c !== cb);
+          return this;
+        },
+        removeListener(ev: string, cb: (...a: unknown[]) => void) {
+          return this.off(ev, cb);
+        },
+        once(ev: string, cb: (...a: unknown[]) => void) {
+          const wrap = (...args: unknown[]) => {
+            this.off(ev, wrap);
+            cb(...args);
+          };
+          return this.on(ev, wrap);
+        },
+        destroy() {
+          destroyed = true;
+        },
+      };
+
+      (ctx as any)._req = req as any;
+      (ctx as any)._res = {} as any;
+      ctx._app = app;
+
+      // Deterministic time. No wall clock, no CI jitter.
+      t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+
+      const promise = parseBody.call(app, ctx, false);
+
+      // Advance time past the timeout. This synchronously fires the timer
+      // callback, which should reject the parseBody promise.
+      t.mock.timers.tick(TIMEOUT_MS + 1);
+
+      let caught: unknown;
+      try {
+        await promise;
+        assert.fail("parseBody should have rejected");
+      } catch (err) {
+        caught = err;
+      }
+
+      assert.ok(
+        caught instanceof Error,
+        `Expected Error, got ${Object.prototype.toString.call(caught)}`,
+      );
+      assert.match(caught.message, /Request body timed out/);
+      assert.strictEqual(destroyed, true, "req.destroy() must be called on timeout");
+    } finally {
+      await app.close();
+    }
+  });
+
+  await t.test("file part text() and buffer() methods return content", async () => {
+    const app = new App<any>({});
+    const ctx = new RequestContext();
+    const boundary = "BND_TEXT_BUFFER";
+    const body = Buffer.from(
+      `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="f"; filename="test.txt"\r\n` +
+        `Content-Type: text/plain\r\n\r\n` +
+        `sample content\r\n` +
+        `--${boundary}--\r\n`,
+    );
+    const { req } = makeMultipartReq(`multipart/form-data; boundary=${boundary}`, body);
+    (ctx as any)._req = req;
+    ctx._app = app;
+    for await (const part of parseMultipartStream.call(app, ctx)) {
+      if (part.isFile) {
+        const textContent = await part.text();
+        assert.equal(textContent, "sample content");
+      }
+    }
+    app.close();
+  });
+
+  await t.test("multipart exceeds maxTotalBytes throws PayloadTooLargeError", async () => {
+    const app = new App<any>({ multipart: { maxTotalBytes: 20 } });
+    const ctx = new RequestContext();
+    const boundary = "BND_TOO_BIG";
+    const body = Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="f"\r\n\r\n` +
+        "this is way too long for twenty bytes\r\n" +
+        `--${boundary}--\r\n`,
+    );
+    const { req } = makeMultipartReq(`multipart/form-data; boundary=${boundary}`, body);
+    (ctx as any)._req = req;
+    ctx._app = app;
+    await assert.rejects(
+      async () => {
+        for await (const _ of parseMultipartStream.call(app, ctx)) {
+        }
+      },
+      (err: unknown) => err instanceof PayloadTooLargeError,
+    );
+    app.close();
+  });
+
+  await t.test("multipart exceeds maxHeaderSize throws error", async () => {
+    const app = new App<any>({ multipart: { maxHeaderSize: 10 } });
+    const ctx = new RequestContext();
+    const boundary = "BND_HDR_BIG";
+    const readable = new PassThrough();
+    (readable as any).headers = { "content-type": `multipart/form-data; boundary=${boundary}` };
+    (ctx as any)._req = readable;
+    ctx._app = app;
+
+    readable.write(`--${boundary}\r\nContent-Disposition: `);
+    readable.write(`form-data; name="${"x".repeat(50)}`);
+
+    await assert.rejects(async () => {
+      for await (const _ of parseMultipartStream.call(app, ctx)) {
+      }
+    }, /Multipart header too large/);
+    app.close();
+  });
+
+  await t.test("multipart exceeds maxFileSize throws error", async () => {
+    const app = new App<any>({ multipart: { maxFileSize: 5 } });
+    const ctx = new RequestContext();
+    const boundary = "BND_FILE_BIG";
+    const body = Buffer.from(
+      `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="f"; filename="huge.bin"\r\n` +
+        `Content-Type: application/octet-stream\r\n\r\n` +
+        `long file content exceeding limit\r\n` +
+        `--${boundary}--\r\n`,
+    );
+    const { req } = makeMultipartReq(`multipart/form-data; boundary=${boundary}`, body);
+    (ctx as any)._req = req;
+    ctx._app = app;
+    await assert.rejects(async () => {
+      for await (const part of parseMultipartStream.call(app, ctx)) {
+        if (part.isFile) await part.buffer();
+      }
+    }, /File too large/);
+    app.close();
+  });
+
+  await t.test("multipart handles client disconnect", async () => {
+    const app = new App<any>({});
+    const ctx = new RequestContext();
+    const boundary = "BND_DISCONNECT";
+    const readable = new PassThrough();
+    (readable as any).headers = { "content-type": `multipart/form-data; boundary=${boundary}` };
+    (ctx as any)._req = readable;
+    ctx._app = app;
+    readable.write(`--${boundary}\r\nContent-Disposition: form-data; name="f"\r\n\r\n`);
+    queueMicrotask(() => {
+      readable.emit("close");
+    });
+    await assert.rejects(async () => {
+      for await (const _ of parseMultipartStream.call(app, ctx)) {
+      }
+    }, /Client disconnected during multipart upload/);
+    app.close();
   });
 });

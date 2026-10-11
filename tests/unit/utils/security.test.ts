@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { isFileInFolder } from "../../../src/utils/security.ts";
+import { isFileInFolder, openContainedFile } from "../../../src/utils/security.ts";
 // =====================================================================
 // Unit tests for isFileInFolder (src/utils/security.ts)
 // =====================================================================
@@ -104,5 +104,34 @@ test("Security Unit Tests", async (t) => {
       ),
       false,
     );
+  });
+
+  await t.test("openContainedFile validation and containment", async (t) => {
+    const { root, cleanup } = await makeTree();
+    t.after(cleanup);
+
+    const publicDir = path.join(root, "public");
+
+    // Valid file
+    const opened = await openContainedFile(publicDir, "file.txt");
+    assert.ok(opened !== null);
+    assert.ok(opened.stats.isFile());
+    await opened.handle.close();
+
+    // Null byte
+    const nullByte = await openContainedFile(publicDir, "file.txt\0");
+    assert.equal(nullByte, null);
+
+    // Directory instead of file
+    const dirOpened = await openContainedFile(publicDir, "sub");
+    assert.equal(dirOpened, null);
+
+    // Escape via traversal
+    const escaped = await openContainedFile(publicDir, "../secret.txt");
+    assert.equal(escaped, null);
+
+    // Non-existent file
+    const missing = await openContainedFile(publicDir, "ghost.txt");
+    assert.equal(missing, null);
   });
 });

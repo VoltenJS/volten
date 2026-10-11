@@ -303,5 +303,62 @@ test("Middleware Execution Pipeline & Lifecycle", async (t) => {
     }
     assert.ok(globalExecutionCount > 0);
   });
+
+  await t.test("Unobserved rejections and deterministic next() error handling", async () => {
+    const unobsApp = new App({ loggerOptions: { level: "fatal" } });
+    let errorHandledByFramework = false;
+
+    unobsApp.onError((err, _ctx) => {
+      if (err.message === "Downstream Boom") {
+        errorHandledByFramework = true;
+      }
+    });
+
+    unobsApp.get(
+      "/unobserved",
+      (_ctx, _next) => {
+        _next();
+        _ctx.send("OK");
+      },
+      async (_ctx, _next) => {
+        await new Promise((r) => setTimeout(r, 10));
+        throw new Error("Downstream Boom");
+      },
+    );
+
+    let unhandledOccurred = false;
+    const onUnhandled = () => {
+      unhandledOccurred = true;
+    };
+    process.on("unhandledRejection", onUnhandled);
+
+    const res = await request(unobsApp, "/unobserved");
+    await new Promise((r) => setTimeout(r, 50));
+    process.off("unhandledRejection", onUnhandled);
+    await unobsApp.close();
+
+    assert.equal(res.body, "OK");
+    assert.equal(unhandledOccurred, false, "Unhandled promise rejection occurred");
+    assert.equal(errorHandledByFramework, true, "Framework error handler was not called");
+
+    const app2 = new App({ loggerOptions: { level: "fatal" } });
+    let nextAfterResponseError: Error | null = null;
+    app2.use(async (ctx, next) => {
+      ctx.send("Early Handled");
+      try {
+        await next();
+      } catch (err: any) {
+        nextAfterResponseError = err;
+      }
+    });
+    app2.get("/after-sent", () => {});
+    const res2 = await request(app2, "/after-sent");
+    await app2.close();
+
+    assert.equal(res2.body, "Early Handled");
+    assert.ok(nextAfterResponseError !== null, "Calling next() after sent must throw");
+    assert.equal((nextAfterResponseError as any).message.includes("Invalid next() call"), true);
+  });
+
   volten.close();
 });

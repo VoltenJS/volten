@@ -151,9 +151,9 @@ test("Compose Unit Tests", async (t) => {
         return statusCodeSet;
       },
     });
-    ctx.setHeader = (key: string, val: any) => {
+    ctx.setHeader = ((key: string, val: any) => {
       headersSet[key] = String(val);
-    };
+    }) as any;
     Object.defineProperty(ctx, "sent", {
       get: () => false,
     });
@@ -172,11 +172,11 @@ test("Compose Unit Tests", async (t) => {
     await chain(ctx);
     assert.equal(statusCodeSet, 201);
     assert.equal(headersSet["x-test-header"], "test-val");
+    assert.ok(sentData !== null);
   });
 
   await t.test("handleHandlerResult handles Web Response in Edge runtime", async () => {
     let edgeResolved: Response | null = null;
-    let bodySent = false;
 
     const ctx = makeCtx();
     ctx.runtime = "edge";
@@ -224,9 +224,9 @@ test("Compose Unit Tests", async (t) => {
   await t.test("handleHandlerResult processes string and object return values safely", async () => {
     let sentData: unknown = null;
     const ctx = makeCtx();
-    ctx.send = (data: unknown) => {
+    ctx.send = ((data: unknown) => {
       sentData = data;
-    };
+    }) as any;
 
     const chain = compileMiddlewareChain([
       () => {

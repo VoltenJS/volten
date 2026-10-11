@@ -10,13 +10,13 @@ import { RequestContext } from "../../../src/utils/requestCtx.ts";
 
 test("Edge Unit Tests", async (t) => {
   await t.test("createFetch returns a fetch function", () => {
-    const app = new App({ loggerOptions: { level: "fatal" } });
+    const app = new App<any>({ loggerOptions: { level: "fatal" } });
     const fetchHandler = app.createFetch();
     assert.equal(typeof fetchHandler, "function");
   });
 
   await t.test("matches routes and handles standard requests/responses", async () => {
-    const app = new App({ loggerOptions: { level: "fatal" } });
+    const app = new App<any>({ loggerOptions: { level: "fatal" } });
     app.get("/hello", (ctx) => {
       ctx.text("Hello Edge!");
     });
@@ -31,7 +31,7 @@ test("Edge Unit Tests", async (t) => {
   });
 
   await t.test("supports return value ergonomics", async () => {
-    const app = new App({ loggerOptions: { level: "fatal" } });
+    const app = new App<any>({ loggerOptions: { level: "fatal" } });
     app.get("/json", () => {
       return { ok: true, runtime: "edge" };
     });
@@ -65,7 +65,7 @@ test("Edge Unit Tests", async (t) => {
   });
 
   await t.test("parses request JSON body natively", async () => {
-    const app = new App({ loggerOptions: { level: "fatal" } });
+    const app = new App<any>({ loggerOptions: { level: "fatal" } });
     app.post("/post-json", async (ctx) => {
       const body = await ctx.body();
       ctx.json({ body });
@@ -83,7 +83,7 @@ test("Edge Unit Tests", async (t) => {
   });
 
   await t.test("HEAD on GET omits body and OPTIONS returns Allow", async () => {
-    const app = new App({ loggerOptions: { level: "fatal" } });
+    const app = new App<any>({ loggerOptions: { level: "fatal" } });
     app.get("/hello", (ctx) => {
       ctx.text("Hello");
     });
@@ -102,7 +102,7 @@ test("Edge Unit Tests", async (t) => {
   });
 
   await t.test("parses request URL encoded body natively", async () => {
-    const app = new App({ loggerOptions: { level: "fatal" } });
+    const app = new App<any>({ loggerOptions: { level: "fatal" } });
     app.post("/post-form", async (ctx) => {
       const body = await ctx.body();
       ctx.json({ body });
@@ -120,7 +120,7 @@ test("Edge Unit Tests", async (t) => {
   });
 
   await t.test("attaches env and executionCtx to context", async () => {
-    const app = new App({ loggerOptions: { level: "fatal" } });
+    const app = new App<any>({ loggerOptions: { level: "fatal" } });
     app.get("/bindings", (ctx) => {
       assert.deepEqual(ctx.env, { MY_KV: "kv-val" });
       assert.deepEqual(ctx.executionCtx, { mockCtx: true });
@@ -138,7 +138,7 @@ test("Edge Unit Tests", async (t) => {
   });
 
   await t.test("cookie handling and multiple Set-Cookie headers", async () => {
-    const app = new App({ loggerOptions: { level: "fatal" } });
+    const app = new App<any>({ loggerOptions: { level: "fatal" } });
     app.get("/cookies", (ctx) => {
       assert.equal(ctx.cookies["session"], "xyz");
       ctx.setCookie("cookie1", "val1", { httpOnly: true });
@@ -189,8 +189,7 @@ test("Edge Unit Tests", async (t) => {
     if (origNavDesc !== undefined) {
       Object.defineProperty(globalThis, "navigator", origNavDesc);
     } else {
-      // @ts-expect-error cleanup
-      delete globalThis.navigator;
+      delete (globalThis as any).navigator;
     }
 
     // Test Cloudflare Workers WebSocketPair
@@ -229,12 +228,12 @@ test("Edge Unit Tests", async (t) => {
     try {
       const executed: string[] = [];
       const chain = [
-        async (ctx: RequestContext, next: () => Promise<void> | void) => {
+        async (_ctx: RequestContext, next: any) => {
           executed.push("m1-before");
           await next();
           executed.push("m1-after");
         },
-        async (_ctx: RequestContext, next: () => Promise<void> | void) => {
+        async (_ctx: RequestContext, next: any) => {
           executed.push("m2-before");
           await next();
           executed.push("m2-after");
@@ -250,7 +249,7 @@ test("Edge Unit Tests", async (t) => {
         sent: false,
         _app: null,
         send(_val: unknown) {
-          this.sent = true;
+          (this as any).sent = true;
         },
       } as unknown as RequestContext;
 
@@ -263,7 +262,7 @@ test("Edge Unit Tests", async (t) => {
 
       // Test double next call error in dynamic chain
       const brokenChain = [
-        async (_ctx: RequestContext, next: () => Promise<void> | void) => {
+        async (_ctx: RequestContext, next: any) => {
           await next();
           await next(); // should throw
         },
@@ -282,7 +281,7 @@ test("Edge Unit Tests", async (t) => {
           },
         },
         send() {
-          this.sent = true;
+          (this as any).sent = true;
         },
       } as unknown as RequestContext;
 
@@ -352,7 +351,7 @@ test("Edge Unit Tests", async (t) => {
   await t.test("full app with createFetch executes smoothly in Edge mode", async () => {
     setIsEdge(true);
     try {
-      const app = new App({ loggerOptions: { level: "fatal" } });
+      const app = new App<any>({ loggerOptions: { level: "fatal" } });
 
       app.use(async (ctx, next) => {
         ctx.setHeader("X-Custom-Middleware", "active");
@@ -384,8 +383,7 @@ test("Edge Unit Tests", async (t) => {
       throw new EvalError("Code generation from strings disallowed for this context");
     };
     blockedFunction.prototype = originalFunction.prototype;
-    // @ts-expect-error Mocking Function constructor for test
-    globalThis.Function = blockedFunction;
+    (globalThis as any).Function = blockedFunction;
 
     try {
       // 1. compose fallback
@@ -394,7 +392,7 @@ test("Edge Unit Tests", async (t) => {
         sent: false,
         _app: null,
         send() {
-          this.sent = true;
+          (this as any).sent = true;
         },
       } as unknown as RequestContext;
       await chainHandler(mockCtx);

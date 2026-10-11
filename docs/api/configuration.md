@@ -16,7 +16,7 @@ const voltenAppOptionsItems = [
     property: 'RequestPoolSize',
     type: 'number',
     default: '2048',
-    description: 'Number of pre-allocated RequestContext instances in the memory pool for zero GC overhead.'
+    description: 'Number of pre-allocated internal storage slots in the memory pool to minimize GC pressure.'
   },
   {
     property: 'shutdownTimeoutMs',
@@ -142,13 +142,13 @@ export type VoltenAppOptions<CustomLevels extends string = never> = {
 - **Type**: `number`
 - **Default**: `2048`
 
-Volten utilizes an advanced object pooling architecture for request lifecycles. Instead of instantiating new request and response wrapper objects on every HTTP request, Volten pre-allocates a fixed pool of `RequestContext` instances (`NodeRequestContext` and `EdgeRequestContext`) at application startup.
+Volten utilizes an advanced storage pooling architecture for request lifecycles. Heavy resources (pre-allocated 64KB response buffers and write queues) are held in pooled storage instances (`NodeContextStorage` and `EdgeContextStorage`), while each incoming request receives an isolated per-request handle with an immutable request token.
 
 #### How It Works
 
-1. Upon `new App()`, Volten initializes `RequestPoolSize` context instances and keeps them in an internal queue.
-2. When a request arrives, a context is popped from the pool in $O(1)$ time and initialized with the active socket/request streams.
-3. When the response finishes or connection closes (`res.on('close')`), the context is thoroughly reset and returned to the pool.
+1. Upon `new App()`, Volten manages an internal pool of storage instances bounded by `RequestPoolSize`.
+2. When a request arrives, a storage slot is retrieved from the pool in $O(1)$ time, bound to a fresh per-request context with a unique token, and initialized with the active socket/request streams.
+3. Once both the response closes and the handler chain settles, the context is invalidated, and the storage is reset and returned to the pool.
 
 #### Pool Exhaustion
 

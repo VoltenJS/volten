@@ -4,7 +4,7 @@ Volten provides built-in, high-performance static file serving via `app.static()
 
 There is no need to install external packages or configure complex middleware. Volten handles file serving directly with:
 
-- **Zero-copy stream piping** with socket backpressure management.
+- **Stream piping** with socket backpressure management.
 - **Built-in Directory Traversal Protection** to prevent path breakout attacks.
 - **Automatic ETag Generation** and conditional HTTP caching (`304 Not Modified`).
 - **Comprehensive MIME Type Mapping** for modern web assets.

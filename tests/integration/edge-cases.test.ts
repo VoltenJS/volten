@@ -274,12 +274,14 @@ test("Framework Edge Cases", async (t) => {
 
     const ctx = new RequestContext();
     (ctx._res as any) = {
+      writeHead: () => {},
       setHeader: (k: string, v: unknown) => {
         headers[k.toLowerCase()] = v;
       },
       end: (text: string) => {
         response += text;
       },
+      cork: () => {},
       uncork: () => {},
     };
 
@@ -311,4 +313,133 @@ test("Framework Edge Cases", async (t) => {
     ctx.text("†¨†¥¨†˚˜˚˜©¨¥†¨√¥†∂¨®¥∂ßπæ˚˙ˆ¨˙©§∫˜µ∫µ˜¡™£¢§¶•∞•¶ªº•º••ˆ˙∫µ∫˜ç≈");
     assert.equal(Buffer.byteLength(response), headers["content-length"]);
   });
+
+  await t.test(
+    "Web Response backpressure: CRAZY STRICT producer coupling and cancellation",
+    async () => {
+      const app = new App({ loggerOptions: { level: "fatal" } });
+
+      let pullCount = 0;
+      let enqueueCount = 0;
+      let cancelCount = 0;
+      let pullAfterCancel = 0;
+      let chunksProduced = 0;
+      let streamCancelled = false;
+      let cancelledAt: number | null = null;
+      let destroyedAt: number | null = null;
+
+      // 8 MiB is deliberately larger than typical OS socket buffers.
+      // This forces res.write() to return false after the first chunk.
+      const CHUNK_SIZE = 8 * 1024 * 1024;
+      const HIGH_WATER_MARK = 1;
+
+      app.get("/stream-backpressure", () => {
+        const stream = new ReadableStream<Uint8Array>({
+          highWaterMark: HIGH_WATER_MARK,
+          pull(controller) {
+            if (cancelCount > 0) {
+              pullAfterCancel++;
+              throw new Error("pull() called after cancel()");
+            }
+
+            pullCount++;
+
+            if (controller.desiredSize !== HIGH_WATER_MARK) {
+              throw new Error(
+                `pull() called with desiredSize=${controller.desiredSize}, expected ${HIGH_WATER_MARK}`,
+              );
+            }
+
+            chunksProduced++;
+            const buffer = new Uint8Array(CHUNK_SIZE);
+            buffer.fill(65);
+            controller.enqueue(buffer);
+            enqueueCount++;
+          },
+          cancel() {
+            cancelCount++;
+            streamCancelled = true;
+            cancelledAt = Date.now();
+          },
+        });
+
+        return new Response(stream, {
+          headers: { "Content-Type": "application/octet-stream" },
+        });
+      });
+
+      const server = app.listen(0);
+      const port = (server.address() as { port: number }).port;
+
+      try {
+        await new Promise<void>((resolve) => {
+          const req = http.request(
+            {
+              hostname: "127.0.0.1",
+              port,
+              path: "/stream-backpressure",
+              method: "GET",
+            },
+            (res) => {
+              // Intentionally DO NOT read any data.
+              // Let the server fill its send buffer and the client's receive buffer.
+              // Then destroy the connection.
+              setTimeout(() => {
+                destroyedAt = Date.now();
+                req.destroy();
+                res.destroy();
+                resolve();
+              }, 500);
+            },
+          );
+          req.on("error", () => {});
+          req.end();
+        });
+
+        // Strict cancellation deadline
+        const cancelDeadline = Date.now() + 1000;
+        while (!streamCancelled && Date.now() < cancelDeadline) {
+          await new Promise((r) => setTimeout(r, 5));
+        }
+
+        assert.strictEqual(
+          streamCancelled,
+          true,
+          "ReadableStream must be cancelled when socket disconnects",
+        );
+        assert.strictEqual(cancelCount, 1, "cancel() must be called exactly once");
+        assert.strictEqual(pullAfterCancel, 0, "pull() must not be called after cancel()");
+
+        // Exactly 2 chunks:
+        //   1. initial pull to fill the highWaterMark queue
+        //   2. refill pull after the HTTP layer reads the first chunk
+        // Then res.write() returns false, so no more pulls happen.
+        assert.strictEqual(
+          chunksProduced,
+          2,
+          `Exactly 2 chunks must be produced (1 queued + 1 refill), got ${chunksProduced}`,
+        );
+        assert.strictEqual(enqueueCount, 2, "enqueue() count must equal chunks produced");
+        assert.strictEqual(pullCount, 2, "pull() count must equal chunks produced");
+
+        // No production after cancellation
+        const chunksAtCancel = chunksProduced;
+        await new Promise((r) => setTimeout(r, 200));
+        assert.strictEqual(
+          chunksProduced,
+          chunksAtCancel,
+          "No chunks may be produced after cancellation",
+        );
+
+        // Cancellation latency
+        if (cancelledAt && destroyedAt) {
+          const latency = cancelledAt - destroyedAt;
+          assert.ok(latency >= 0, "Cancellation cannot happen before destroy");
+          assert.ok(latency < 500, `Cancellation latency ${latency}ms must be < 500ms`);
+        }
+      } finally {
+        await app.close();
+      }
+    },
+  );
 });

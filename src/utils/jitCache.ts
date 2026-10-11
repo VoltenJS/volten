@@ -52,7 +52,9 @@ export class JitCache {
             for (const key in valObj) {
               if (Object.prototype.hasOwnProperty.call(valObj, key)) {
                 hash = Math.imul(hash ^ key.length, 16777619);
-                hash = Math.imul(hash ^ key.charCodeAt(0), 16777619);
+                for (let i = 0; i < key.length; i++) {
+                  hash = Math.imul(hash ^ key.charCodeAt(i), 16777619);
+                }
 
                 // Grow stack dynamically if capacity is reached
                 if (sp >= this.stack.length) {

@@ -13,7 +13,8 @@ import type {
 import { App } from "../core/server.ts";
 import { parseUrl, parseQuery } from "./parseUrl.ts";
 import { createCompiledStringifier } from "./stringifyJson.ts";
-import { isFileInFolder } from "./security.ts";
+import { isFileInFolder, openContainedFile } from "./security.ts";
+import type { OpenedFile } from "./security.ts";
 import {
   MethodNotAllowedError,
   SendAfterSentError,
@@ -22,6 +23,7 @@ import {
   VoltenError,
   BadRequestError,
   UnsupportedMediaTypeError,
+  PayloadTooLargeError,
 } from "../core/errors.ts";
 import { getMimeType } from "./mime.ts";
 import {
@@ -35,14 +37,6 @@ import {
   serializeSetCookie,
   shouldSendContent,
 } from "./httpRfc.ts";
-
-let DATE_HEADER_BUF = new Date().toUTCString();
-const timer = setInterval(() => {
-  DATE_HEADER_BUF = new Date().toUTCString();
-}, 1000);
-if (typeof timer.unref === "function") {
-  timer.unref();
-}
 
 function decodeQueryComponent(str: string): string {
   if (!str.includes("+") && !str.includes("%")) {
@@ -95,39 +89,145 @@ function fastParseUrlEncoded(input: string): Record<string, unknown> {
   return result;
 }
 
+export class ContextStorage {
+  public static readonly BUFFER_SIZE = 64 * 1024;
+  public responseBuffer: Buffer = Buffer.allocUnsafe(ContextStorage.BUFFER_SIZE);
+  public bufferOffset: number = 0;
+  public isFlushing: boolean = false;
+  public writeQueue: { str: string; resolve: () => void }[] = [];
+  public activeToken: number = 0;
+  public generation: number = 0;
+
+  public reset(): void {
+    this.activeToken = 0;
+    this.generation++;
+    this.bufferOffset = 0;
+    this.isFlushing = false;
+    if (this.writeQueue.length > 0) {
+      this.writeQueue = [];
+    }
+  }
+}
+
+export class NodeContextStorage extends ContextStorage {}
+
+export class EdgeContextStorage extends ContextStorage {}
+
+let nextContextToken = 1;
+
 export class RequestContext<P extends string = string> {
+  public static readonly BUFFER_SIZE = 64 * 1024;
+  public readonly token: number;
+  public readonly _storage: ContextStorage;
+
+  /** True once the underlying connection/response has closed. The context is NOT recycled until handler execution also settles. */
+  public disconnected: boolean = false;
+
+  public get generation(): number {
+    return this._storage.generation;
+  }
+  public set generation(val: number) {
+    this._storage.generation = val;
+  }
+  public reqGeneration: number = 0;
+
+  public get isValid(): boolean {
+    return !this.disconnected && this.token !== 0 && this.token === this._storage.activeToken;
+  }
+
+  public invalidate(): void {
+    this.disconnected = true;
+    this._res = null;
+    this._req = null;
+    this._headers = null;
+    this._params = null;
+    this._state = null;
+    this.queryValue = null;
+    this._cookiesCache = null;
+  }
+
   public _app: App<string> | null = null;
   public _req: http.IncomingMessage | Request | null = null;
   public _res: http.ServerResponse | null = null;
   public _route: PathData | null = null;
-  private _ensureParsedUrl(): void {
-    if (this._path === null) {
-      const { pathname, queryStr } = parseUrl(this.url);
-      this._path = pathname;
-      this._queryString = queryStr;
+
+  constructor(storage?: ContextStorage, token?: number) {
+    if (storage !== undefined) {
+      this._storage = storage;
+      this.token = token ?? (storage.activeToken !== 0 ? storage.activeToken : ++nextContextToken);
+      if (storage.activeToken === 0) {
+        storage.activeToken = this.token;
+      }
+    } else {
+      this._storage = new ContextStorage();
+      this.token = ++nextContextToken;
+      this._storage.activeToken = this.token;
     }
+    this.reqGeneration = this._storage.generation;
+  }
+
+  private _ensureParsedUrl(): void {
+    if (this._path !== null) return;
+    const url = this.url;
+    if (
+      url.charCodeAt(0) === 47 &&
+      url.charCodeAt(1) !== 47 &&
+      url.indexOf("\0") === -1 &&
+      url.indexOf("#") === -1
+    ) {
+      const qIdx = url.indexOf("?");
+      if (qIdx === -1) {
+        this._path = url;
+        this._queryString = "";
+      } else {
+        this._path = qIdx > 0 ? url.slice(0, qIdx) : "/";
+        this._queryString = url.substring(qIdx + 1);
+      }
+      return;
+    }
+    const { pathname, queryStr } = parseUrl(url);
+    this._path = pathname;
+    this._queryString = queryStr;
   }
 
   get path(): string {
+    if (!this.isValid) return "";
     this._ensureParsedUrl();
-    return this._path as string;
+    return this._path ?? "";
   }
 
   get queryString(): string {
+    if (!this.isValid) return "";
     this._ensureParsedUrl();
-    return this._queryString as string;
+    return this._queryString ?? "";
   }
 
   public method!: string;
   public url!: string;
   public _path: string | null = null;
+  public _queryString: string | null = null;
   public _headers: http.IncomingHttpHeaders | Record<string, string | string[] | undefined> | null =
     null;
-  public state: Record<string, unknown> = {};
-  public params: ExtractParams<P> = Object.create(null) as ExtractParams<P>;
+  protected _state: Record<string, unknown> | null = null;
+  get state(): Record<string, unknown> {
+    if (!this.isValid) return {};
+    return (this._state ??= {});
+  }
+  set state(val: Record<string, unknown>) {
+    if (!this.isValid) throw new Error("Context expired");
+    this._state = val;
+  }
+  protected _params: ExtractParams<P> | null = null;
+  get params(): ExtractParams<P> {
+    if (!this.isValid) return Object.create(null) as ExtractParams<P>;
+    return (this._params ??= Object.create(null) as ExtractParams<P>);
+  }
+  set params(val: ExtractParams<P>) {
+    if (!this.isValid) throw new Error("Context expired");
+    this._params = val;
+  }
   public inited: boolean = false;
 
-  protected _queryString: string | null = null;
   protected queryValue: Query | null = null;
   public _bodyPromise?: Promise<unknown> | undefined;
   public JSONOptions?: JSONResponseOptions;
@@ -136,22 +236,45 @@ export class RequestContext<P extends string = string> {
   public executionCtx: unknown = null;
   public runtime: "node" | "edge" = "node";
 
-  public static readonly BUFFER_SIZE = 64 * 1024;
-  public responseBuffer = Buffer.allocUnsafe(RequestContext.BUFFER_SIZE);
-  public bufferOffset = 0;
-  protected isFlushing = false;
-  protected writeQueue: { str: string; resolve: () => void }[] = [];
+  get responseBuffer(): Buffer {
+    return this._storage.responseBuffer;
+  }
+  set responseBuffer(val: Buffer) {
+    this._storage.responseBuffer = val;
+  }
+
+  get bufferOffset(): number {
+    return this._storage.bufferOffset;
+  }
+  set bufferOffset(val: number) {
+    this._storage.bufferOffset = val;
+  }
+
+  get isFlushing(): boolean {
+    return this._storage.isFlushing;
+  }
+  set isFlushing(val: boolean) {
+    this._storage.isFlushing = val;
+  }
+
+  get writeQueue(): { str: string; resolve: () => void }[] {
+    return this._storage.writeQueue;
+  }
+  set writeQueue(val: { str: string; resolve: () => void }[]) {
+    this._storage.writeQueue = val;
+  }
+
   protected _cookiesCache: Record<string, string> | null = null;
 
   protected logWarn(message: string, ...args: unknown[]): void {
     if (this._app !== null) {
-      this._app.logger["warn"]?.(message, ...args);
+      this._app.logger.warn(message, ...args);
     }
   }
 
   protected logError(message: string, ...args: unknown[]): void {
     if (this._app !== null) {
-      this._app.logger["error"]?.(message, ...args);
+      this._app.logger.error(message, ...args);
     }
   }
 
@@ -162,25 +285,33 @@ export class RequestContext<P extends string = string> {
     resOrEnv?: http.ServerResponse | unknown,
     _executionCtx?: unknown,
   ): void {
+    const storage = this._storage;
+    if (storage.activeToken === 0) {
+      storage.activeToken = this.token;
+    } else if (storage.activeToken !== this.token) {
+      throw new Error("Context expired");
+    }
     const reqNode = req as http.IncomingMessage;
-    const resNode = resOrEnv as http.ServerResponse;
-    const urlStr = reqNode.url ?? "/";
+    const resNode = resOrEnv as http.ServerResponse | undefined;
 
+    this.reqGeneration = storage.generation;
     this._app = app;
     this._req = reqNode;
-    this._res = resNode;
+    this._res = resNode !== undefined ? resNode : null;
 
-    this.url = urlStr;
+    this.url = reqNode.url ?? "/";
     this._path = null;
     this._queryString = null;
 
     this.queryValue = null;
-    this.params = Object.create(null) as ExtractParams<P>;
+    this._params = null;
+    this._state = null;
+    this._cookiesCache = null;
     this._headers = reqNode.headers;
     this.method = reqNode.method ?? "GET";
 
     this._bodyPromise = undefined;
-    this.bufferOffset = 0;
+    storage.bufferOffset = 0;
     this.inited = true;
   }
 
@@ -190,11 +321,13 @@ export class RequestContext<P extends string = string> {
   }
 
   get req(): http.IncomingMessage | Request {
+    if (!this.isValid) throw new Error("Context expired");
     if (this._req === null) throw new Error("Request not initialized");
     return this._req;
   }
 
   get res(): http.ServerResponse | null {
+    if (!this.isValid) return null;
     return this._res;
   }
 
@@ -219,6 +352,7 @@ export class RequestContext<P extends string = string> {
   }
 
   set statusCode(code: number) {
+    if (!this.isValid) return;
     if (this._res !== null) {
       this._res.statusCode = code;
     }
@@ -278,6 +412,7 @@ export class RequestContext<P extends string = string> {
   }
 
   get headers(): Record<string, string | string[] | undefined> {
+    if (!this.isValid) return {};
     return this._headers ?? {};
   }
 
@@ -287,6 +422,7 @@ export class RequestContext<P extends string = string> {
   }
 
   get query(): Query {
+    if (!this.isValid) return {};
     if (this.queryValue === null) {
       this.queryValue = parseQuery(this.queryString);
     }
@@ -294,6 +430,7 @@ export class RequestContext<P extends string = string> {
   }
 
   public status(code: number): this {
+    if (!this.isValid) return this;
     this.statusCode = code;
     return this;
   }
@@ -315,19 +452,36 @@ export class RequestContext<P extends string = string> {
     const app = this.app;
     const pathname = this.path;
     const staticPath = app.serverStaticMap;
-    if (staticPath !== null) {
+    if (
+      staticPath !== null &&
+      (this.method === "GET" || this.method === "HEAD" || this.method === "OPTIONS")
+    ) {
       const pathModule = await import("path");
-      const filePath = pathModule.join(staticPath, pathname);
-      if (await isFileInFolder(staticPath, filePath)) {
+      let decoded: string | null;
+      try {
+        decoded = decodeURIComponent(pathname);
+      } catch {
+        decoded = null;
+      }
+      if (decoded !== null && !decoded.includes("\0")) {
+        // Resolve against an absolute root so containment checks never depend on cwd-relative joins.
+        const absRoot = pathModule.resolve(staticPath);
+        const relative = decoded.replace(/^[/\\]+/, "");
         if (this.method === "OPTIONS") {
-          this.statusCode = 204;
-          this.setHeader("Allow", "GET, HEAD, OPTIONS");
-          this.setHeader("Content-Length", 0);
-          this.send();
-          return;
+          if (await isFileInFolder(absRoot, pathModule.join(absRoot, relative))) {
+            this.statusCode = 204;
+            this.setHeader("Allow", "GET, HEAD, OPTIONS");
+            this.send();
+            return;
+          }
+        } else {
+          try {
+            await this.sendFile(relative, 200, { root: absRoot });
+            return;
+          } catch (err) {
+            if (!(err instanceof NotFoundError)) throw err;
+          }
         }
-        await this.sendFile(filePath, 200, {});
-        return;
       }
     }
 
@@ -350,7 +504,7 @@ export class RequestContext<P extends string = string> {
   public routePath(): void | Promise<void> {
     if (!this.inited) return;
     const app = this.app;
-    const route = app.getRoute(this.method, this.url, this);
+    const route = app.getRoute(this.method, this.path, this);
     if (route !== null) {
       this._route = route;
       return;
@@ -359,19 +513,18 @@ export class RequestContext<P extends string = string> {
   }
 
   reset() {
+    this._storage.reset();
+    this.disconnected = false;
     this.inited = false;
     this._app = null;
     this._req = null;
     this._res = null;
     this._route = null;
     this._headers = null;
-    this.params = Object.create(null) as ExtractParams<P>;
-    this.state = {};
+    this._params = null;
+    this._state = null;
     this.queryValue = null;
     this._bodyPromise = undefined;
-    this.bufferOffset = 0;
-    this.isFlushing = false;
-    this.writeQueue = [];
     this._cookiesCache = null;
     this.env = null;
     this.executionCtx = null;
@@ -384,7 +537,7 @@ export class RequestContext<P extends string = string> {
     try {
       this.isFlushing = true;
       if (this.bufferOffset > 0) {
-        const chunk = this.responseBuffer.subarray(0, this.bufferOffset);
+        const chunk = Buffer.from(this.responseBuffer.subarray(0, this.bufferOffset));
         this.bufferOffset = 0;
         const ready = resObj.write(chunk);
         if (!ready) {
@@ -393,11 +546,29 @@ export class RequestContext<P extends string = string> {
       }
 
       while (this.writeQueue.length > 0) {
-        const next = this.writeQueue[0];
+        const next = this.writeQueue.shift();
         if (next === undefined) break;
         const len = Buffer.byteLength(next.str);
+
+        if (len >= RequestContext.BUFFER_SIZE) {
+          if (this.bufferOffset > 0) {
+            const chunk = Buffer.from(this.responseBuffer.subarray(0, this.bufferOffset));
+            this.bufferOffset = 0;
+            const ready = resObj.write(chunk);
+            if (!ready) {
+              await new Promise<void>((resolve) => resObj.once("drain", resolve));
+            }
+          }
+          const ready = resObj.write(next.str);
+          if (!ready) {
+            await new Promise<void>((resolve) => resObj.once("drain", resolve));
+          }
+          next.resolve();
+          continue;
+        }
+
         if (this.bufferOffset + len > RequestContext.BUFFER_SIZE) {
-          const chunk = this.responseBuffer.subarray(0, this.bufferOffset);
+          const chunk = Buffer.from(this.responseBuffer.subarray(0, this.bufferOffset));
           this.bufferOffset = 0;
 
           const ready = resObj.write(chunk);
@@ -406,7 +577,6 @@ export class RequestContext<P extends string = string> {
           }
         }
 
-        this.writeQueue.shift();
         this.bufferOffset += this.responseBuffer.write(next.str, this.bufferOffset);
         next.resolve();
       }
@@ -416,6 +586,7 @@ export class RequestContext<P extends string = string> {
   }
 
   public async writeStatic(str: string): Promise<void> {
+    if (!this.isValid) return;
     if (this.isFlushing) {
       return new Promise((resolve) => {
         this.writeQueue.push({ str, resolve });
@@ -428,6 +599,24 @@ export class RequestContext<P extends string = string> {
       await this.flush();
     }
 
+    if (len > RequestContext.BUFFER_SIZE) {
+      const resObj = this.res;
+      if (resObj === null) return;
+      this.isFlushing = true;
+      try {
+        const ready = resObj.write(str);
+        if (!ready) {
+          await new Promise<void>((resolve) => resObj.once("drain", resolve));
+        }
+      } finally {
+        this.isFlushing = false;
+        if (this.writeQueue.length > 0) {
+          await this.flush();
+        }
+      }
+      return;
+    }
+
     this.bufferOffset += this.responseBuffer.write(str, this.bufferOffset);
   }
 
@@ -436,34 +625,16 @@ export class RequestContext<P extends string = string> {
     if (resObj === null) return this;
     resObj.statusCode = statusCode;
 
-    if (this.sent) {
+    if (resObj.writableEnded) {
       throw new SendAfterSentError("json");
     }
 
-    resObj.setHeader("Content-Type", "application/json; charset=utf-8");
-    resObj.setHeader("Server", "Volten/1.0.0");
-    resObj.setHeader("Date", DATE_HEADER_BUF);
-
-    let body: string;
-    if (this._route === null || this.route.disableOpt) {
-      body = JSON.stringify(data);
-    } else {
-      try {
-        let serializer = this.route.serializer;
-        if (serializer === undefined) {
-          const finger = this.app.JITCache.getShapeFingerprint(data);
-          serializer = this.app.JITCache.get(finger);
-          if (serializer === undefined) {
-            serializer = createCompiledStringifier(data);
-            this.app.JITCache.set(finger, serializer);
-          }
-          this.route.serializer = serializer;
-        }
-        body = serializer(data);
-      } catch {
-        body = JSON.stringify(data);
-      }
-    }
+    const body = JSON.stringify(data);
+    if (!resObj.headersSent) resObj.cork();
+    resObj.writeHead(statusCode, {
+      "Content-Type": "application/json; charset=utf-8",
+      "Content-Length": Buffer.byteLength(body),
+    });
     this.endNodePayload(resObj, body);
     return this;
   }
@@ -471,28 +642,30 @@ export class RequestContext<P extends string = string> {
   public text(data: string, statusCode: number = this.statusCode): this {
     const resObj = this.res;
     if (resObj === null) return this;
-    const body = data;
-    if (this.sent) {
+    if (resObj.writableEnded) {
       throw new SendAfterSentError("text");
     }
     resObj.statusCode = statusCode;
-    if (!this.headersSent) {
-      this.setHeader("Content-Type", "text/plain; charset=utf-8");
+    if (!resObj.headersSent) {
+      resObj.setHeader("Content-Type", "text/plain; charset=utf-8");
     } else {
       this.logWarn("Headers Already Sent, Sending Only Body");
     }
-    this.endNodePayload(resObj, body);
+    this.endNodePayload(resObj, data);
     return this;
   }
 
   public buffer(data: Buffer, statusCode: number = this.statusCode): this {
     const resObj = this.res;
     if (resObj === null) return this;
-    if (this.sent) {
+    if (resObj.writableEnded) {
       throw new SendAfterSentError("buffer");
     }
     resObj.statusCode = statusCode;
-    this.setHeader("Content-Type", "application/octet-stream");
+    if (resObj.headersSent) {
+      throw new HeadersSentError();
+    }
+    resObj.setHeader("Content-Type", "application/octet-stream");
     this.endNodePayload(resObj, data);
     return this;
   }
@@ -517,13 +690,20 @@ export class RequestContext<P extends string = string> {
   }
 
   protected endNodePayload(resObj: http.ServerResponse, body: string | Buffer | null): void {
+    let pendingChunk: Buffer | null = null;
+    const storage = this._storage;
+    if (storage.bufferOffset > 0) {
+      pendingChunk = Buffer.from(storage.responseBuffer.subarray(0, storage.bufferOffset));
+      storage.bufferOffset = 0;
+    }
+
     const status = resObj.statusCode;
     const payloadLength =
       body === null ? 0 : Buffer.isBuffer(body) ? body.length : Buffer.byteLength(body);
 
     if (this.method === "HEAD") {
-      if (!this.headersSent) {
-        this.setHeader("Content-Length", payloadLength);
+      if (!resObj.headersSent) {
+        resObj.setHeader("Content-Length", payloadLength);
       }
       resObj.end();
       resObj.uncork();
@@ -531,8 +711,18 @@ export class RequestContext<P extends string = string> {
     }
 
     if (!shouldSendContent(this.method, status)) {
-      if (!this.headersSent) {
-        this.setHeader("Content-Length", 0);
+      if (!resObj.headersSent) {
+        if (status === 204) {
+          resObj.removeHeader("Content-Length");
+          resObj.removeHeader("Content-Type");
+        } else if (status === 304) {
+          // RFC 9110: 304 must not force Content-Length: 0. Preserve representation length if known.
+          if (resObj.getHeader("Content-Length") === undefined && payloadLength > 0) {
+            resObj.setHeader("Content-Length", payloadLength);
+          }
+        } else {
+          resObj.setHeader("Content-Length", 0);
+        }
       }
       resObj.end();
       resObj.uncork();
@@ -540,25 +730,34 @@ export class RequestContext<P extends string = string> {
     }
 
     if (body === null) {
-      resObj.end();
+      if (pendingChunk !== null) resObj.end(pendingChunk);
+      else resObj.end();
       resObj.uncork();
       return;
     }
 
-    if (!this.headersSent) {
-      this.setHeader("Content-Length", payloadLength);
+    if (!resObj.headersSent) {
+      // Note: If there's a pending chunk, we can't accurately set Content-Length here unless we add it
+      if (pendingChunk !== null) {
+        resObj.setHeader("Content-Length", payloadLength + pendingChunk.length);
+      } else {
+        resObj.setHeader("Content-Length", payloadLength);
+      }
     }
+    if (pendingChunk !== null) resObj.write(pendingChunk);
     resObj.end(body);
     resObj.uncork();
   }
 
   public getHeaders(): http.OutgoingHttpHeaders {
-    return this.res !== null ? this.res.getHeaders() : {};
+    const resObj = this.res;
+    return resObj !== null ? resObj.getHeaders() : {};
   }
 
   public getHeader(header: string): string | undefined {
-    if (this.res === null) return undefined;
-    const raw = this.res.getHeader(header);
+    const resObj = this.res;
+    if (resObj === null) return undefined;
+    const raw = resObj.getHeader(header);
     if (raw === undefined) return undefined;
     if (Array.isArray(raw)) {
       if (isSetCookieHeaderName(header)) {
@@ -571,40 +770,42 @@ export class RequestContext<P extends string = string> {
   }
 
   public getRawHeader(header: string): string | number | string[] | null | undefined {
-    return this.res !== null ? this.res.getHeader(header) : undefined;
+    const resObj = this.res;
+    return resObj !== null ? resObj.getHeader(header) : undefined;
   }
 
   public setHeader(key: string, value: string | number | readonly string[]): this {
-    if (this.headersSent) {
+    const resObj = this.res;
+    if (resObj === null) return this;
+    if (resObj.headersSent) {
       throw new HeadersSentError();
     }
-    if (this.res !== null) {
-      this.res.setHeader(key, value);
-    }
+    resObj.setHeader(key, value);
     return this;
   }
 
   removeHeader(key: string): this {
-    if (this.headersSent) {
+    const resObj = this.res;
+    if (resObj === null) return this;
+    if (resObj.headersSent) {
       throw new HeadersSentError();
     }
-    if (this.res !== null) {
-      this.res.removeHeader(key);
-    }
+    resObj.removeHeader(key);
     return this;
   }
 
   flushHeaders(): this {
-    if (this.headersSent) {
+    const resObj = this.res;
+    if (resObj === null) return this;
+    if (resObj.headersSent) {
       throw new HeadersSentError();
     }
-    if (this.res !== null) {
-      this.res.flushHeaders();
-    }
+    resObj.flushHeaders();
     return this;
   }
 
   get cookies(): Record<string, string> {
+    if (!this.isValid) return {};
     if (this._cookiesCache !== null) {
       return this._cookiesCache;
     }
@@ -623,8 +824,10 @@ export class RequestContext<P extends string = string> {
   }
 
   public setCookie(name: string, value: string, options: CookieOptions = {}): this {
+    const resObj = this.res;
+    if (resObj === null) return this;
     const str = serializeSetCookie(name, value, options);
-    const existing = this.res !== null ? this.res.getHeader("Set-Cookie") : undefined;
+    const existing = resObj.getHeader("Set-Cookie");
 
     if (existing === undefined) {
       this.setHeader("Set-Cookie", str);
@@ -637,6 +840,8 @@ export class RequestContext<P extends string = string> {
   }
 
   public clearCookie(name: string, options: Omit<CookieOptions, "maxAge" | "expires"> = {}): this {
+    if (!this.isValid) return this;
+
     return this.setCookie(name, "", {
       ...options,
       expires: new Date(0),
@@ -648,6 +853,7 @@ export class RequestContext<P extends string = string> {
   }
 
   public body(type: "json" | "text" = "json"): Promise<unknown> {
+    if (!this.isValid) return Promise.reject(new Error("Context expired"));
     if (this._bodyPromise !== undefined) return this._bodyPromise;
 
     if (this.isMultipart) {
@@ -672,6 +878,7 @@ export class RequestContext<P extends string = string> {
   }
 
   public async *multipart(): AsyncGenerator<MultipartPart, void, unknown> {
+    if (!this.isValid) return;
     if (!this.isMultipart) {
       this.logWarn("Attempted to call ctx.multipart() on a non-multipart request header.");
       return;
@@ -685,27 +892,52 @@ export class RequestContext<P extends string = string> {
     statusCode: number = this.statusCode,
     options?: SendFileOptions,
   ): Promise<this> {
+    if (!this.isValid) return this;
     const resObj = this.res;
     if (resObj === null) return this;
     if (this.sent) {
       this.logWarn("Attempted to send file after response was sent");
       return this;
     }
+    const gen = this.generation;
+    let opened: OpenedFile | null = null;
+    let streaming = false;
     try {
+      const pathModule = await import("path");
       const fsModule = await import("fs");
-      const stats = await fsModule.promises.stat(filePath);
-      const regApp = this.app;
-
-      if (!stats.isFile()) {
-        const error = new NotFoundError("Resource Not Found");
-        if (options?.errCallback !== undefined) {
-          void options.errCallback(error, this);
+      if (options?.root !== undefined) {
+        // Root-confined mode: open-then-validate (see openContainedFile).
+        opened = await openContainedFile(options.root, filePath);
+        if (opened === null) {
+          const error = new NotFoundError("Resource Not Found");
+          if (options.errCallback !== undefined) {
+            void options.errCallback(error, this);
+          }
+          throw error;
         }
-        throw error;
+      } else if (!pathModule.isAbsolute(filePath)) {
+        throw new BadRequestError("path must be absolute or specify root to res.sendFile");
+      } else {
+        // Trusted mode: caller vouches for the path. Still fstat the opened descriptor so
+        // the type/size we advertise belong to the object we actually stream.
+        const handle = await fsModule.promises.open(filePath, "r");
+        const st = await handle.stat();
+        if (!st.isFile()) {
+          await handle.close();
+          const error = new NotFoundError("Resource Not Found");
+          if (options?.errCallback !== undefined) {
+            void options.errCallback(error, this);
+          }
+          throw error;
+        }
+        opened = { handle, stats: st, realPath: filePath };
       }
 
-      const pathModule = await import("path");
-      const ext = pathModule.extname(filePath).toLowerCase().slice(1);
+      if (this.generation !== gen || this.disconnected) {
+        return this;
+      }
+      const stats = opened.stats;
+      const ext = pathModule.extname(opened.realPath).toLowerCase().slice(1);
       const contentType = getMimeType(ext);
 
       const mtimeStr = stats.mtime.getTime().toString(16);
@@ -738,6 +970,7 @@ export class RequestContext<P extends string = string> {
       try {
         resObj.statusCode = statusCode;
         this.setHeader("Content-Type", contentType);
+        this.setHeader("X-Content-Type-Options", "nosniff");
         this.setHeader("Content-Length", stats.size);
         this.setHeader("Last-Modified", stats.mtime.toUTCString());
         this.setHeader("ETag", etag);
@@ -754,14 +987,13 @@ export class RequestContext<P extends string = string> {
         return this;
       }
 
-      const stream = fsModule.createReadStream(filePath);
+      const stream = opened.handle.createReadStream({ autoClose: true });
+      streaming = true;
+      const app = this.app;
       stream.pipe(resObj);
 
-      resObj.on("close", () => {
+      resObj.once("close", () => {
         stream.destroy();
-        if (this instanceof NodeRequestContext) {
-          regApp.resetCtx(this);
-        }
       });
 
       stream.on("error", (streamErr) => {
@@ -772,9 +1004,9 @@ export class RequestContext<P extends string = string> {
         if (options?.errCallback !== undefined) {
           void options.errCallback(normalizedErr, this);
         }
-        void this.app.handleError(normalizedErr, this);
-        if (!resObj.headersSent && this instanceof NodeRequestContext) {
-          regApp.resetCtx(this);
+        // The context is only recycled after the response closes, but guard anyway.
+        if (this.generation === gen) {
+          void app.handleError(normalizedErr, this);
         }
       });
     } catch {
@@ -783,13 +1015,25 @@ export class RequestContext<P extends string = string> {
         void options.errCallback(error, this);
       }
       throw error;
+    } finally {
+      if (opened !== null && !streaming) {
+        try {
+          await opened.handle.close();
+        } catch {
+          /* already closed */
+        }
+      }
     }
 
     return this;
   }
 }
 
-export class NodeRequestContext<P extends string = string> extends RequestContext<P> {}
+export class NodeRequestContext<P extends string = string> extends RequestContext<P> {
+  constructor(storage?: NodeContextStorage, token?: number) {
+    super(storage ?? new NodeContextStorage(), token);
+  }
+}
 
 export class EdgeRequestContext<P extends string = string> extends RequestContext<P> {
   public override readonly runtime = "edge";
@@ -798,9 +1042,14 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
   public _edgeHeaders: Headers = new Headers();
   public _edgeBody: unknown = null;
   public _edgeBodySent: boolean = false;
+  private _webStream: ReadableStream<Uint8Array> | null = null;
 
   public _resolveEdgeResponse!: (res: Response) => void;
   public _edgeResponsePromise!: Promise<Response>;
+
+  constructor(storage?: EdgeContextStorage, token?: number) {
+    super(storage ?? new EdgeContextStorage(), token);
+  }
 
   public override init(
     app: App<string>,
@@ -809,6 +1058,13 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
     resOrEnv?: http.ServerResponse | unknown,
     executionCtx?: unknown,
   ): void {
+    if (this._storage.activeToken === 0) {
+      this._storage.activeToken = this.token;
+    }
+    if (this._storage.activeToken !== this.token) {
+      throw new Error("Context expired");
+    }
+    this.reqGeneration = this.generation;
     this._app = app;
     const edgeReq = req as Request;
     this._edgeReq = edgeReq;
@@ -820,6 +1076,7 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
     this._edgeBodySent = false;
     this._route = null;
     this._cookiesCache = null;
+    this._webStream = null;
 
     this._edgeResponsePromise = new Promise<Response>((resolve) => {
       this._resolveEdgeResponse = resolve;
@@ -837,7 +1094,8 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
     this._path = null;
     this._queryString = null;
     this.queryValue = null;
-    this.params = Object.create(null) as ExtractParams<P>;
+    this._params = null;
+    this._state = null;
 
     const headersObj: Record<string, string> = {};
     edgeReq.headers.forEach((val: string, key: string) => {
@@ -849,6 +1107,7 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
   }
 
   override get req(): Request {
+    if (!this.isValid) throw new Error("Context expired");
     if (this._edgeReq === null) throw new Error("Request not initialized");
     return this._edgeReq;
   }
@@ -878,6 +1137,7 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
   }
 
   override set statusCode(code: number) {
+    if (!this.isValid || this._edgeBodySent) return;
     this._edgeStatus = code;
   }
 
@@ -887,6 +1147,7 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
   }
 
   override set type(value: string) {
+    if (!this.isValid || this._edgeBodySent) return;
     this._edgeHeaders.set("Content-Type", value);
   }
 
@@ -913,42 +1174,53 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
   }
 
   override get headers(): Record<string, string | string[] | undefined> {
+    if (!this.isValid) return {};
     return this._headers ?? {};
   }
 
   override reset() {
-    this.inited = false;
-    this._app = null;
+    super.reset();
     this._edgeReq = null;
-    this._route = null;
-    this._headers = null;
-    this.params = Object.create(null) as ExtractParams<P>;
-    this.state = {};
-    this.queryValue = null;
-    this._bodyPromise = undefined;
     this._edgeStatus = 200;
     this._edgeHeaders = new Headers();
     this._edgeBody = null;
     this._edgeBodySent = false;
-    this._cookiesCache = null;
-    this.env = null;
-    this.executionCtx = null;
+    this._edgeTransformWriter = null;
+    this._webStream = null;
+  }
+
+  override invalidate(): void {
+    super.invalidate();
+    this._edgeReq = null;
+    this._edgeBody = null;
+    this._webStream = null;
   }
 
   override async flush(): Promise<void> {}
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+  private _edgeTransformWriter: WritableStreamDefaultWriter<Uint8Array> | null = null;
+
   override async writeStatic(str: string): Promise<void> {
-    if (this._edgeBodySent) return;
-    if (this._edgeBody === null) {
-      this._edgeBody = "";
+    if (!this.isValid || this._edgeBodySent) return;
+    if (this._edgeBody === null || typeof this._edgeBody === "string") {
+      const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+      const writer = writable.getWriter();
+      const previousBody = this._edgeBody;
+      this._edgeBody = readable;
+      if (typeof previousBody === "string" && previousBody.length > 0) {
+        await writer.write(new TextEncoder().encode(previousBody));
+      }
+      this._edgeTransformWriter = writer;
     }
-    this._edgeBody = String(this._edgeBody) + str;
+    if (this._edgeTransformWriter !== null) {
+      await this._edgeTransformWriter.write(new TextEncoder().encode(str));
+    }
   }
 
   private endEdgePayload(body: string | Buffer | Uint8Array | null): void {
-    if (!this._edgeHeaders.has("Date")) {
-      this._edgeHeaders.set("Date", DATE_HEADER_BUF);
+    if (this._edgeTransformWriter !== null) {
+      void this._edgeTransformWriter.close();
+      this._edgeTransformWriter = null;
     }
     const status = this._edgeStatus;
     const payloadLength =
@@ -956,6 +1228,9 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
 
     if (this.method === "HEAD") {
       this._edgeHeaders.set("Content-Length", String(payloadLength));
+      if (this._edgeBody instanceof ReadableStream) {
+        this._edgeBody.cancel().catch(() => {});
+      }
       this._edgeBody = null;
       this._edgeBodySent = true;
       this._resolveEdgeResponse(new Response(null, { status, headers: this._edgeHeaders }));
@@ -963,26 +1238,65 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
     }
 
     if (!shouldSendContent(this.method, status)) {
-      this._edgeHeaders.set("Content-Length", "0");
+      if (this._edgeBody instanceof ReadableStream) {
+        this._edgeBody.cancel().catch(() => {});
+      }
+      if (status === 204) {
+        this._edgeHeaders.delete("Content-Length");
+        this._edgeHeaders.delete("Content-Type");
+      } else if (status === 304) {
+        if (!this._edgeHeaders.has("Content-Length") && payloadLength > 0) {
+          this._edgeHeaders.set("Content-Length", String(payloadLength));
+        }
+      } else {
+        this._edgeHeaders.set("Content-Length", "0");
+      }
       this._edgeBody = null;
       this._edgeBodySent = true;
       this._resolveEdgeResponse(new Response(null, { status, headers: this._edgeHeaders }));
       return;
     }
 
-    this._edgeBody = body;
+    const finalBody = body !== null ? body : this._edgeBody;
+    this._edgeBody = finalBody;
+    let wrappedBody = finalBody as BodyInit;
+    if (finalBody instanceof ReadableStream) {
+      const appRef = this._app;
+      const reader = finalBody.getReader();
+      wrappedBody = new ReadableStream({
+        pull: async (controller) => {
+          try {
+            const res = await reader.read();
+            if (res.done) {
+              controller.close();
+            } else {
+              controller.enqueue(res.value);
+            }
+          } catch (err) {
+            controller.error(err);
+            if (appRef !== null && !this._edgeBodySent) {
+              // Fallback triggered
+              void appRef.handleError(err, this);
+            } else if (appRef !== null) {
+              // Headers sent, just run error handler
+              void appRef.handleError(err, this);
+            }
+          }
+        },
+        cancel(reason) {
+          reader.cancel(reason).catch(() => {});
+        },
+      });
+    }
     this._edgeBodySent = true;
-    this._resolveEdgeResponse(
-      new Response(body as BodyInit, { status, headers: this._edgeHeaders }),
-    );
+    this._resolveEdgeResponse(new Response(wrappedBody, { status, headers: this._edgeHeaders }));
   }
 
   override json(data: unknown, statusCode: number = this._edgeStatus): this {
-    if (this._edgeBodySent) return this;
+    if (!this.isValid || this._edgeBodySent) return this;
     this._edgeStatus = statusCode;
     this._edgeHeaders.set("Content-Type", "application/json; charset=utf-8");
     this._edgeHeaders.set("Server", "Volten/1.0.0");
-    this._edgeHeaders.set("Date", DATE_HEADER_BUF);
 
     let body: string;
     if (this._route === null || this.route.disableOpt) {
@@ -1009,7 +1323,7 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
   }
 
   override text(data: string, statusCode: number = this._edgeStatus): this {
-    if (this._edgeBodySent) return this;
+    if (!this.isValid || this._edgeBodySent) return this;
     this._edgeStatus = statusCode;
     this._edgeHeaders.set("Content-Type", "text/plain; charset=utf-8");
     this.endEdgePayload(data);
@@ -1017,7 +1331,7 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
   }
 
   override buffer(data: Buffer | Uint8Array, statusCode: number = this._edgeStatus): this {
-    if (this._edgeBodySent) return this;
+    if (!this.isValid || this._edgeBodySent) return this;
     this._edgeStatus = statusCode;
     this._edgeHeaders.set("Content-Type", "application/octet-stream");
     this.endEdgePayload(data);
@@ -1025,6 +1339,7 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
   }
 
   override send(data?: unknown, statusCode: number = this._edgeStatus): this {
+    if (!this.isValid || this._edgeBodySent) return this;
     if (data === undefined) {
       this._edgeStatus = statusCode;
       this.endEdgePayload(null);
@@ -1041,7 +1356,17 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
   }
 
   override getHeaders(): Record<string, string | string[] | undefined> {
-    return Object.fromEntries(this._edgeHeaders.entries());
+    const headers: Record<string, string | string[]> = {};
+    for (const [key, val] of this._edgeHeaders.entries()) {
+      headers[key] = val;
+    }
+    if (typeof this._edgeHeaders.getSetCookie === "function") {
+      const cookies = this._edgeHeaders.getSetCookie();
+      if (cookies.length > 0) {
+        headers["set-cookie"] = cookies.length === 1 ? (cookies[0] ?? "") : cookies;
+      }
+    }
+    return headers;
   }
 
   override getHeader(header: string): string | undefined {
@@ -1057,6 +1382,7 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
   }
 
   override setHeader(key: string, value: string | number | readonly string[]): this {
+    if (!this.isValid) return this;
     if (this._edgeBodySent) throw new Error("Headers already sent");
     if (Array.isArray(value)) {
       this._edgeHeaders.delete(key);
@@ -1070,6 +1396,7 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
   }
 
   override removeHeader(key: string): this {
+    if (!this.isValid) return this;
     if (this._edgeBodySent) throw new Error("Headers already sent");
     this._edgeHeaders.delete(key);
     return this;
@@ -1080,15 +1407,42 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
   }
 
   override setCookie(name: string, value: string, options: CookieOptions = {}): this {
+    if (!this.isValid || this._edgeBodySent) return this;
     this._edgeHeaders.append("Set-Cookie", serializeSetCookie(name, value, options));
     return this;
   }
 
   override get bodyStream(): ReadableStream<Uint8Array> {
-    return this.req.body as ReadableStream<Uint8Array>;
+    if (this._webStream !== null) return this._webStream;
+
+    let limit = this.app.AppOptions.bodyLimit;
+    if (this._route?.bodyLimit !== undefined && this._route.bodyLimit !== null) {
+      limit = Math.min(this._route.bodyLimit, limit);
+    }
+
+    let received = 0;
+    const transform = new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk: Uint8Array, controller: TransformStreamDefaultController<Uint8Array>) {
+        received += chunk.byteLength;
+        if (received > limit) {
+          controller.error(new PayloadTooLargeError(limit.toString()));
+        } else {
+          controller.enqueue(chunk);
+        }
+      },
+    });
+
+    const body = this.req.body;
+    if (body !== null) {
+      this._webStream = body.pipeThrough(transform);
+    } else {
+      this._webStream = new ReadableStream<Uint8Array>();
+    }
+    return this._webStream;
   }
 
   override body(type: "json" | "text" = "json"): Promise<unknown> {
+    if (!this.isValid) return Promise.reject(new Error("Context expired"));
     if (this._bodyPromise !== undefined) return this._bodyPromise;
     if (this.isMultipart) {
       this._bodyPromise = Promise.reject(
@@ -1124,6 +1478,7 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
   }
 
   override async *multipart(): AsyncGenerator<MultipartPart, void, unknown> {
+    if (!this.isValid) return;
     if (!this.isMultipart) return;
     try {
       const formData = await this.req.formData();

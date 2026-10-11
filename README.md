@@ -83,7 +83,7 @@ Volten is engineered to outpace almost every framework in the Node.js ecosystem,
 
 - **JIT-Compiled Router**: Volten dynamically analyzes your route map at boot and compiles a partitioned Double-Switch statement using `new Function()`. Static route matches cost `O(1)` and bypass the Radix trie entirely.
 - **Monomorphic Parameters**: `ctx.params` is not a slow dictionary. Volten dynamically generates strict ES6 classes at boot for every parameter combination. Instantiating these ensures V8 maintains monomorphic Inline Caches (ICs).
-- **Zero-Allocation Parsing**: `ctx.path` and `ctx.queryString` lazily parse URLs without creating substring copies in memory unless absolutely necessary.
+- **low-allocation Parsing**: `ctx.path` and `ctx.queryString` lazily parse URLs without creating substring copies in memory unless absolutely necessary.
 
 ---
 
@@ -92,7 +92,7 @@ Volten is engineered to outpace almost every framework in the Node.js ecosystem,
 - **Dual Runtime Architecture** — Write once, run on Node.js (`app.listen()`) or any Web Fetch-compatible edge runtime (`app.createFetch()`).
 - **Adaptive Traffic Triage (ATT)** — Built-in stress management that drops low-priority requests when Node is overwhelmed.
 - **Zero Runtime Dependencies** — Uses only the Node.js core API (or the Web platform API on edge) for maximum security and minimal size.
-- **Context Pooling** — Zero-overhead reusable `RequestContext` objects pre-allocated on both runtimes to minimize GC pressure.
+- **Context & Buffer Pooling** — Reusable buffer storage with per-request handle identity isolation on both runtimes to minimize GC pressure.
 - **Trie-Based Router** — Extremely fast routing supporting dynamic params (`/users/:id`) and wildcards. Match cost scales with path depth.
 - **Middleware Chain** — Global and per-route middleware with cascading composition. Works identically on both runtimes.
 
@@ -197,3 +197,7 @@ The strict zero-dependency constraint means every utility — parsers, router, h
 ## License
 
 MIT © VoltenJS
+
+
+## Security Note
+`sendFile` relies on `fs.realpath` and `fs.stat` before opening the file. While it prevents directory traversal, there remains a small TOCTOU (Time-of-Check to Time-of-Use) window where the file could be replaced between validation and access. It is designed to serve application-controlled static assets safely, but do not pass completely untrusted paths directly if they reside in a concurrently mutated directory.

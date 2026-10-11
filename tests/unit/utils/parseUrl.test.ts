@@ -57,9 +57,9 @@ test("ParseUrl Unit Tests", async (t) => {
     assert.equal(r.queryStr, "x=1");
   });
 
-  await t.test("trailing slash on the path is stripped", () => {
+  await t.test("trailing slash on the path is preserved", () => {
     // The implementation only strips when length > 1
-    assert.deepEqual(parseUrl("/foo/"), { pathname: "/foo", queryStr: "" });
+    assert.deepEqual(parseUrl("/foo/"), { pathname: "/foo/", queryStr: "" });
   });
 
   await t.test("root path returns '/'", () => {
@@ -109,5 +109,14 @@ test("ParseUrl Unit Tests", async (t) => {
   await t.test("trailing & and dangling = are tolerated", () => {
     assert.deepEqual(parseQuery("a=1&"), { a: "1" });
     assert.deepEqual(parseQuery("a=1&b="), { a: "1", b: "" });
+  });
+
+  await t.test("null byte in URL throws BadRequestError", () => {
+    assert.throws(() => parseUrl("/path\0evil"), /Invalid URL/);
+  });
+
+  await t.test("malformed percent encoding in query is handled gracefully", () => {
+    const res = parseQuery("key=%E0%A4%A");
+    assert.equal(res["key"], "%E0%A4%A");
   });
 });

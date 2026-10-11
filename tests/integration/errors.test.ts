@@ -23,16 +23,12 @@ test("Error Pipeline & Boundary Constraints", async (t) => {
   let volten: App;
 
   let customGlobalErrorHit = false;
-  let tenantErrorHit = false;
-  let customErrorObject: any = null;
 
   const resetErrorMetrics = async () => {
     if (volten) {
       await volten.close();
     }
     customGlobalErrorHit = false;
-    tenantErrorHit = false;
-    customErrorObject = null;
 
     volten = new App({
       RequestPoolSize: 20,

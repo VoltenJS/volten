@@ -1,6 +1,6 @@
 import type { Query } from "../core/types.ts";
 
-function safeDecode(str: string): string {
+export function safeDecode(str: string): string {
   if (str.indexOf("%") === -1) return str;
   try {
     return decodeURIComponent(str);
@@ -14,7 +14,12 @@ function safeDecodeQuery(str: string): string {
   return safeDecode(str.replace(/\+/g, " "));
 }
 
+import { BadRequestError } from "../core/errors.ts";
+
 export function parseUrl(url: string) {
+  if (url.indexOf("\0") !== -1) {
+    throw new BadRequestError("Invalid URL");
+  }
   const hashIndex = url.indexOf("#");
   if (hashIndex !== -1) {
     url = url.slice(0, hashIndex);
@@ -37,27 +42,22 @@ export function parseUrl(url: string) {
     const qIdx = url.indexOf("?");
     return { pathname: "/", queryStr: qIdx === -1 ? "" : url.slice(qIdx + 1) };
   }
-  const remaining = pathStart === -1 ? url : url.substring(pathStart);
+  const remaining = pathStart <= 0 ? url : url.substring(pathStart);
   const queryIndex = remaining.indexOf("?");
 
   if (queryIndex === -1) {
-    const pathname =
-      // eslint-disable-next-line @typescript-eslint/strict-boolean-expressions
-      remaining.endsWith("/") && remaining.length > 1 ? remaining.slice(0, -1) : remaining || "/";
+    const pathname = remaining.length > 0 ? remaining : "/";
     return {
-      pathname: safeDecode(pathname),
+      pathname: pathname,
       queryStr: "",
     };
   }
 
-  // eslint-disable-next-line @typescript-eslint/strict-boolean-expressions
-  let pathname = remaining.slice(0, queryIndex) || "/";
-  if (pathname.endsWith("/") && pathname.length > 1) {
-    pathname = pathname.slice(0, -1);
-  }
+  const sliced = remaining.slice(0, queryIndex);
+  const pathname = sliced.length > 0 ? sliced : "/";
 
   return {
-    pathname: safeDecode(pathname),
+    pathname: pathname,
     queryStr: remaining.substring(queryIndex + 1),
   };
 }

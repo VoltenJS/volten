@@ -309,7 +309,7 @@ export class Router {
   /**
    * Registers all routes and sub-routers defined on this Router instance with the main Volten App.
    *
-   * @param {App<string>} app - The main Volten application instance.
+   * @param {App<any>} app - The main Volten application instance.
    * @param {string} [prefix=""] - A path prefix to prepend to all route paths.
    * @param {VoltenHandler[]} [parentMiddleware=[]] - Middleware inherited from parent routers.
    *

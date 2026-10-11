@@ -25,7 +25,7 @@ test("Router tests", async (t) => {
     const router = new Router();
 
     router.use((ctx, next) => {
-      ctx.res.setHeader("X-Router-Middleware", "true");
+      ctx.res!.setHeader("X-Router-Middleware", "true");
       return next();
     });
 
@@ -46,7 +46,7 @@ test("Router tests", async (t) => {
     const router = new Router();
 
     app.use((ctx, next) => {
-      ctx.res.setHeader("X-App-Middleware", "true");
+      ctx.res!.setHeader("X-App-Middleware", "true");
       return next();
     });
 
