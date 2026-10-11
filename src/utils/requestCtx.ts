@@ -497,7 +497,7 @@ export class RequestContext<P extends string = string> {
     try {
       this.isFlushing = true;
       if (this.bufferOffset > 0) {
-        const chunk = this.responseBuffer.subarray(0, this.bufferOffset);
+        const chunk = Buffer.from(this.responseBuffer.subarray(0, this.bufferOffset));
         this.bufferOffset = 0;
         const ready = resObj.write(chunk);
         if (!ready) {
@@ -506,11 +506,29 @@ export class RequestContext<P extends string = string> {
       }
 
       while (this.writeQueue.length > 0) {
-        const next = this.writeQueue[0];
+        const next = this.writeQueue.shift();
         if (next === undefined) break;
         const len = Buffer.byteLength(next.str);
+
+        if (len >= RequestContext.BUFFER_SIZE) {
+          if (this.bufferOffset > 0) {
+            const chunk = Buffer.from(this.responseBuffer.subarray(0, this.bufferOffset));
+            this.bufferOffset = 0;
+            const ready = resObj.write(chunk);
+            if (!ready) {
+              await new Promise<void>((resolve) => resObj.once("drain", resolve));
+            }
+          }
+          const ready = resObj.write(next.str);
+          if (!ready) {
+            await new Promise<void>((resolve) => resObj.once("drain", resolve));
+          }
+          next.resolve();
+          continue;
+        }
+
         if (this.bufferOffset + len > RequestContext.BUFFER_SIZE) {
-          const chunk = this.responseBuffer.subarray(0, this.bufferOffset);
+          const chunk = Buffer.from(this.responseBuffer.subarray(0, this.bufferOffset));
           this.bufferOffset = 0;
 
           const ready = resObj.write(chunk);
@@ -519,7 +537,6 @@ export class RequestContext<P extends string = string> {
           }
         }
 
-        this.writeQueue.shift();
         this.bufferOffset += this.responseBuffer.write(next.str, this.bufferOffset);
         next.resolve();
       }
@@ -542,6 +559,24 @@ export class RequestContext<P extends string = string> {
       await this.flush();
     }
 
+    if (len > RequestContext.BUFFER_SIZE) {
+      const resObj = this.res;
+      if (resObj === null) return;
+      this.isFlushing = true;
+      try {
+        const ready = resObj.write(str);
+        if (!ready) {
+          await new Promise<void>((resolve) => resObj.once("drain", resolve));
+        }
+      } finally {
+        this.isFlushing = false;
+        if (this.writeQueue.length > 0) {
+          await this.flush();
+        }
+      }
+      return;
+    }
+
     this.bufferOffset += this.responseBuffer.write(str, this.bufferOffset);
   }
 
@@ -555,26 +590,7 @@ export class RequestContext<P extends string = string> {
       throw new SendAfterSentError("json");
     }
 
-    let body: string;
-    if (this._route === null || this.route.disableOpt) {
-      body = JSON.stringify(data);
-    } else {
-      try {
-        let serializer = this.route.serializer;
-        if (serializer === undefined) {
-          const finger = this.app.JITCache.getShapeFingerprint(data);
-          serializer = this.app.JITCache.get(finger);
-          if (serializer === undefined) {
-            serializer = createCompiledStringifier(data);
-            this.app.JITCache.set(finger, serializer);
-          }
-          this.route.serializer = serializer;
-        }
-        body = serializer(data);
-      } catch {
-        body = JSON.stringify(data);
-      }
-    }
+    const body = JSON.stringify(data);
     if (!this.headersSent) resObj.cork();
     resObj.writeHead(statusCode, {
       "Content-Type": "application/json; charset=utf-8",
@@ -636,6 +652,12 @@ export class RequestContext<P extends string = string> {
   }
 
   protected endNodePayload(resObj: http.ServerResponse, body: string | Buffer | null): void {
+    let pendingChunk: Buffer | null = null;
+    if (this.bufferOffset > 0) {
+      pendingChunk = Buffer.from(this.responseBuffer.subarray(0, this.bufferOffset));
+      this.bufferOffset = 0;
+    }
+
     const status = resObj.statusCode;
     const payloadLength =
       body === null ? 0 : Buffer.isBuffer(body) ? body.length : Buffer.byteLength(body);
@@ -651,7 +673,17 @@ export class RequestContext<P extends string = string> {
 
     if (!shouldSendContent(this.method, status)) {
       if (!this.headersSent) {
-        this.setHeader("Content-Length", 0);
+        if (status === 204) {
+          resObj.removeHeader("Content-Length");
+          resObj.removeHeader("Content-Type");
+        } else if (status === 304) {
+          // RFC 9110: 304 must not force Content-Length: 0. Preserve representation length if known.
+          if (resObj.getHeader("Content-Length") === undefined && payloadLength > 0) {
+            this.setHeader("Content-Length", payloadLength);
+          }
+        } else {
+          this.setHeader("Content-Length", 0);
+        }
       }
       resObj.end();
       resObj.uncork();
@@ -659,14 +691,21 @@ export class RequestContext<P extends string = string> {
     }
 
     if (body === null) {
-      resObj.end();
+      if (pendingChunk !== null) resObj.end(pendingChunk);
+      else resObj.end();
       resObj.uncork();
       return;
     }
 
     if (!this.headersSent) {
-      this.setHeader("Content-Length", payloadLength);
+      // Note: If there's a pending chunk, we can't accurately set Content-Length here unless we add it
+      if (pendingChunk !== null) {
+        this.setHeader("Content-Length", payloadLength + pendingChunk.length);
+      } else {
+        this.setHeader("Content-Length", payloadLength);
+      }
     }
+    if (pendingChunk !== null) resObj.write(pendingChunk);
     resObj.end(body);
     resObj.uncork();
   }
@@ -1106,7 +1145,19 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
     }
 
     if (!shouldSendContent(this.method, status)) {
-      this._edgeHeaders.set("Content-Length", "0");
+      if (this._edgeBody instanceof ReadableStream) {
+        this._edgeBody.cancel().catch(() => {});
+      }
+      if (status === 204) {
+        this._edgeHeaders.delete("Content-Length");
+        this._edgeHeaders.delete("Content-Type");
+      } else if (status === 304) {
+        if (!this._edgeHeaders.has("Content-Length") && payloadLength > 0) {
+          this._edgeHeaders.set("Content-Length", String(payloadLength));
+        }
+      } else {
+        this._edgeHeaders.set("Content-Length", "0");
+      }
       this._edgeBody = null;
       this._edgeBodySent = true;
       this._resolveEdgeResponse(new Response(null, { status, headers: this._edgeHeaders }));
