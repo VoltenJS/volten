@@ -4,6 +4,7 @@ import { DuplicateRouteError } from "../core/errors.ts";
 import { RequestContext } from "./requestCtx.ts";
 import { compileMiddlewareChain } from "../core/compose.ts";
 import { isEdge } from "./isEdge.ts";
+import { safeDecode } from "./parseUrl.ts";
 
 export class MethodStorage {
   public GET: PathData | null = null;
@@ -84,7 +85,7 @@ export class RouteTree {
   private staticRoutes: { method: string; path: string; data: PathData }[] = [];
   private caseInsensitive;
   private compiled = false;
-  private isMatchPathCompiled = false;
+  public isMatchPathCompiled = false;
   public matchPath: (method: string, path: string, ctx: RequestContext) => PathData | null;
 
   constructor(caseInsensitive: boolean) {
@@ -166,6 +167,9 @@ export class RouteTree {
       // Handle Wildcard Tokens
       if (charCode === 42) {
         // '*'
+        if (i !== path.length - 1) {
+          throw new Error("Wildcard '*' must be at the end of the route path.");
+        }
         paramNames.push("*");
         if (currentNode.wildcardChild === null) {
           currentNode.wildcardChild = new PathNode("*");
@@ -299,6 +303,7 @@ export class RouteTree {
       node: PathNode;
       index: number;
       paramLength: number;
+      type: "param" | "wildcard";
     }[] = [];
 
     const paramMatches: { name: string; value: string }[] = [];
@@ -307,11 +312,20 @@ export class RouteTree {
       while (i < len) {
         const charCode = lookupPath.charCodeAt(i);
         let foundStatic = false;
-        if (currentNode.paramChild !== null || currentNode.wildcardChild !== null) {
+        if (currentNode.wildcardChild !== null) {
           backtrackStack.push({
             node: currentNode,
             index: i,
             paramLength: paramMatches.length,
+            type: "wildcard",
+          });
+        }
+        if (currentNode.paramChild !== null) {
+          backtrackStack.push({
+            node: currentNode,
+            index: i,
+            paramLength: paramMatches.length,
+            type: "param",
           });
         }
 
@@ -340,13 +354,15 @@ export class RouteTree {
         }
 
         if (foundStatic) continue;
-        if (backtrackStack.length > 0) {
+        let matchedFallback = false;
+        while (backtrackStack.length > 0) {
           const fallback = backtrackStack.pop();
           if (fallback == null) break;
           currentNode = fallback.node;
           i = fallback.index;
           paramMatches.length = fallback.paramLength;
-          if (currentNode.paramChild !== null) {
+
+          if (fallback.type === "param" && currentNode.paramChild !== null) {
             currentNode = currentNode.paramChild;
             let j = i;
             while (j < len && lookupPath.charCodeAt(j) !== 47) j++;
@@ -359,18 +375,24 @@ export class RouteTree {
               });
 
               i = j;
-              continue;
+              matchedFallback = true;
+              break;
             }
           }
 
-          if (currentNode.wildcardChild !== null) {
+          if (fallback.type === "wildcard" && currentNode.wildcardChild !== null) {
             currentNode = currentNode.wildcardChild;
             const extractedValue = originalPath.slice(i, len);
             paramMatches.push({ name: "*", value: extractedValue });
 
             i = len;
+            matchedFallback = true;
             break;
           }
+        }
+        if (matchedFallback) {
+          if (i === len) break;
+          continue;
         }
         return null;
       }
@@ -383,7 +405,7 @@ export class RouteTree {
           const match = paramMatches[idx];
           if (match === undefined) continue;
           const actualName = routeParamNames[idx] ?? match.name;
-          ctx.params[actualName] = match.value;
+          ctx.params[actualName] = safeDecode(match.value);
         }
 
         return result;
@@ -394,13 +416,15 @@ export class RouteTree {
         paramMatches.push({ name: "*", value: extractedValue });
         continue;
       }
-      if (backtrackStack.length > 0) {
+      let matchedFallback = false;
+      while (backtrackStack.length > 0) {
         const fallback = backtrackStack.pop();
         if (fallback === undefined) break;
         currentNode = fallback.node;
         i = fallback.index;
         paramMatches.length = fallback.paramLength;
-        if (currentNode.paramChild != null) {
+
+        if (fallback.type === "param" && currentNode.paramChild != null) {
           currentNode = currentNode.paramChild;
           let j = i;
           while (j < len && lookupPath.charCodeAt(j) !== 47) j++;
@@ -413,18 +437,23 @@ export class RouteTree {
             });
 
             i = j;
-            continue;
+            matchedFallback = true;
+            break;
           }
         }
 
-        if (currentNode.wildcardChild != null) {
+        if (fallback.type === "wildcard" && currentNode.wildcardChild != null) {
           currentNode = currentNode.wildcardChild;
           const extractedValue = originalPath.slice(i, len);
           paramMatches.push({ name: "*", value: extractedValue });
 
           i = len;
-          continue;
+          matchedFallback = true;
+          break;
         }
+      }
+      if (matchedFallback) {
+        continue;
       }
       return null;
     }
@@ -447,9 +476,11 @@ export class RouteTree {
     codeLines.push(`  const originalPath = path;`);
     codeLines.push(`  const qIdx = originalPath.indexOf('?');`);
     codeLines.push(`  const pathLen = qIdx === -1 ? originalPath.length : qIdx;`);
-    codeLines.push(
-      `  const lookupPath = this.caseInsensitive ? originalPath.substring(0, pathLen).toLowerCase() : originalPath;`,
-    );
+    if (this.caseInsensitive) {
+      codeLines.push(`  const lookupPath = originalPath.substring(0, pathLen).toLowerCase();`);
+    } else {
+      codeLines.push(`  const lookupPath = originalPath;`);
+    }
 
     let staticRouteCounter = 0;
     const routeDataMap: Record<string, PathData> = {};
@@ -467,7 +498,7 @@ export class RouteTree {
         const className = `RouteParams_${classCounter++}`;
         paramClasses.set(sig, className);
         const args = sorted.map((_, i) => `p${i}`).join(", ");
-        const assignments = sorted.map((k, i) => `this["${k}"] = p${i};`).join(" ");
+        const assignments = sorted.map((k, i) => `this[${JSON.stringify(k)}] = p${i};`).join(" ");
         classDeclarations.push(`class ${className} { constructor(${args}) { ${assignments} } }`);
       }
       return paramClasses.get(sig);
@@ -610,7 +641,10 @@ export class RouteTree {
       let hasMethods: boolean = false;
 
       methods.forEach((m) => {
-        const data = node.methods.get(m);
+        let data = node.methods.get(m);
+        if (m === "HEAD" && data === null) {
+          data = node.methods.get("GET");
+        }
         if (data !== null) {
           if (!hasMethods) {
             codeLines.push(`${indent}switch (method) {`);
@@ -640,7 +674,7 @@ export class RouteTree {
               const origParam = actualParamsMap.get(paramName);
               const start = origParam?.start ?? "0";
               const end = origParam?.end ?? "0";
-              return `originalPath.slice(${start}, ${end})`;
+              return `safeDecode(path.slice(${start}, ${end}))`;
             });
             codeLines.push(`${indent}    ctx.params = new ${className}(${args.join(", ")});`);
           }
@@ -661,22 +695,15 @@ export class RouteTree {
     try {
       const factoryCode = `${classDeclarations.join("\n")}\nreturn function matchPathCompiled(method, path, ctx) {\n${codeLines.join("\n")}\n};`;
       // eslint-disable-next-line @typescript-eslint/no-implied-eval
-      const factory = new Function("externals", factoryCode);
+      const factory = new Function("externals", "safeDecode", factoryCode);
 
       // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-      const compiledFn = factory(routeDataMap) as (
+      const compiledFn = factory(routeDataMap, safeDecode) as (
         method: string,
         path: string,
         ctx: RequestContext,
       ) => PathData | null;
-      this.matchPath = (method: string, path: string, ctx: RequestContext) => {
-        const result = compiledFn.call(this, method, path, ctx);
-        if (result === null && method === "HEAD") {
-          ctx.params = {};
-          return compiledFn.call(this, "GET", path, ctx);
-        }
-        return result;
-      };
+      this.matchPath = compiledFn.bind(this);
       this.isMatchPathCompiled = true;
     } catch {
       this.isMatchPathCompiled = false;
