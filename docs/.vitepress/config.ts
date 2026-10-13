@@ -92,6 +92,10 @@ export default withMermaid({
             link: "/guide/routing/route-registration",
           },
           {
+            text: "Route Inspection",
+            link: "/guide/routing/route-inspection",
+          },
+          {
             text: "Case Sensitivity",
             link: "/guide/routing/case-sensitivity",
           },

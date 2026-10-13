@@ -9,6 +9,7 @@ import type {
   VoltenAppOptions,
   Logger,
   CustomLoggerOptions,
+  RouteExecutionInfo,
 } from "./types.ts";
 import {
   DefaultVoltenOptions,
@@ -154,6 +155,26 @@ export class App<CustomLevels extends string = never> extends Router {
    */
   getRouteTree(): RouteTree {
     return this.tree;
+  }
+
+  /**
+   * Returns immutable, public metadata about the matching route's execution plan.
+   * Handler functions and executable internals are intentionally not exposed.
+   * Rebuilds the tree so mounted sub-routers and newly added routes are visible.
+   */
+  public inspectRoute(method: string, path: string): RouteExecutionInfo | null {
+    this.prepareRouteTree();
+    const plan = this.tree.matchPath(method, path, { params: {} } as RequestContext)?.plan;
+    if (plan === undefined) return null;
+
+    return Object.freeze({
+      id: plan.id,
+      method: plan.method,
+      path: plan.path,
+      level: plan.level,
+      paramCount: plan.paramCount,
+      effectiveHandlerCount: plan.effectiveHandlerCount,
+    });
   }
 
   //#endregion
@@ -481,7 +502,8 @@ export class App<CustomLevels extends string = never> extends Router {
     if (route === null) return;
 
     try {
-      const result = route.composeChain(ctx);
+      const plan = route.plan;
+      const result = plan !== undefined ? plan.executeNode(ctx) : route.composeChain(ctx);
       if (
         result !== null &&
         typeof result === "object" &&
@@ -492,6 +514,16 @@ export class App<CustomLevels extends string = never> extends Router {
     } catch (err: unknown) {
       void this.handleError(err, ctx);
     }
+  }
+
+  /**
+   * Rebuilds the route tree from the current application and mounted-router state.
+   */
+  private prepareRouteTree(): void {
+    this.tree.clear();
+    this.compilePreflightHandler();
+    this.register(this);
+    this.tree.createMatchPath();
   }
 
   /**
@@ -533,10 +565,7 @@ export class App<CustomLevels extends string = never> extends Router {
       return this.server;
     }
 
-    this.tree.clear();
-    this.compilePreflightHandler();
-    this.register(this);
-    this.tree.createMatchPath();
+    this.prepareRouteTree();
     // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
     this.server.listen(...args);
     return this.server;
@@ -552,9 +581,7 @@ export class App<CustomLevels extends string = never> extends Router {
     env?: unknown,
     executionCtx?: unknown,
   ) => Promise<Response> {
-    this.compilePreflightHandler();
-    this.register(this);
-    this.tree.createMatchPath();
+    this.prepareRouteTree();
 
     return async (request: Request, env?: unknown, executionCtx?: unknown): Promise<Response> => {
       if (this.adaptiveEngine.enabled) {
@@ -615,7 +642,8 @@ export class App<CustomLevels extends string = never> extends Router {
         }
 
         // 3. Synchronous-first Handler Chain
-        const chainResult = route.composeChain(ctx);
+        const plan = route.plan;
+        const chainResult = plan !== undefined ? plan.executeEdge(ctx) : route.composeChain(ctx);
         if (
           chainResult !== undefined &&
           typeof (chainResult as Promise<unknown>).then === "function"

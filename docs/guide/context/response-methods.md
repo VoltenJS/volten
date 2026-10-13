@@ -5,7 +5,7 @@
 The most versatile response method. Automatically determines the response type based on the input argument:
 
 - **String**: Sends with `Content-Type: text/plain; charset=utf-8`.
-- **Buffer / Uint8Array**: Sends with `Content-Type: application/octet-stream; charset=utf-8`.
+- **Buffer / Uint8Array**: Sends with `Content-Type: application/octet-stream`.
 - **Object / Array / Boolean / Number**: Serializes and sends with `Content-Type: application/json; charset=utf-8`.
 
 ```typescript
@@ -34,8 +34,8 @@ app.post("/api/user", async (ctx) => {
 });
 ```
 
-::: tip High-Performance JIT Serialization
-Volten includes an internal JIT compilation cache (`app.JITCache`). Recurring payload shapes are analyzed and serialized through specialized compiled stringifiers, significantly outperforming standard `JSON.stringify`.
+::: tip Shape-aware JSON serialization
+Volten can cache shape-specific serializers for recurring payload structures. The implementation may fall back to native `JSON.stringify()`; the performance impact depends on the payload and runtime and should be benchmarked for your workload.
 :::
 
 ### `ctx.text(data, statusCode?)`

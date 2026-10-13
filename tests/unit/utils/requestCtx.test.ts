@@ -66,6 +66,43 @@ test("EdgeRequestContext Tests", async (t) => {
     ctx.clearCookie("edge-cookie", { path: "/app" });
     ctx.removeHeader("x-custom");
   });
+
+  await t.test(
+    "EdgeRequestContext pooled lifecycle preserves header isolation across requests",
+    () => {
+      const app = new App() as any;
+      const req1 = new Request("http://localhost:3000/first");
+      const req2 = new Request("http://localhost:3000/second");
+
+      const ctx = new EdgeRequestContext();
+
+      // 1. First request lifecycle
+      ctx.init(app, req1, {}, {});
+      ctx.setHeader("x-request-id", "req-1");
+      ctx.setHeader("x-first-only", "alpha");
+      assert.strictEqual(ctx.getHeader("x-request-id"), "req-1");
+      assert.strictEqual(ctx.getHeader("x-first-only"), "alpha");
+      assert.strictEqual(ctx.getHeaders()["x-first-only"], "alpha");
+
+      // Reset the context (simulating pooling return)
+      ctx.reset();
+
+      // 2. Second request lifecycle on the same pooled instance
+      ctx.init(app, req2, {}, {});
+      // Must NOT retain headers from req1
+      assert.strictEqual(ctx.getHeader("x-first-only"), undefined);
+      assert.strictEqual(ctx.getHeader("x-request-id"), undefined);
+      assert.strictEqual(ctx.getHeaders()["x-first-only"], undefined);
+
+      // Can set new headers on req2 cleanly
+      ctx.setHeader("x-request-id", "req-2");
+      ctx.setHeader("x-second-only", "beta");
+      assert.strictEqual(ctx.getHeader("x-request-id"), "req-2");
+      assert.strictEqual(ctx.getHeader("x-second-only"), "beta");
+      assert.strictEqual(ctx.getHeaders()["x-second-only"], "beta");
+      assert.strictEqual(ctx.getHeaders()["x-first-only"], undefined);
+    },
+  );
 });
 
 // --- From requestCtx-coverage.test.ts ---

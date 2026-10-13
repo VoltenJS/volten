@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { App } from "../../../src/core/server.ts";
+import { Router } from "../../../src/core/router.ts";
 import { NodeRequestContext, EdgeRequestContext } from "../../../src/utils/requestCtx.ts";
+import { request } from "../../helpers.ts";
 
 function captureLogs(fn: () => void): any[] {
   const originalInfo = console.info;
@@ -20,6 +22,33 @@ function captureLogs(fn: () => void): any[] {
   }
   return logs;
 }
+
+test("inspectRoute exposes immutable metadata and compiles mounted sub-router routes", () => {
+  const app = new App({ RequestPoolSize: 1 });
+  const api = new Router();
+  api.get("/users", (ctx) => ctx.send("users"));
+  app.use("/api", api);
+
+  const info = app.inspectRoute("GET", "/api/users");
+
+  assert.ok(info);
+  assert.equal(info.level, "OPTIMIZED");
+  assert.equal(info.effectiveHandlerCount, 1);
+  assert.equal(info.path, "/api/users");
+  assert.equal(Object.isFrozen(info), true);
+  assert.equal("chain" in info, false);
+  assert.equal("executeNode" in info, false);
+  assert.equal("terminalHandler" in info, false);
+});
+
+test("inspectRoute reflects routes added after an earlier route-tree compilation", () => {
+  const app = new App({ RequestPoolSize: 1 });
+  app.get("/first", (ctx) => ctx.send("first"));
+  assert.ok(app.inspectRoute("GET", "/first"));
+
+  app.get("/second", (ctx) => ctx.send("second"));
+  assert.ok(app.inspectRoute("GET", "/second"));
+});
 
 test("Server Unit Tests", async (t) => {
   await t.test("default logger works and logs warn level by default", () => {
@@ -142,6 +171,206 @@ test("Server Unit Tests", async (t) => {
     const res = await fetch(req);
     assert.strictEqual(res.status, 204);
   });
+
+  // Internal branch test: compilePreflightHandler() always wraps preflight hooks in an
+  // async function, so through the ordinary public API `preflightResult` in handleRequest()
+  // is always Thenable and hits the `.then(() => { if (!ctx.sent) this.executeRouting(ctx); })`
+  // branch (line 458). The synchronous `if (ctx.sent) return;` guard at line 468 is defensive
+  // code for an internal/future synchronous preflight fast-path where `preflightHandler` is
+  // assigned a non-async function directly. This test explicitly exercises that internal
+  // defensive branch and is NOT public-API verification.
+  await t.test(
+    "[internal sync branch] defensive if (ctx.sent) return guard stops Node HTTP routing when preflightHandler returns non-Thenable",
+    async () => {
+      const app = new App({ loggerOptions: { level: "fatal" } });
+      let preflightExecuted = false;
+      let downstreamRouteExecuted = false;
+
+      const syncPreflightHook = (ctx: any) => {
+        preflightExecuted = true;
+        ctx.setHeader("X-Preflight-Short-Circuit", "true");
+        ctx.status(401).send("Halted by preflight");
+      };
+
+      app.preflight(syncPreflightHook);
+      const origCompile = (app as any).compilePreflightHandler.bind(app);
+      (app as any).compilePreflightHandler = () => {
+        origCompile();
+        (app as any).preflightHandler = syncPreflightHook;
+      };
+
+      app.get("/protected", (ctx) => {
+        downstreamRouteExecuted = true;
+        ctx.status(200).json({ ok: true });
+      });
+
+      const res = await request(app, "/protected", { method: "GET" });
+      assert.strictEqual(res.status, 401);
+      assert.strictEqual(res.headers["x-preflight-short-circuit"], "true");
+      assert.strictEqual(res.body, "Halted by preflight");
+      assert.strictEqual(preflightExecuted, true);
+      assert.strictEqual(
+        downstreamRouteExecuted,
+        false,
+        "Downstream route handler must not execute after synchronous preflight hook sends response",
+      );
+    },
+  );
+
+  await t.test(
+    "public API: app.preflight() synchronous hook that sends a response short-circuits routing via listen()",
+    async () => {
+      const app = new App({ loggerOptions: { level: "fatal" } });
+      let preflightExecuted = false;
+      let middlewareExecuted = false;
+      let downstreamRouteExecuted = false;
+
+      app.preflight((ctx) => {
+        preflightExecuted = true;
+        ctx.setHeader("X-Public-Preflight", "blocked");
+        ctx.status(403).send("Forbidden by preflight");
+      });
+
+      app.use(async (_ctx, next) => {
+        middlewareExecuted = true;
+        await next();
+      });
+
+      app.get("/resource", (ctx) => {
+        downstreamRouteExecuted = true;
+        ctx.status(200).json({ ok: true });
+      });
+
+      const res = await request(app, "/resource", { method: "GET" });
+      assert.strictEqual(res.status, 403);
+      assert.strictEqual(res.headers["x-public-preflight"], "blocked");
+      assert.strictEqual(res.body, "Forbidden by preflight");
+      assert.strictEqual(preflightExecuted, true);
+      assert.strictEqual(middlewareExecuted, false);
+      assert.strictEqual(downstreamRouteExecuted, false);
+    },
+  );
+
+  await t.test(
+    "public API: app.preflight() synchronous hook that does not send a response continues to normal routing via listen()",
+    async () => {
+      const app = new App({ loggerOptions: { level: "fatal" } });
+      const executionOrder: string[] = [];
+
+      app.preflight((ctx) => {
+        executionOrder.push("preflight");
+        ctx.setHeader("X-Preflight-Trace", "passed");
+      });
+
+      app.use(async (_ctx, next) => {
+        executionOrder.push("middleware");
+        await next();
+      });
+
+      app.get("/resource", (ctx) => {
+        executionOrder.push("route");
+        ctx.status(200).send("OK");
+      });
+
+      const res = await request(app, "/resource", { method: "GET" });
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual(res.headers["x-preflight-trace"], "passed");
+      assert.strictEqual(res.body, "OK");
+      assert.deepStrictEqual(executionOrder, ["preflight", "middleware", "route"]);
+    },
+  );
+
+  await t.test(
+    "public API: app.preflight() async hooks support both short-circuiting and pass-through via listen()",
+    async () => {
+      const app = new App({ loggerOptions: { level: "fatal" } });
+      let routeCalls = 0;
+
+      app.preflight(async (ctx) => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        ctx.setHeader("X-Async-Preflight-1", "ran");
+        if (ctx.headers["x-halt"] === "1") {
+          ctx.status(429).send("Rate limited in async preflight");
+        }
+      });
+
+      app.preflight(async (ctx) => {
+        await Promise.resolve();
+        ctx.setHeader("X-Async-Preflight-2", "ran");
+      });
+
+      app.get("/items", (ctx) => {
+        routeCalls += 1;
+        ctx.status(200).send("items-list");
+      });
+
+      const blockedRes = await request(app, "/items", {
+        method: "GET",
+        headers: { "x-halt": "1" },
+      });
+      assert.strictEqual(blockedRes.status, 429);
+      assert.strictEqual(blockedRes.headers["x-async-preflight-1"], "ran");
+      assert.strictEqual(blockedRes.headers["x-async-preflight-2"], undefined);
+      assert.strictEqual(blockedRes.body, "Rate limited in async preflight");
+      assert.strictEqual(routeCalls, 0);
+
+      const allowedRes = await request(app, "/items", { method: "GET" });
+      assert.strictEqual(allowedRes.status, 200);
+      assert.strictEqual(allowedRes.headers["x-async-preflight-1"], "ran");
+      assert.strictEqual(allowedRes.headers["x-async-preflight-2"], "ran");
+      assert.strictEqual(allowedRes.body, "items-list");
+      assert.strictEqual(routeCalls, 1);
+    },
+  );
+
+  await t.test(
+    "public API: app.preflight() synchronous and asynchronous errors route to onError without running route handlers",
+    async () => {
+      const app = new App({ loggerOptions: { level: "fatal" } });
+      let routeExecuted = false;
+      const caughtErrors: string[] = [];
+
+      app.preflight((ctx) => {
+        if (ctx.headers["x-fail-mode"] === "sync") {
+          throw new Error("Preflight sync boom");
+        }
+      });
+
+      app.preflight(async (ctx) => {
+        if (ctx.headers["x-fail-mode"] === "async") {
+          await Promise.resolve();
+          throw new Error("Preflight async boom");
+        }
+      });
+
+      app.onError((err, ctx) => {
+        caughtErrors.push(err.message);
+        ctx.status(500).send(`Caught: ${err.message}`);
+      });
+
+      app.get("/check", (ctx) => {
+        routeExecuted = true;
+        ctx.status(200).send("ok");
+      });
+
+      const syncErrRes = await request(app, "/check", {
+        method: "GET",
+        headers: { "x-fail-mode": "sync" },
+      });
+      assert.strictEqual(syncErrRes.status, 500);
+      assert.strictEqual(syncErrRes.body, "Caught: Preflight sync boom");
+      assert.strictEqual(routeExecuted, false);
+
+      const asyncErrRes = await request(app, "/check", {
+        method: "GET",
+        headers: { "x-fail-mode": "async" },
+      });
+      assert.strictEqual(asyncErrRes.status, 500);
+      assert.strictEqual(asyncErrRes.body, "Caught: Preflight async boom");
+      assert.strictEqual(routeExecuted, false);
+      assert.deepStrictEqual(caughtErrors, ["Preflight sync boom", "Preflight async boom"]);
+    },
+  );
 
   await t.test("executeFallback catches crashes in custom errorHandler (Node)", async () => {
     const app = new App({ loggerOptions: { level: "fatal" } });

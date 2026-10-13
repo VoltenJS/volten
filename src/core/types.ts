@@ -4,6 +4,7 @@ import { RequestContext } from "../utils/requestCtx.ts";
 import { MethodStorage } from "../utils/routeTree.ts";
 import { VoltenError } from "./errors.ts";
 import { Readable } from "stream";
+import type { RouteExecutionPlan, RouteExecutionInfo, ExecutionLevel } from "./engine.ts";
 
 export type Next = () => Promise<unknown> | unknown;
 
@@ -77,6 +78,8 @@ export type AdaptiveTriageOptions = {
   checkIntervalMs?: number;
 };
 
+export type { RouteExecutionPlan, RouteExecutionInfo, ExecutionLevel };
+
 export type PathData = {
   method: string;
   bodyLimit: number | null;
@@ -87,6 +90,7 @@ export type PathData = {
   disableOpt: boolean;
   methodStorage: MethodStorage;
   paramNames?: string[];
+  plan?: RouteExecutionPlan;
 };
 
 export type HTTPMethodParams = [path: string, ...handlers: VoltenHandler[]];

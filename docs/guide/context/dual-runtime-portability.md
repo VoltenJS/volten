@@ -22,7 +22,7 @@ const dualRuntimeItems = [
 
   // Response Methods
   { property: 'ctx.send(data)', type: 'Writes to ServerResponse', default: 'Resolves Response object', description: 'Sends plaintext, HTML, or Buffer payloads.', badge: 'Universal', badgeType: 'tip' },
-  { property: 'ctx.json(data)', type: 'Streams via JitCache', default: 'Resolves Response.json()', description: 'High-performance JSON serialization.', badge: 'Universal', badgeType: 'tip' },
+  { property: 'ctx.json(data)', type: 'Streams via JitCache', default: 'Resolves Response.json()', description: 'Sends JSON using the serialization path available in the active runtime.', badge: 'Universal', badgeType: 'tip' },
   { property: 'ctx.text(data)', type: 'Writes to ServerResponse', default: 'Resolves text Response', description: 'Sends plaintext payload.', badge: 'Universal', badgeType: 'tip' },
   { property: 'ctx.buffer(data)', type: 'Writes to ServerResponse', default: 'Resolves ArrayBuffer Response', description: 'Sends binary payload.', badge: 'Universal', badgeType: 'tip' },
   { property: 'ctx.status(code)', type: 'Sets res.statusCode', default: 'Sets internal edgeStatus', description: 'Sets the HTTP response status code.', badge: 'Universal', badgeType: 'tip' },
@@ -32,8 +32,8 @@ const dualRuntimeItems = [
   { property: 'ctx.setCookie(n, v, opt)', type: 'Appends Set-Cookie header', default: 'Appends Set-Cookie header', description: 'Sets an outgoing cookie.', badge: 'Universal', badgeType: 'tip' },
 
   // Request Body
-  { property: 'ctx.body(type?)', type: 'Reads & parses stream', default: 'Calls req.json() / req.text()', description: 'Parses JSON, Form-Data, or Text body.', badge: 'Universal', badgeType: 'tip' },
-  { property: 'ctx.multipart()', type: 'Custom Node.js parser', default: 'req.formData() generator', description: 'Async generator for multipart/form-data uploads.', badge: 'Universal', badgeType: 'tip' },
+  { property: 'ctx.body(type?)', type: 'Reads & parses stream', default: 'Calls req.json() / req.text()', description: 'Parses JSON or URL-encoded bodies; use ctx.body("text") for text and ctx.multipart() for multipart forms.', badge: 'Universal', badgeType: 'tip' },
+  { property: 'ctx.multipart()', type: 'Custom Node.js parser', default: 'req.formData() generator', description: 'Async generator for multipart/form-data parts; implementation details differ by runtime.', badge: 'Universal', badgeType: 'tip' },
   { property: 'ctx.bodyStream', type: 'req as ReadableStream', default: 'req.body', description: 'Raw byte stream of the request body.', badge: 'Universal', badgeType: 'tip' },
   
   // Node.js specific features

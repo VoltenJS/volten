@@ -3,6 +3,7 @@ import type { VoltenHandler, PathData, RouteOptions, RoutePriority } from "../co
 import { DuplicateRouteError } from "../core/errors.ts";
 import { RequestContext } from "./requestCtx.ts";
 import { compileMiddlewareChain } from "../core/compose.ts";
+import { createExecutionPlan } from "../core/engine.ts";
 import { isEdge } from "./isEdge.ts";
 
 export class MethodStorage {
@@ -192,6 +193,14 @@ export class RouteTree {
       routeData.disableOpt = true;
       routeData.methodStorage.set(method, routeData);
     };
+    const plan = createExecutionPlan(
+      method,
+      originalPath,
+      routeHandlers,
+      composeChain,
+      paramNames.length,
+    );
+    routeData.plan = plan;
     currentNode.methods.set(method, routeData);
   }
 

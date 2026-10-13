@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  Volten is a small, fast HTTP framework with two first-class runtimes. Run on Node.js with <code>app.listen()</code>. Deploy to Cloudflare Workers, Bun, or any Web-fetch-compatible runtime with <code>app.createFetch()</code>. The same routes, the same middleware, the same <code>ctx</code> API — zero adapter overhead, zero extra dependencies.
+  Volten is a small, fast HTTP framework with two first-class runtimes. Run on Node.js with <code>app.listen()</code>. Deploy to Cloudflare Workers, Bun, or any Web-fetch-compatible runtime with <code>app.createFetch()</code>. The same route and middleware APIs across both runtimes, without requiring a separate adapter package.
 </p>
 
 ---
@@ -73,32 +73,33 @@ export default { fetch: app.createFetch() };
 
 ## 🛡️ Adaptive Traffic Triage (ATT)
 
-**Event-loop immune routing.** Volten includes built-in **Adaptive Traffic Triage (ATT)**, a unique feature that automatically drops low-priority requests at the socket level when your Node.js server is under heavy stress. This ensures your high-priority endpoints stay responsive and prevents your application from crashing during traffic spikes.
+Volten includes an optional **Adaptive Traffic Triage (ATT)** feature that monitors event-loop delay and sheds requests according to their configured priority when the triage state is `WARNING` or `CRITICAL`. Shed requests receive `503 Service Unavailable`. ATT is a load-shedding mechanism, not a rate limiter or a guarantee that an application will remain available under every failure mode.
 
 ---
 
-## 🏎️ Zero-Overhead Performance
+## 🏎️ Performance-Oriented Internals
 
-Volten is engineered to outpace almost every framework in the Node.js ecosystem, delivering raw throughput that stands toe-to-toe with Fastify.
+Volten uses implementation techniques intended to reduce work on common request paths. Actual throughput and latency depend on workload, runtime, configuration, and hardware; use the repository's benchmarks to evaluate a specific deployment.
 
-- **JIT-Compiled Router**: Volten dynamically analyzes your route map at boot and compiles a partitioned Double-Switch statement using `new Function()`. Static route matches cost `O(1)` and bypass the Radix trie entirely.
-- **Monomorphic Parameters**: `ctx.params` is not a slow dictionary. Volten dynamically generates strict ES6 classes at boot for every parameter combination. Instantiating these ensures V8 maintains monomorphic Inline Caches (ICs).
-- **Zero-Allocation Parsing**: `ctx.path` and `ctx.queryString` lazily parse URLs without creating substring copies in memory unless absolutely necessary.
+- **Compiled route matching on Node.js**: Volten builds a matcher from the registered radix tree. For case-sensitive matching without a query string, eligible static routes can use a generated method/path-length switch fast path; other routes use the compiled radix-tree matcher.
+- **Route execution plans**: Routes with one effective handler use a direct executor; routes with multiple handlers retain the normal composed middleware chain.
+- **Lazy URL properties**: Path and query parsing are deferred until those properties are accessed. This avoids unnecessary parsing work, but does not mean that all URL handling is allocation-free.
+- **Edge URL extraction**: Common absolute HTTP(S) request URLs use a lightweight path-and-search extractor. URLs requiring standard URL normalization fall back to `new URL()`.
 
 ---
 
 ## 🌟 First-Class Features
 
 - **Dual Runtime Architecture** — Write once, run on Node.js (`app.listen()`) or any Web Fetch-compatible edge runtime (`app.createFetch()`).
-- **Adaptive Traffic Triage (ATT)** — Built-in stress management that drops low-priority requests when Node is overwhelmed.
-- **Zero Runtime Dependencies** — Uses only the Node.js core API (or the Web platform API on edge) for maximum security and minimal size.
-- **Context Pooling** — Zero-overhead reusable `RequestContext` objects pre-allocated on both runtimes to minimize GC pressure.
-- **Trie-Based Router** — Extremely fast routing supporting dynamic params (`/users/:id`) and wildcards. Match cost scales with path depth.
+- **Adaptive Traffic Triage (ATT)** — Optional event-loop-delay-based load shedding with route priorities.
+- **Zero Runtime Dependencies** — The published package has no runtime package dependencies; it uses native Node.js and Web platform APIs.
+- **Context Pooling** — Pre-allocates reusable request contexts to reduce repeated setup and allocation work; other request-path allocations can still occur.
+- **Radix-Tree Router** — Supports static paths, dynamic parameters (`/users/:id`), and wildcards, with a generated matcher on Node.js and tree traversal in Edge mode.
 - **Middleware Chain** — Global and per-route middleware with cascading composition. Works identically on both runtimes.
 
 ---
 
-## ✨ Second-Class Features
+## ✨ Additional Features
 
 - **Native Body Parsing** — Built-in parsers for JSON, form-urlencoded, text, raw, and streaming multipart data.
 - **First-Class Streaming** — Backpressure-aware `ctx.write` / `ctx.stream` / `ctx.end` API on Node.js.

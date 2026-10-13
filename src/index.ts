@@ -6,3 +6,4 @@ export * from "./utils/requestCtx.ts";
 export * from "./core/errors.ts";
 export { voltJson, compileVoltJson } from "./utils/stringifyJson.ts";
 export { isEdge, setIsEdge } from "./utils/isEdge.ts";
+export { createExecutionPlan } from "./core/engine.ts";

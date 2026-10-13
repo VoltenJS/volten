@@ -11,7 +11,7 @@ import type {
   ExtractParams,
 } from "../core/types.ts";
 import { App } from "../core/server.ts";
-import { parseUrl, parseQuery } from "./parseUrl.ts";
+import { parseUrl, parseQuery, extractEdgePathAndSearch } from "./parseUrl.ts";
 import { createCompiledStringifier } from "./stringifyJson.ts";
 import { isFileInFolder } from "./security.ts";
 import {
@@ -826,14 +826,7 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
     });
 
     const urlStr = edgeReq.url;
-    let relativeUrl = urlStr;
-    try {
-      const parsedUrl = new URL(urlStr);
-      relativeUrl = parsedUrl.pathname + parsedUrl.search;
-    } catch {
-      // relative
-    }
-    this.url = relativeUrl;
+    this.url = extractEdgePathAndSearch(urlStr);
     this._path = null;
     this._queryString = null;
     this.queryValue = null;
@@ -927,7 +920,6 @@ export class EdgeRequestContext<P extends string = string> extends RequestContex
     this.queryValue = null;
     this._bodyPromise = undefined;
     this._edgeStatus = 200;
-    this._edgeHeaders = new Headers();
     this._edgeBody = null;
     this._edgeBodySent = false;
     this._cookiesCache = null;

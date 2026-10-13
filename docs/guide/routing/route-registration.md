@@ -50,9 +50,7 @@ app.listen(3000, () => {
 
 ### Route Introspection (`app.printRoutes()`)
 
-Once you have registered all of your application's routes and mounted any sub-routers, you can use `app.printRoutes()` to instantly output a slick ASCII table mapping out every registered path.
-
-This feature gives you complete visibility into exactly which methods exist, their full namespace paths, and how many inline middlewares they invoke!
+After registering routes and mounting sub-routers, call `app.printRoutes()` to log a table of the application's registered routes, including method, path, middleware count, and priority. This is a console diagnostic; it does not return route metadata.
 
 ```typescript
 app.get("/users", (ctx) => ctx.json([]));
@@ -67,14 +65,27 @@ app.printRoutes();
 
 **Output:**
 
-```text
-┌─────────┬──────────────────────────────┬──────────────┐
-│ Method  │ Route                        │ Middleware   │
-├─────────┼──────────────────────────────┼──────────────┤
-│ GET     │ /users                       │ 1            │
-│ POST    │ /users                       │ 2            │
-│ DELETE  │ /api/users/:id               │ 2            │
-└─────────┴──────────────────────────────┴──────────────┘
-```
+The exact column widths and formatting depend on the registered routes.
 
 ---
+
+
+## Inspecting a Route's Execution Plan
+
+Use `app.inspectRoute(method, path)` to retrieve immutable metadata for the route that matches a method and path. It returns `null` when no route matches. The result contains `id`, `method`, `path`, `level`, `paramCount`, and `effectiveHandlerCount`; executable handlers and internal dispatch functions are not exposed.
+
+```typescript
+import { App } from "volten";
+
+const app = new App();
+app.get("/users/:id", (ctx) => ctx.json({ id: ctx.params.id }));
+
+const info = app.inspectRoute("GET", "/users/123");
+if (info !== null) {
+  console.log(info.level); // "OPTIMIZED" for this single-handler route
+  console.log(info.paramCount); // 1
+  console.log(info.effectiveHandlerCount); // 1
+}
+```
+
+Current execution levels are `OPTIMIZED` for a route with one effective handler and `GENERIC` for a route with multiple handlers. `SPECIALIZED` is part of the exported level type but is not currently emitted by the plan builder. The `id` is an internal diagnostic identifier, not a stable identifier across route-tree rebuilds. `inspectRoute()` rebuilds the route tree to include mounted sub-routers and recently registered routes, so use it for diagnostics rather than on a per-request hot path.
