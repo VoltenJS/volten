@@ -65,17 +65,17 @@ export default { fetch: app.createFetch() };
 
 ## 🛡️ Adaptive Traffic Triage (ATT)
 
-**Event-loop immune routing.** Volten includes built-in **Adaptive Traffic Triage (ATT)**, a unique feature that automatically drops low-priority requests at the socket level when your Node.js server is under heavy stress. This ensures your high-priority endpoints stay responsive and prevents your application from crashing during traffic spikes.
+Volten includes an optional **Adaptive Traffic Triage (ATT)** feature that monitors event-loop delay and sheds requests according to their configured priority when the triage state is `WARNING` or `CRITICAL`. Shed requests receive `503 Service Unavailable`. ATT is load shedding, not rate limiting, and does not guarantee availability under every failure mode.
 
 ---
 
 ## 🌟 First-Class Features
 
 - **Dual Runtime Architecture** — Write once, run on Node.js (`app.listen()`) or any Web Fetch-compatible edge runtime (`app.createFetch()`).
-- **Adaptive Traffic Triage (ATT)** — Built-in stress management that drops low-priority requests when Node is overwhelmed.
-- **Zero Runtime Dependencies** — Uses only the Node.js core API (or the Web platform API on edge) for maximum security and minimal size.
-- **Context Pooling** — Zero-overhead reusable `RequestContext` objects pre-allocated on both runtimes to minimize GC pressure.
-- **Trie-Based Router** — Extremely fast routing supporting dynamic params (`/users/:id`) and wildcards. Match cost scales with path depth.
+- **Adaptive Traffic Triage (ATT)** — Optional event-loop-delay-based load shedding with route priorities.
+- **Zero Runtime Dependencies** — The published package has no runtime package dependencies; it uses native Node.js and Web platform APIs.
+- **Context Pooling** — Pre-allocates reusable request contexts to reduce repeated setup and allocation work; other request-path allocations can still occur.
+- **Radix-Tree Router** — Supports static paths, dynamic parameters (`/users/:id`), and wildcards, with different matcher paths depending on runtime and route shape.
 - **Middleware Chain** — Global and per-route middleware with cascading composition. Works identically on both runtimes.
 
 ---

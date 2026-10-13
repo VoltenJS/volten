@@ -5,7 +5,7 @@ layout: home
 hero:
   name: "Volten"
   text: "Simple, Modern, Fast."
-  tagline: "A 0-dependency Node.js HTTP framework powered by an Adaptive JIT Engine."
+  tagline: "A zero-runtime-dependency HTTP framework for Node.js and Web Fetch-compatible runtimes."
   image:
     src: /logo.svg
     alt: Volten Logo
@@ -22,12 +22,12 @@ hero:
 
 features:
   - title: 🚦 Adaptive Traffic Triage
-    details: Dynamically shape your traffic! The engine monitors Node.js Event Loop delay and drops low-priority requests during heavy load to keep your critical routes alive.
+    details: Optionally monitor event-loop delay and shed requests by route priority when triage enters WARNING or CRITICAL states. This is load shedding, not a guarantee of availability.
     link: /guide/adaptive-traffic-triage
-  - title: 🏎️ JIT Compiled Routing
-    details: Experience zero-overhead throughput. Volten dynamically analyzes your route map and writes a V8-optimized partitioned switch statement under the hood.
+  - title: 🏎️ Compiled Route Matching
+    details: Node.js builds a matcher from the radix route tree, including a conditional static-route fast path for case-sensitive requests without query strings.
   - title: 🪶 0 Dependencies
-    details: Built purely on top of Node.js primitives for maximum security, minimal node_modules size, and zero supply-chain risk.
+    details: Uses native Node.js and Web platform APIs with no runtime package dependencies; this reduces package dependency risk but does not eliminate all supply-chain risk.
   - title: 🧠 Native Context (ctx)
     details: Say goodbye to messy `req` and `res` objects. Everything you need is encapsulated in a powerful, strongly-typed `ctx` object.
   - title: ☁️ Edge Ready
