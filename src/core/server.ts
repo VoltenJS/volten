@@ -517,6 +517,16 @@ export class App<CustomLevels extends string = never> extends Router {
   }
 
   /**
+   * Rebuilds the route tree from the current application and mounted-router state.
+   */
+  private prepareRouteTree(): void {
+    this.tree.clear();
+    this.compilePreflightHandler();
+    this.register(this);
+    this.tree.createMatchPath();
+  }
+
+  /**
    * Starts the HTTP/HTTPS server listening for incoming connections.
    *
    * Compiles registered route trees, preflight pipelines, and binds to the specified port.
@@ -529,16 +539,6 @@ export class App<CustomLevels extends string = never> extends Router {
    *   console.log('Server is running on port 3000');
    * });
    */
-  /**
-   * Rebuilds the route tree from the current application and mounted-router state.
-   */
-  private prepareRouteTree(): void {
-    this.tree.clear();
-    this.compilePreflightHandler();
-    this.register(this);
-    this.tree.createMatchPath();
-  }
-
   /* eslint-disable @typescript-eslint/unified-signatures, @typescript-eslint/no-explicit-any */
   listen(
     port?: number,

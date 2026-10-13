@@ -4,6 +4,7 @@ import { RequestContext } from "../utils/requestCtx.ts";
 import { MethodStorage } from "../utils/routeTree.ts";
 import { VoltenError } from "./errors.ts";
 import { Readable } from "stream";
+import type { RouteExecutionPlan, RouteExecutionInfo, ExecutionLevel } from "./engine.ts";
 
 export type Next = () => Promise<unknown> | unknown;
 
@@ -76,7 +77,6 @@ export type AdaptiveTriageOptions = {
   resolutionMs?: number;
   checkIntervalMs?: number;
 };
-import type { RouteExecutionPlan, RouteExecutionInfo, ExecutionLevel } from "./engine.ts";
 
 export type { RouteExecutionPlan, RouteExecutionInfo, ExecutionLevel };
 
