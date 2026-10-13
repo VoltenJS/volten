@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { App } from "../../../src/core/server.ts";
+import { Router } from "../../../src/core/router.ts";
 import { NodeRequestContext, EdgeRequestContext } from "../../../src/utils/requestCtx.ts";
 import { request } from "../../helpers.ts";
 
@@ -21,6 +22,33 @@ function captureLogs(fn: () => void): any[] {
   }
   return logs;
 }
+
+test("inspectRoute exposes immutable metadata and compiles mounted sub-router routes", () => {
+  const app = new App({ RequestPoolSize: 1 });
+  const api = new Router();
+  api.get("/users", (ctx) => ctx.send("users"));
+  app.use("/api", api);
+
+  const info = app.inspectRoute("GET", "/api/users");
+
+  assert.ok(info);
+  assert.equal(info.level, "OPTIMIZED");
+  assert.equal(info.effectiveHandlerCount, 1);
+  assert.equal(info.path, "/api/users");
+  assert.equal(Object.isFrozen(info), true);
+  assert.equal("chain" in info, false);
+  assert.equal("executeNode" in info, false);
+  assert.equal("terminalHandler" in info, false);
+});
+
+test("inspectRoute reflects routes added after an earlier route-tree compilation", () => {
+  const app = new App({ RequestPoolSize: 1 });
+  app.get("/first", (ctx) => ctx.send("first"));
+  assert.ok(app.inspectRoute("GET", "/first"));
+
+  app.get("/second", (ctx) => ctx.send("second"));
+  assert.ok(app.inspectRoute("GET", "/second"));
+});
 
 test("Server Unit Tests", async (t) => {
   await t.test("default logger works and logs warn level by default", () => {

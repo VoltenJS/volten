@@ -76,9 +76,9 @@ export type AdaptiveTriageOptions = {
   resolutionMs?: number;
   checkIntervalMs?: number;
 };
-import type { RouteExecutionPlan, ExecutionLevel } from "./engine.ts";
+import type { RouteExecutionPlan, RouteExecutionInfo, ExecutionLevel } from "./engine.ts";
 
-export type { RouteExecutionPlan, ExecutionLevel };
+export type { RouteExecutionPlan, RouteExecutionInfo, ExecutionLevel };
 
 export type PathData = {
   method: string;

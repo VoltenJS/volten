@@ -9,7 +9,7 @@ import type {
   VoltenAppOptions,
   Logger,
   CustomLoggerOptions,
-  RouteExecutionPlan,
+  RouteExecutionInfo,
 } from "./types.ts";
 import {
   DefaultVoltenOptions,
@@ -158,18 +158,23 @@ export class App<CustomLevels extends string = never> extends Router {
   }
 
   /**
-   * Inspects the internal execution plan for a registered route.
-   *
-   * @param {string} method - HTTP method (e.g. 'GET', 'POST').
-   * @param {string} path - The request path.
-   * @returns {RouteExecutionPlan | null} The route's execution plan, or null if no route matches.
+   * Returns immutable, public metadata about the matching route's execution plan.
+   * Handler functions and executable internals are intentionally not exposed.
+   * Rebuilds the tree so mounted sub-routers and newly added routes are visible.
    */
-  public inspectRoute(method: string, path: string): RouteExecutionPlan | null {
-    if (this.tree.routes.length === 0 && this.routes.length > 0) {
-      this.register(this);
-    }
-    const route = this.tree.matchPath(method, path, { params: {} } as RequestContext);
-    return route?.plan ?? null;
+  public inspectRoute(method: string, path: string): RouteExecutionInfo | null {
+    this.prepareRouteTree();
+    const plan = this.tree.matchPath(method, path, { params: {} } as RequestContext)?.plan;
+    if (plan === undefined) return null;
+
+    return Object.freeze({
+      id: plan.id,
+      method: plan.method,
+      path: plan.path,
+      level: plan.level,
+      paramCount: plan.paramCount,
+      effectiveHandlerCount: plan.effectiveHandlerCount,
+    });
   }
 
   //#endregion
@@ -524,6 +529,16 @@ export class App<CustomLevels extends string = never> extends Router {
    *   console.log('Server is running on port 3000');
    * });
    */
+  /**
+   * Rebuilds the route tree from the current application and mounted-router state.
+   */
+  private prepareRouteTree(): void {
+    this.tree.clear();
+    this.compilePreflightHandler();
+    this.register(this);
+    this.tree.createMatchPath();
+  }
+
   /* eslint-disable @typescript-eslint/unified-signatures, @typescript-eslint/no-explicit-any */
   listen(
     port?: number,
@@ -550,10 +565,7 @@ export class App<CustomLevels extends string = never> extends Router {
       return this.server;
     }
 
-    this.tree.clear();
-    this.compilePreflightHandler();
-    this.register(this);
-    this.tree.createMatchPath();
+    this.prepareRouteTree();
     // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
     this.server.listen(...args);
     return this.server;
@@ -569,10 +581,7 @@ export class App<CustomLevels extends string = never> extends Router {
     env?: unknown,
     executionCtx?: unknown,
   ) => Promise<Response> {
-    this.tree.clear();
-    this.compilePreflightHandler();
-    this.register(this);
-    this.tree.createMatchPath();
+    this.prepareRouteTree();
 
     return async (request: Request, env?: unknown, executionCtx?: unknown): Promise<Response> => {
       if (this.adaptiveEngine.enabled) {

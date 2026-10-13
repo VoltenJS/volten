@@ -6,6 +6,17 @@ import { handleHandlerResult } from "./compose.ts";
 
 export type ExecutionLevel = "GENERIC" | "OPTIMIZED" | "SPECIALIZED";
 
+/** Read-only metadata exposed by the public route-inspection API. */
+export interface RouteExecutionInfo {
+  readonly id: number;
+  readonly method: string;
+  readonly path: string;
+  readonly level: ExecutionLevel;
+  readonly paramCount: number;
+  readonly effectiveHandlerCount: number;
+}
+
+/** Internal executable plan; do not expose this object to public callers. */
 export interface RouteExecutionPlan {
   readonly id: number;
   readonly method: string;
