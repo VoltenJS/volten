@@ -1,12 +1,12 @@
 # Edge Compatibility
 
-Volten is designed as a hybrid runtime framework. While offering zero-dependency native Node.js performance, it also runs natively in modern Edge runtimes (Cloudflare Workers, Vercel Edge Runtime, Fastly Compute, and WinterCG-compliant platforms) using the standard Web Fetch API (`Request`, `Response`, `Headers`, and `ReadableStream`).
+Volten is a hybrid runtime framework with a Node.js server entry point and a Web Fetch entry point. `app.createFetch()` is designed for runtimes that provide the Web Fetch APIs (`Request`, `Response`, `Headers`, and `ReadableStream`). Compatibility depends on the platform's API support and restrictions; verify the target platform before deploying.
 
 ---
 
 ## Universal Runtime Vision
 
-Write your routes and business logic once using Volten's intuitive context API (`ctx`), and deploy the same application across:
+Share routes and business logic where they rely on Volten's portable APIs. Platform-specific capabilities and deployment conventions still differ. Supported entry points include:
 
 - **Node.js** (via native `http` / `https` sockets)
 - **Cloudflare Workers** (via `app.createFetch()`)
@@ -70,8 +70,8 @@ Many Edge environments (like Cloudflare Workers and strict serverless containers
 
 ### 1. Middleware Pipeline (`compileMiddlewareChain`)
 
-- **Node.js**: Volten JIT-compiles your route middleware stack using dynamic code generation (`new Function(...)`) into an optimized, flattened execution chain that eliminates closure allocations between `next()` calls.
-- **Edge Runtime**: When `isEdge()` returns `true`, Volten automatically switches to `createDynamicMiddlewareChain()`. This uses an onion-model dispatch loop with index guards, providing identical middleware behavior (`await next()`) without requiring `new Function`.
+- **Node.js**: Volten may use dynamic function construction (`new Function(...)`) to compile a composed middleware chain. This is an implementation detail and does not eliminate all allocations.
+- **Edge Runtime**: When `isEdge()` returns `true`, Volten uses `createDynamicMiddlewareChain()` instead of `new Function(...)`. The chain is designed to preserve Volten's middleware semantics; test middleware that depends on runtime-specific APIs in each target environment.
 
 ```typescript
 // src/core/compose.ts
@@ -85,8 +85,8 @@ export function compileMiddlewareChain(chain: VoltenHandler[]): VoltenChainHandl
 
 ### 2. JSON Serialization (`voltJson` & `compileVoltJson`)
 
-- **Node.js**: Shapes are fingerprinted and compiled into high-speed template string serializer functions.
-- **Edge Runtime**: Bypasses dynamic compilation and seamlessly uses native `JSON.stringify()`.
+- **Node.js**: Volten can use shape-specific compiled serializers for eligible payloads.
+- **Edge Runtime**: Serialization behavior depends on the runtime and serializer path; use native `JSON.stringify()` as the general compatibility baseline and benchmark before assuming a speedup.
 
 ---
 

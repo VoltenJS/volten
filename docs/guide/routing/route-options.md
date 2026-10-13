@@ -45,10 +45,10 @@ app.post("/documents/upload", { bodyLimit: 20 * 1024 * 1024 }, async (ctx) => {
 
 ### 2. Adaptive Traffic Triage Priority
 
-Volten includes a built-in stress management engine called **Adaptive Traffic Triage (ATT)**. When enabled, Volten monitors event-loop lag and latency. Under severe load, it strategically drops low-priority requests to keep critical endpoints responsive:
+Volten includes an optional load-shedding engine called **Adaptive Traffic Triage (ATT)**. When enabled on Node.js, it monitors event-loop delay and sheds routes according to priority when thresholds are exceeded. This can protect capacity for critical routes, but does not guarantee successful responses under all failure conditions:
 
 ```typescript
-// CRITICAL: Never dropped, even under extreme load
+// CRITICAL: not shed by ATT's priority policy
 app.get("/healthz", { priority: "critical" }, (ctx) => {
   return ctx.send("OK");
 });

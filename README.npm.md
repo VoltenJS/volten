@@ -1,7 +1,7 @@
 <h1 align="center">Volten</h1>
 
 <p align="center">
-  <strong>A zero-dependency HTTP framework for Node.js and the Edge.</strong>
+  <strong>A zero-runtime-dependency HTTP framework for Node.js and Web Fetch-compatible runtimes.</strong>
 </p>
 
 ---
@@ -80,7 +80,7 @@ Volten includes an optional **Adaptive Traffic Triage (ATT)** feature that monit
 
 ---
 
-## ✨ Second-Class Features
+## ✨ Additional Features
 
 - **Native Body Parsing** — Built-in parsers for JSON, form-urlencoded, text, raw, and streaming multipart data.
 - **First-Class Streaming** — Backpressure-aware `ctx.write` / `ctx.stream` / `ctx.end` API on Node.js.

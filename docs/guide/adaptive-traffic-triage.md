@@ -1,20 +1,18 @@
 # Adaptive Traffic Triage Priority
 
-Volten includes a built-in **Adaptive Traffic Triage Engine** that dynamically shapes incoming traffic to ensure high-priority requests are processed first during periods of heavy load.
+Volten includes an optional **Adaptive Traffic Triage (ATT) Engine** that monitors Node.js event-loop delay and sheds requests by configured route priority when the application enters a degraded triage state. ATT is load shedding, not a scheduler: it does not queue requests or guarantee that high-priority work succeeds.
 
-Unlike traditional rate limiting (which blindly blocks traffic per IP), Volten actively monitors the underlying Node.js **Event Loop Delay** using `node:perf_hooks`. When the event loop becomes backed up due to high CPU load or concurrent I/O, Volten shifts into degraded states, automatically shedding low-priority traffic (returning `503 Service Unavailable`) to keep the server alive and responsive for critical paths.
+Unlike request-count-based rate limiting, ATT uses Node.js **event-loop delay** from `node:perf_hooks` to choose when to shed traffic. When enabled and in a degraded state, the engine can return `503 Service Unavailable` for routes whose priorities should be shed. This may reduce load, but it cannot guarantee that the process stays responsive or that critical requests succeed.
 
 ---
 
 ## How It Works
 
-The Adaptive Engine operates in three states, continuously evaluated every `checkIntervalMs` (default: 500ms):
+The Adaptive Engine evaluates event-loop delay on the configured interval (default `checkIntervalMs: 500`) and when request handling invokes a state evaluation:
 
-1. **NORMAL**: Event loop lag is below `warningThresholdMs` (default: 40ms). All requests are processed normally.
-2. **WARNING**: Event loop lag exceeds `warningThresholdMs`.
-   - **Action**: Drops `low` priority requests. `normal` and `critical` requests are processed.
-3. **CRITICAL**: Event loop lag exceeds `criticalThresholdMs` (default: 100ms).
-   - **Action**: Drops `low` and `normal` priority requests. Only `critical` requests (e.g., core API routes, health checks) are allowed through.
+1. **NORMAL**: Event-loop delay is below the warning threshold; ATT does not shed requests.
+2. **WARNING**: Event-loop delay exceeds `warningThresholdMs` (default: 40ms); `low` priority routes are eligible to be shed.
+3. **CRITICAL**: Event-loop delay exceeds `criticalThresholdMs` (default: 100ms); `low` and `normal` priority routes are eligible to be shed. `critical` priority routes are not shed by this priority policy, but can still fail for other reasons.
 
 When requests are dropped, Volten instantly responds with a `503 Service Unavailable: Server at capacity`, bypassing middleware and routing overhead entirely.
 
@@ -38,7 +36,7 @@ const app = new App({
 ```
 
 > [!NOTE]
-> In environments that do not support `node:perf_hooks` (e.g., some strict Edge environments), Volten will log a warning and run in a graceful fallback mode without crashing.
+ATT is based on Node.js `node:perf_hooks` and is intended for the Node.js server. Do not assume that the same monitoring behavior is available when using `app.createFetch()` in an Edge runtime.
 
 ---
 
@@ -47,7 +45,7 @@ const app = new App({
 You assign a `priority` to a route during registration using the route options object.
 
 ```typescript
-// 1. Critical Priority (Never dropped unless server dies entirely)
+// 1. Critical priority (not shed by ATT's priority policy)
 app.get("/health", { priority: "critical" }, (ctx) => {
   return ctx.json({ status: "ok" });
 });
@@ -76,4 +74,4 @@ app.get("/api/analytics/export", { priority: "low" }, (ctx) => {
 
 Standard rate limiting blocks traffic based on arbitrary request counts (e.g., 100 requests per minute). If your server handles requests quickly, a rate limit might block users unnecessarily. Conversely, if 10 extremely complex requests saturate your CPU, a standard rate limit won't stop the server from crashing.
 
-Volten's **Adaptive Traffic Triage** solves this by looking at _actual server health_ (Event Loop Lag). It only sheds load when the server is genuinely struggling, guaranteeing maximum throughput.
+Volten's **Adaptive Traffic Triage** uses event-loop delay as an overload signal and sheds configured priorities when thresholds are exceeded. It complements rather than replaces rate limiting, admission control, timeouts, and capacity planning.
